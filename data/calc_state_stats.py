@@ -263,6 +263,26 @@ for b in range(num_bars):
 
 df_trades = pd.DataFrame(trade_records)
 
+# Every market buy pays taker fees: initial/reopened T1 entries and both DCA tiers.
+full_close_types = {
+    "WRITE_OFF (注销清算)",
+    "T1 止盈 (+10%)",
+    "T2 止盈全平 (+50%)",
+    "T2.1 止盈全平 (+50%)",
+    "T3 第三次止盈全平 (+100%)",
+    "T3.1 第三次止盈全平 (+100%)",
+    "T3.2 第三次止盈全平 (+100%)",
+}
+initial_open_count = int(np.count_nonzero(~np.isnan(p0) & (p0 > 0)))
+t1_reopen_count = int(df_trades["type"].isin(full_close_types).sum())
+dca_notional = sum(record["cost"] for record in dca_records)
+entry_fees_paid = (
+    (initial_open_count + t1_reopen_count) * initial_notional + dca_notional
+) * taker_fee
+exit_fees_paid = df_trades["fee"].sum()
+total_fees_paid = entry_fees_paid + exit_fees_paid
+take_profit_count = int(df_trades["type"].str.contains("止盈", na=False).sum())
+
 # 1. Closed Trades Breakdown
 print("=== 1. 已实现交易（平仓/止盈/注销）统计分布 ===")
 trade_summary = []
@@ -290,8 +310,12 @@ for _, r in df_summary.iterrows():
         r['type'], int(r['count']), r['tot_pnl'], r['avg_pnl'], r['avg_ret'], r['tot_fee']
     ))
 print("-" * 92)
-tot_c = df_trades['pnl'].sum()
-print("已实现净现金汇总: ${:,.2f}".format(tot_c))
+tot_c = df_trades["pnl"].sum() - entry_fees_paid
+print(f"止盈次数: {take_profit_count:,} | 补仓次数: {len(dca_records):,} | 注销次数: {(df_trades['type'] == 'WRITE_OFF (注销清算)').sum():,}")
+print("手续费：开仓/补仓 ${:,.2f}，平仓 ${:,.2f}，合计 ${:,.2f}".format(
+    entry_fees_paid, exit_fees_paid, total_fees_paid
+))
+print("已实现净现金汇总（扣除全部手续费）: ${:,.2f}".format(tot_c))
 
 # 2. Final Open Positions Breakdown
 print("\n=== 2. 期末未结持仓状态（浮动盈亏）分布 ===")
