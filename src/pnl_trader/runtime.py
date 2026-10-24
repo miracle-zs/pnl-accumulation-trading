@@ -218,6 +218,9 @@ async def run_application(config: RuntimeConfig) -> None:
                     process_lock=process_lock,
                 )
 
+                recovery = await review_runs.recover_pending_on_startup(config.account_id)
+                logger.info("startup pending-order recovery completed: count=%s", len(recovery))
+
                 snapshot = await universe.refresh(force=True)
                 logger.info(
                     "initial universe snapshot loaded: version=%s eligible=%s pending_review=%s",
@@ -225,9 +228,6 @@ async def run_application(config: RuntimeConfig) -> None:
                     len(snapshot.eligible_symbols),
                     sum(item.eligibility.value == "PENDING_REVIEW" for item in snapshot.instruments),
                 )
-
-                recovery = await review_runs.recover_pending_on_startup(config.account_id)
-                logger.info("startup pending-order recovery completed: count=%s", len(recovery))
 
                 startup_now_ms = time.time_ns() // 1_000_000
                 startup_slot_ms = startup_now_ms - startup_now_ms % 900_000
