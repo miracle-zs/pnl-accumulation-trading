@@ -30,7 +30,18 @@ from ...application.notification_models import OutboxNotification
 from ...application.trade_history_models import TradeHistoryCursor
 from ...application.risk_models import AccountRiskSnapshot
 from ...application.position_models import ExchangePositionSnapshot
-from ...application.universe_models import UniverseSnapshot
+from ...application.market_models import (
+    ExchangeInstrument,
+    InstrumentRules,
+    MarketQuantityRules,
+)
+from ...application.universe_models import (
+    AssetClassification,
+    ContractDirectiveKind,
+    UniverseEligibility,
+    UniverseInstrument,
+    UniverseSnapshot,
+)
 from ...application.review_run_models import (
     PersistedReviewRun,
     ReviewPriority,
@@ -936,6 +947,83 @@ class SQLiteStateStore:
                    )""",
                 (snapshot.directory_version, snapshot.sampled_at_ms, snapshot.snapshot_id),
             )
+
+    def load_latest_universe_snapshot(self) -> UniverseSnapshot | None:
+        """Restore the last complete exchange/classification snapshot for outage fallback."""
+
+        with self._lock:
+            snapshot_row = self._connection.execute(
+                """SELECT snapshot_id, directory_version, exchange_snapshot_id, sampled_at_ms
+                   FROM universe_snapshots ORDER BY sampled_at_ms DESC LIMIT 1"""
+            ).fetchone()
+            if snapshot_row is None:
+                return None
+            rows = self._connection.execute(
+                """SELECT * FROM universe_snapshot_instruments
+                   WHERE snapshot_id = ? ORDER BY symbol""",
+                (snapshot_row["snapshot_id"],),
+            ).fetchall()
+
+        instruments: list[UniverseInstrument] = []
+        for row in rows:
+            filters = json.loads(row["filters_json"])
+            if not isinstance(filters, dict):
+                raise RuntimeError("persisted instrument filters must be a JSON object")
+            rules = None
+            if filters:
+                min_notional = filters.get("min_market_notional")
+                max_notional = filters.get("max_market_notional")
+                rules = InstrumentRules(
+                    symbol=row["symbol"],
+                    contract_type=row["contract_type"],
+                    status=row["exchange_status"],
+                    quote_asset=row["quote_asset"],
+                    margin_asset=row["margin_asset"],
+                    market_quantity=MarketQuantityRules(
+                        min_qty=Decimal(filters["min_qty"]),
+                        max_qty=Decimal(filters["max_qty"]),
+                        step_size=Decimal(filters["step_size"]),
+                        step_origin=Decimal(filters["step_origin"]),
+                    ),
+                    min_market_notional=(
+                        None if min_notional is None else Decimal(min_notional)
+                    ),
+                    max_market_notional=(
+                        None if max_notional is None else Decimal(max_notional)
+                    ),
+                )
+            instruments.append(
+                UniverseInstrument(
+                    instrument=ExchangeInstrument(
+                        symbol=row["symbol"],
+                        base_asset=row["base_asset"],
+                        quote_asset=row["quote_asset"],
+                        margin_asset=row["margin_asset"],
+                        contract_type=row["contract_type"],
+                        status=row["exchange_status"],
+                        rules=rules,
+                    ),
+                    classification=AssetClassification(row["classification"]),
+                    eligibility=UniverseEligibility(row["eligibility"]),
+                    eligibility_reason=row["eligibility_reason"],
+                    classification_source=row["classification_source"],
+                    classification_reviewed_at_ms=row["classification_reviewed_at_ms"],
+                    directive=(
+                        None
+                        if row["directive"] is None
+                        else ContractDirectiveKind(row["directive"])
+                    ),
+                    directive_source=row["directive_source"],
+                )
+            )
+
+        return UniverseSnapshot(
+            snapshot_id=snapshot_row["snapshot_id"],
+            directory_version=snapshot_row["directory_version"],
+            sampled_at_ms=snapshot_row["sampled_at_ms"],
+            exchange_snapshot_id=snapshot_row["exchange_snapshot_id"],
+            instruments=tuple(instruments),
+        )
 
     def save_account_risk_snapshot(
         self,

@@ -59,6 +59,8 @@ class StateStorePort(Protocol):
 
     def save_universe_snapshot(self, snapshot: UniverseSnapshot) -> None: ...
 
+    def load_latest_universe_snapshot(self) -> UniverseSnapshot | None: ...
+
     def save_account_risk_snapshot(
         self,
         snapshot: AccountRiskSnapshot,

@@ -49,6 +49,7 @@ class UniverseCatalog:
         mark_prices: BulkMarkPricePort,
         store: StateStorePort,
         classifications: VersionedAssetClassificationDirectory,
+        initial_snapshot: UniverseSnapshot | None = None,
         refresh_interval_ms: int = 86_400_000,
         max_mark_price_age_ms: int = 10_000,
         future_clock_skew_ms: int = 1_000,
@@ -62,12 +63,12 @@ class UniverseCatalog:
         self._mark_prices = mark_prices
         self._store = store
         self._classifications = classifications
+        self._snapshot = initial_snapshot
         self._refresh_interval_ms = refresh_interval_ms
         self._max_mark_price_age_ms = max_mark_price_age_ms
         self._future_clock_skew_ms = future_clock_skew_ms
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
-        self._snapshot: UniverseSnapshot | None = None
-        self._refresh_failed = False
+        self._refresh_failed = initial_snapshot is not None
         self._refresh_lock = asyncio.Lock()
 
     async def refresh(self, *, force: bool = False) -> UniverseSnapshot:
@@ -75,17 +76,19 @@ class UniverseCatalog:
 
         async with self._refresh_lock:
             now_ms = self._clock_ms()
+            must_refresh = force or self._refresh_failed
             fresh = (
                 self._snapshot is not None
+                and not self._refresh_failed
                 and 0 <= now_ms - self._snapshot.sampled_at_ms < self._refresh_interval_ms
             )
-            if fresh and not force:
+            if fresh and not must_refresh:
                 return self._snapshot
 
             try:
                 refresh_exchange_info = (
                     getattr(self._exchange_info, "refresh_exchange_info_snapshot", None)
-                    if force
+                    if must_refresh
                     else None
                 )
                 if callable(refresh_exchange_info):
@@ -100,6 +103,12 @@ class UniverseCatalog:
                 self._store.save_universe_snapshot(snapshot)
             except Exception:
                 self._refresh_failed = True
+                if self._snapshot is not None:
+                    logger.exception(
+                        "exchangeInfo refresh failed; using the last persisted snapshot "
+                        "with all new exposure disabled"
+                    )
+                    return self._snapshot
                 raise
             self._snapshot = snapshot
             self._refresh_failed = False
@@ -143,7 +152,10 @@ class UniverseCatalog:
 
         instruments_by_symbol = {item.symbol: item for item in universe.instruments}
         prices_by_symbol = {price.symbol: price for price in mark_snapshot.prices}
-        symbols = sorted(set(universe.eligible_symbols).union(managed_symbols))
+        symbols_to_review = set(managed_symbols)
+        if not stale_universe:
+            symbols_to_review.update(universe.eligible_symbols)
+        symbols = sorted(symbols_to_review)
         if not symbols:
             raise UniverseCatalogError("no eligible contracts or managed symbols are available")
 
