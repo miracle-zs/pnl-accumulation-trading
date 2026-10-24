@@ -1,0 +1,702 @@
+[
+  {
+    "symbol": "GTCUSDT",
+    "base_asset": "GTC",
+    "name": "Gitcoin",
+    "mcap": 13531440.438112386,
+    "cmc_rank": 998
+  },
+  {
+    "symbol": "A2ZUSDT",
+    "base_asset": "A2Z",
+    "name": "Arena-Z",
+    "mcap": 13662781.002784977,
+    "cmc_rank": 993
+  },
+  {
+    "symbol": "ENSOUSDT",
+    "base_asset": "ENSO",
+    "name": "Enso",
+    "mcap": 13664980.278369091,
+    "cmc_rank": 992
+  },
+  {
+    "symbol": "USUSDT",
+    "base_asset": "US",
+    "name": "Talus Network",
+    "mcap": 13687606.57324995,
+    "cmc_rank": 991
+  },
+  {
+    "symbol": "OLUSDT",
+    "base_asset": "OL",
+    "name": "Open Loot",
+    "mcap": 13707346.148753919,
+    "cmc_rank": 990
+  },
+  {
+    "symbol": "TUTUSDT",
+    "base_asset": "TUT",
+    "name": "Tutorial",
+    "mcap": 13896062.566166861,
+    "cmc_rank": 988
+  },
+  {
+    "symbol": "DODOUSDT",
+    "base_asset": "DODO",
+    "name": "DODO",
+    "mcap": 14039085.686480707,
+    "cmc_rank": 983
+  },
+  {
+    "symbol": "HMSTRUSDT",
+    "base_asset": "HMSTR",
+    "name": "Hamster Kombat",
+    "mcap": 14134686.270241508,
+    "cmc_rank": 980
+  },
+  {
+    "symbol": "IRUSDT",
+    "base_asset": "IR",
+    "name": "Infrared",
+    "mcap": 14191773.181035198,
+    "cmc_rank": 978
+  },
+  {
+    "symbol": "BRUSDT",
+    "base_asset": "BR",
+    "name": "Bedrock",
+    "mcap": 14202287.333199995,
+    "cmc_rank": 976
+  },
+  {
+    "symbol": "TRUUSDT",
+    "base_asset": "TRU",
+    "name": "TrueFi",
+    "mcap": 14313207.631684111,
+    "cmc_rank": 971
+  },
+  {
+    "symbol": "1000XUSDT",
+    "base_asset": "X",
+    "name": "X Empire",
+    "mcap": 14329897.24475151,
+    "cmc_rank": 970
+  },
+  {
+    "symbol": "MLNUSDT",
+    "base_asset": "MLN",
+    "name": "Enzyme",
+    "mcap": 14340712.583287043,
+    "cmc_rank": 969
+  },
+  {
+    "symbol": "RDNTUSDT",
+    "base_asset": "RDNT",
+    "name": "Radiant Capital",
+    "mcap": 14490666.53826292,
+    "cmc_rank": 964
+  },
+  {
+    "symbol": "SCRUSDT",
+    "base_asset": "SCR",
+    "name": "Scroll",
+    "mcap": 14534311.340728574,
+    "cmc_rank": 963
+  },
+  {
+    "symbol": "BASUSDT",
+    "base_asset": "BAS",
+    "name": "BNB Attestation Service",
+    "mcap": 14538825.794744104,
+    "cmc_rank": 962
+  },
+  {
+    "symbol": "SWARMSUSDT",
+    "base_asset": "SWARMS",
+    "name": "Swarms",
+    "mcap": 14608705.040830068,
+    "cmc_rank": 961
+  },
+  {
+    "symbol": "ACTUSDT",
+    "base_asset": "ACT",
+    "name": "Acet",
+    "mcap": 14962387.141190937,
+    "cmc_rank": 948
+  },
+  {
+    "symbol": "GUAUSDT",
+    "base_asset": "GUA",
+    "name": "SUPERFORTUNE",
+    "mcap": 15193241.726488242,
+    "cmc_rank": 941
+  },
+  {
+    "symbol": "TSTUSDT",
+    "base_asset": "TST",
+    "name": "Test",
+    "mcap": 15431481.275842903,
+    "cmc_rank": 933
+  },
+  {
+    "symbol": "ONUSDT",
+    "base_asset": "ON",
+    "name": "Orochi Network",
+    "mcap": 15585208.655447837,
+    "cmc_rank": 931
+  },
+  {
+    "symbol": "PORTALUSDT",
+    "base_asset": "PORTAL",
+    "name": "Portal",
+    "mcap": 15586257.692314235,
+    "cmc_rank": 930
+  },
+  {
+    "symbol": "AIAUSDT",
+    "base_asset": "AIA",
+    "name": "DeAgentAI",
+    "mcap": 15591136.271426067,
+    "cmc_rank": 929
+  },
+  {
+    "symbol": "SYSUSDT",
+    "base_asset": "SYS",
+    "name": "Syscoin",
+    "mcap": 15757658.704666506,
+    "cmc_rank": 926
+  },
+  {
+    "symbol": "MBOXUSDT",
+    "base_asset": "MBOX",
+    "name": "MOBOX",
+    "mcap": 15889159.229943555,
+    "cmc_rank": 924
+  },
+  {
+    "symbol": "SHELLUSDT",
+    "base_asset": "SHELL",
+    "name": "MyShell",
+    "mcap": 16097184.579390153,
+    "cmc_rank": 918
+  },
+  {
+    "symbol": "PHBUSDT",
+    "base_asset": "PHB",
+    "name": "Phoenix",
+    "mcap": 16113393.84184903,
+    "cmc_rank": 917
+  },
+  {
+    "symbol": "INITUSDT",
+    "base_asset": "INIT",
+    "name": "Initia",
+    "mcap": 16120015.035205048,
+    "cmc_rank": 916
+  },
+  {
+    "symbol": "PONKEUSDT",
+    "base_asset": "PONKE",
+    "name": "Ponke",
+    "mcap": 16351289.339810167,
+    "cmc_rank": 914
+  },
+  {
+    "symbol": "RLSUSDT",
+    "base_asset": "RLS",
+    "name": "Rayls",
+    "mcap": 16408108.197139215,
+    "cmc_rank": 913
+  },
+  {
+    "symbol": "ATAUSDT",
+    "base_asset": "ATA",
+    "name": "Automata Network",
+    "mcap": 16438488.396920022,
+    "cmc_rank": 911
+  },
+  {
+    "symbol": "GUNUSDT",
+    "base_asset": "GUN",
+    "name": "GUNZ",
+    "mcap": 16640284.817076601,
+    "cmc_rank": 908
+  },
+  {
+    "symbol": "TOWNSUSDT",
+    "base_asset": "TOWNS",
+    "name": "Towns",
+    "mcap": 16717122.035702292,
+    "cmc_rank": 907
+  },
+  {
+    "symbol": "TREEUSDT",
+    "base_asset": "TREE",
+    "name": "Treehouse",
+    "mcap": 16816568.702914756,
+    "cmc_rank": 905
+  },
+  {
+    "symbol": "VANRYUSDT",
+    "base_asset": "VANRY",
+    "name": "Vanar Chain",
+    "mcap": 16886397.088689536,
+    "cmc_rank": 902
+  },
+  {
+    "symbol": "TAKEUSDT",
+    "base_asset": "TAKE",
+    "name": "OVERTAKE",
+    "mcap": 16911254.291484375,
+    "cmc_rank": 901
+  },
+  {
+    "symbol": "HEMIUSDT",
+    "base_asset": "HEMI",
+    "name": "Hemi",
+    "mcap": 16919016.891271476,
+    "cmc_rank": 900
+  },
+  {
+    "symbol": "LUMIAUSDT",
+    "base_asset": "LUMIA",
+    "name": "Lumia",
+    "mcap": 16965603.12966044,
+    "cmc_rank": 899
+  },
+  {
+    "symbol": "TLMUSDT",
+    "base_asset": "TLM",
+    "name": "Alien Worlds",
+    "mcap": 17023510.08440456,
+    "cmc_rank": 898
+  },
+  {
+    "symbol": "STOUSDT",
+    "base_asset": "STO",
+    "name": "StakeStone",
+    "mcap": 17083441.394533485,
+    "cmc_rank": 896
+  },
+  {
+    "symbol": "ALICEUSDT",
+    "base_asset": "ALICE",
+    "name": "MyNeighborAlice",
+    "mcap": 17338507.993148062,
+    "cmc_rank": 891
+  },
+  {
+    "symbol": "HIGHUSDT",
+    "base_asset": "HIGH",
+    "name": "Highstreet",
+    "mcap": 17540648.824224573,
+    "cmc_rank": 889
+  },
+  {
+    "symbol": "MUBARAKUSDT",
+    "base_asset": "MUBARAK",
+    "name": "Mubarak",
+    "mcap": 17720439.528267287,
+    "cmc_rank": 885
+  },
+  {
+    "symbol": "CHILLGUYUSDT",
+    "base_asset": "CHILLGUY",
+    "name": "Just a chill guy",
+    "mcap": 17890135.752434887,
+    "cmc_rank": 881
+  },
+  {
+    "symbol": "GMEUSDT",
+    "base_asset": "GME",
+    "name": "GameStop (gamestop-coin.vip)",
+    "mcap": 18000971.99238532,
+    "cmc_rank": 879
+  },
+  {
+    "symbol": "NTRNUSDT",
+    "base_asset": "NTRN",
+    "name": "Neutron",
+    "mcap": 18076917.693234786,
+    "cmc_rank": 877
+  },
+  {
+    "symbol": "RAREUSDT",
+    "base_asset": "RARE",
+    "name": "SuperRare",
+    "mcap": 18317523.332926784,
+    "cmc_rank": 875
+  },
+  {
+    "symbol": "AIUSDT",
+    "base_asset": "AI",
+    "name": "Sleepless AI",
+    "mcap": 18480919.602021415,
+    "cmc_rank": 873
+  },
+  {
+    "symbol": "RADUSDT",
+    "base_asset": "RAD",
+    "name": "Radworks",
+    "mcap": 18491350.029839292,
+    "cmc_rank": 872
+  },
+  {
+    "symbol": "METAUSDT",
+    "base_asset": "META",
+    "name": "Metadium",
+    "mcap": 18552730.05797202,
+    "cmc_rank": 871
+  },
+  {
+    "symbol": "INUSDT",
+    "base_asset": "IN",
+    "name": "INFINIT",
+    "mcap": 18762109.334752984,
+    "cmc_rank": 868
+  },
+  {
+    "symbol": "EDGEUSDT",
+    "base_asset": "EDGE",
+    "name": "Definitive",
+    "mcap": 18767316.979717728,
+    "cmc_rank": 866
+  },
+  {
+    "symbol": "DOLOUSDT",
+    "base_asset": "DOLO",
+    "name": "Dolomite",
+    "mcap": 19003832.29587068,
+    "cmc_rank": 863
+  },
+  {
+    "symbol": "PUFFERUSDT",
+    "base_asset": "PUFFER",
+    "name": "Puffer",
+    "mcap": 19343321.430492178,
+    "cmc_rank": 854
+  },
+  {
+    "symbol": "SOLVUSDT",
+    "base_asset": "SOLV",
+    "name": "Solv Protocol",
+    "mcap": 19401842.70154135,
+    "cmc_rank": 853
+  },
+  {
+    "symbol": "ARPAUSDT",
+    "base_asset": "ARPA",
+    "name": "ARPA",
+    "mcap": 19435467.28954102,
+    "cmc_rank": 852
+  },
+  {
+    "symbol": "HFTUSDT",
+    "base_asset": "HFT",
+    "name": "Hashflow",
+    "mcap": 19445598.546290934,
+    "cmc_rank": 850
+  },
+  {
+    "symbol": "TRUSTUSDT",
+    "base_asset": "TRUST",
+    "name": "Intuition",
+    "mcap": 19671707.12758741,
+    "cmc_rank": 846
+  },
+  {
+    "symbol": "KERNELUSDT",
+    "base_asset": "KERNEL",
+    "name": "KernelDAO",
+    "mcap": 19978823.258112825,
+    "cmc_rank": 841
+  },
+  {
+    "symbol": "OGNUSDT",
+    "base_asset": "OGN",
+    "name": "Origin Protocol",
+    "mcap": 19992701.507193603,
+    "cmc_rank": 840
+  },
+  {
+    "symbol": "GPSUSDT",
+    "base_asset": "GPS",
+    "name": "GoPlus Security",
+    "mcap": 20122008.89928873,
+    "cmc_rank": 838
+  },
+  {
+    "symbol": "TRUTHUSDT",
+    "base_asset": "TRUTH",
+    "name": "Swarm Network",
+    "mcap": 20268134.360138718,
+    "cmc_rank": 833
+  },
+  {
+    "symbol": "AVAUSDT",
+    "base_asset": "AVA",
+    "name": "AVA (Travala)",
+    "mcap": 20520096.647806734,
+    "cmc_rank": 831
+  },
+  {
+    "symbol": "DENTUSDT",
+    "base_asset": "DENT",
+    "name": "Dent",
+    "mcap": 20815600.735721488,
+    "cmc_rank": 826
+  },
+  {
+    "symbol": "FUNUSDT",
+    "base_asset": "FUN",
+    "name": "FUNToken",
+    "mcap": 20932717.360595174,
+    "cmc_rank": 823
+  },
+  {
+    "symbol": "NEWTUSDT",
+    "base_asset": "NEWT",
+    "name": "Newton Protocol",
+    "mcap": 20958430.0135193,
+    "cmc_rank": 822
+  },
+  {
+    "symbol": "SAGAUSDT",
+    "base_asset": "SAGA",
+    "name": "Saga",
+    "mcap": 20978341.299453124,
+    "cmc_rank": 821
+  },
+  {
+    "symbol": "GRIFFAINUSDT",
+    "base_asset": "GRIFFAIN",
+    "name": "GRIFFAIN",
+    "mcap": 21017883.200608734,
+    "cmc_rank": 819
+  },
+  {
+    "symbol": "PROMPTUSDT",
+    "base_asset": "PROMPT",
+    "name": "Wayfinder",
+    "mcap": 21261690.86840944,
+    "cmc_rank": 815
+  },
+  {
+    "symbol": "RECALLUSDT",
+    "base_asset": "RECALL",
+    "name": "Recall",
+    "mcap": 21284690.391970746,
+    "cmc_rank": 814
+  },
+  {
+    "symbol": "ARIAUSDT",
+    "base_asset": "ARIA",
+    "name": "AriaAI",
+    "mcap": 21329237.18126134,
+    "cmc_rank": 813
+  },
+  {
+    "symbol": "FUSDT",
+    "base_asset": "F",
+    "name": "SynFutures",
+    "mcap": 21363970.93211671,
+    "cmc_rank": 811
+  },
+  {
+    "symbol": "4USDT",
+    "base_asset": "4",
+    "name": "4",
+    "mcap": 21440061.450548943,
+    "cmc_rank": 809
+  },
+  {
+    "symbol": "DOGSUSDT",
+    "base_asset": "DOGS",
+    "name": "DOGS",
+    "mcap": 21544233.30890779,
+    "cmc_rank": 807
+  },
+  {
+    "symbol": "TRADOORUSDT",
+    "base_asset": "TRADOOR",
+    "name": "Tradoor",
+    "mcap": 21641540.806549605,
+    "cmc_rank": 805
+  },
+  {
+    "symbol": "CETUSUSDT",
+    "base_asset": "CETUS",
+    "name": "Cetus Protocol",
+    "mcap": 21786399.685954507,
+    "cmc_rank": 802
+  },
+  {
+    "symbol": "CATUSDT",
+    "base_asset": "CAT",
+    "name": "Simon's Cat",
+    "mcap": 21836384.904137332,
+    "cmc_rank": 801
+  },
+  {
+    "symbol": "NOMUSDT",
+    "base_asset": "NOM",
+    "name": "Nomina",
+    "mcap": 21904256.995570928,
+    "cmc_rank": 800
+  },
+  {
+    "symbol": "NILUSDT",
+    "base_asset": "NIL",
+    "name": "Nillion",
+    "mcap": 22134030.351390168,
+    "cmc_rank": 795
+  },
+  {
+    "symbol": "STARUSDT",
+    "base_asset": "STAR",
+    "name": "Starpower",
+    "mcap": 22172535.855193634,
+    "cmc_rank": 794
+  },
+  {
+    "symbol": "MBLUSDT",
+    "base_asset": "MBL",
+    "name": "MovieBloc",
+    "mcap": 22293731.656598557,
+    "cmc_rank": 792
+  },
+  {
+    "symbol": "ALLOUSDT",
+    "base_asset": "ALLO",
+    "name": "Allora",
+    "mcap": 22840232.566020694,
+    "cmc_rank": 786
+  },
+  {
+    "symbol": "FLOCKUSDT",
+    "base_asset": "FLOCK",
+    "name": "FLock.io",
+    "mcap": 22946897.82504272,
+    "cmc_rank": 784
+  },
+  {
+    "symbol": "CUSDT",
+    "base_asset": "C",
+    "name": "Chainbase",
+    "mcap": 23069742.826073624,
+    "cmc_rank": 781
+  },
+  {
+    "symbol": "MAVUSDT",
+    "base_asset": "MAV",
+    "name": "Maverick Protocol",
+    "mcap": 23139529.77310594,
+    "cmc_rank": 780
+  },
+  {
+    "symbol": "BLESSUSDT",
+    "base_asset": "BLESS",
+    "name": "Bless",
+    "mcap": 23162144.02160469,
+    "cmc_rank": 779
+  },
+  {
+    "symbol": "DEGENUSDT",
+    "base_asset": "DEGEN",
+    "name": "Degen",
+    "mcap": 23246571.828411743,
+    "cmc_rank": 778
+  },
+  {
+    "symbol": "AGLDUSDT",
+    "base_asset": "AGLD",
+    "name": "Adventure Gold",
+    "mcap": 23401440.660941895,
+    "cmc_rank": 774
+  },
+  {
+    "symbol": "BANKUSDT",
+    "base_asset": "BANK",
+    "name": "Lorenzo Protocol",
+    "mcap": 23506849.86629793,
+    "cmc_rank": 773
+  },
+  {
+    "symbol": "SANTOSUSDT",
+    "base_asset": "SANTOS",
+    "name": "Santos FC Fan Token",
+    "mcap": 23579626.42976634,
+    "cmc_rank": 770
+  },
+  {
+    "symbol": "C98USDT",
+    "base_asset": "C98",
+    "name": "Coin98",
+    "mcap": 23607792.16914217,
+    "cmc_rank": 768
+  },
+  {
+    "symbol": "APRUSDT",
+    "base_asset": "APR",
+    "name": "aPriori",
+    "mcap": 23634365.53620681,
+    "cmc_rank": 767
+  },
+  {
+    "symbol": "ACEUSDT",
+    "base_asset": "ACE",
+    "name": "Fusionist",
+    "mcap": 23683789.55802056,
+    "cmc_rank": 766
+  },
+  {
+    "symbol": "NAORISUSDT",
+    "base_asset": "NAORIS",
+    "name": "Naoris Protocol",
+    "mcap": 23720082.466887336,
+    "cmc_rank": 765
+  },
+  {
+    "symbol": "DUSKUSDT",
+    "base_asset": "DUSK",
+    "name": "Dusk",
+    "mcap": 23737636.48668646,
+    "cmc_rank": 763
+  },
+  {
+    "symbol": "CATIUSDT",
+    "base_asset": "CATI",
+    "name": "Catizen",
+    "mcap": 23946561.443172455,
+    "cmc_rank": 761
+  },
+  {
+    "symbol": "RESOLVUSDT",
+    "base_asset": "RESOLV",
+    "name": "Resolv",
+    "mcap": 24238944.037931487,
+    "cmc_rank": 759
+  },
+  {
+    "symbol": "OXTUSDT",
+    "base_asset": "OXT",
+    "name": "Orchid",
+    "mcap": 24336079.431463446,
+    "cmc_rank": 758
+  },
+  {
+    "symbol": "GLMRUSDT",
+    "base_asset": "GLMR",
+    "name": "Moonbeam",
+    "mcap": 24627006.977853402,
+    "cmc_rank": 754
+  },
+  {
+    "symbol": "FORTHUSDT",
+    "base_asset": "FORTH",
+    "name": "Ampleforth Governance Token",
+    "mcap": 24722375.88428436,
+    "cmc_rank": 753
+  }
+]

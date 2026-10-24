@@ -1,0 +1,18 @@
+{
+  "initial_capital": 2000.0,
+  "final_equity": 7116.836881038566,
+  "peak_equity": 7388.8073126176105,
+  "lowest_equity": 882.3692590424694,
+  "max_drawdown_pct": -68.43161725167991,
+  "is_liquidated": false,
+  "liquidation_time": null,
+  "liquidation_reason": "",
+  "total_closed_trades": 2107,
+  "win_rate_pct": 100.0,
+  "total_realized_pnl": 7796.968199999999,
+  "tier_distribution": {
+    "1": 1372,
+    "2": 547,
+    "3": 188
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "configurations": [
+    {
+      "label": "Current design  (frozen u200, daily refill)",
+      "return": 297.24254535108275,
+      "max_drawdown": -53.07352628168178,
+      "lowest_equity": 594.3789196266455,
+      "funding_paid": -104.5767077083209
+    },
+    {
+      "label": "Hourly refill only  (frozen u200)",
+      "return": 362.96523755819476,
+      "max_drawdown": -49.25549166191423,
+      "lowest_equity": 671.6083255815632,
+      "funding_paid": -179.3177687237826
+    },
+    {
+      "label": "Lowest-mcap-196 + hourly",
+      "return": 336.8822288166262,
+      "max_drawdown": -26.62514991866957,
+      "lowest_equity": 960.2886960835767,
+      "funding_paid": 12.151878521974819
+    },
+    {
+      "label": "Vol-196 + hourly  (no market-cap filter)",
+      "return": 441.8152235386729,
+      "max_drawdown": -44.86664323427789,
+      "lowest_equity": 786.223130907051,
+      "funding_paid": -41.63019143801124
+    }
+  ],
+  "vol_screen": {
+    "criterion": "ex-ante volatility only",
+    "market_cap_filter": false,
+    "liquidity_filter": false,
+    "pool": 565,
+    "slots": 196,
+    "median_mcap_of_selected": 30313929.00973695
+  },
+  "mcap_screen": {
+    "criterion": "smallest market cap",
+    "median_mcap_of_selected": 13801704.35746039
+  }
+}

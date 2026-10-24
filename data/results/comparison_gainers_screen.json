@@ -1,0 +1,90 @@
+[
+  {
+    "label": "1. 涨幅榜前200 (每天北京09:00定点调仓)",
+    "final_equity": 2778.357100942349,
+    "total_return": 177.8357100942349,
+    "max_drawdown": -50.70290599006586,
+    "calmar": 3.5074066588821946,
+    "lowest_equity": 649.019274397826,
+    "tier1_opens": 732,
+    "dca_filled": 250,
+    "funding_paid": -145.39258315619023
+  },
+  {
+    "label": "2. 涨幅榜前200 (北京09:00起每小时动态轮动)",
+    "final_equity": 3761.3204585093144,
+    "total_return": 276.13204585093143,
+    "max_drawdown": -50.961243863155424,
+    "calmar": 5.418471468090925,
+    "lowest_equity": 647.4378377813218,
+    "tier1_opens": 943,
+    "dca_filled": 312,
+    "funding_paid": -216.1143123367775
+  },
+  {
+    "label": "3. 涨幅榜前200 (09:00快照锁定池 + 每小时补仓)",
+    "final_equity": 3124.316654656669,
+    "total_return": 212.43166546566692,
+    "max_drawdown": -61.48849316508795,
+    "calmar": 3.4548198293836507,
+    "lowest_equity": 556.7153598322839,
+    "tier1_opens": 864,
+    "dca_filled": 269,
+    "funding_paid": -196.4182939143196
+  },
+  {
+    "label": "4. 跌幅榜前200 (每天北京09:00定点抄底)",
+    "final_equity": 3024.880520465314,
+    "total_return": 202.4880520465314,
+    "max_drawdown": -56.17491551101411,
+    "calmar": 3.6045991383258946,
+    "lowest_equity": 581.8090454912913,
+    "tier1_opens": 771,
+    "dca_filled": 277,
+    "funding_paid": -201.66716889256458
+  },
+  {
+    "label": "5. 跌幅榜前200 (北京09:00起每小时动态抄底)",
+    "final_equity": 3215.3922026260216,
+    "total_return": 221.53922026260219,
+    "max_drawdown": -55.403050795089605,
+    "calmar": 3.9986826913552798,
+    "lowest_equity": 591.739096902244,
+    "tier1_opens": 919,
+    "dca_filled": 293,
+    "funding_paid": -23.477459167538235
+  },
+  {
+    "label": "6. [基准] 最小市值196 (每日08:00 UTC调仓)",
+    "final_equity": 3168.2137843469313,
+    "total_return": 216.82137843469312,
+    "max_drawdown": -39.006725258108325,
+    "calmar": 5.558563991208733,
+    "lowest_equity": 717.852000736936,
+    "tier1_opens": 918,
+    "dca_filled": 269,
+    "funding_paid": 61.09531371351301
+  },
+  {
+    "label": "7. [基准] 纯波动率196 (每小时轮动)",
+    "final_equity": 5418.1522353867285,
+    "total_return": 441.8152235386729,
+    "max_drawdown": -44.86664323427789,
+    "calmar": 9.847298386725047,
+    "lowest_equity": 786.223130907051,
+    "tier1_opens": 1750,
+    "dca_filled": 463,
+    "funding_paid": -41.63019143801124
+  },
+  {
+    "label": "8. [原始基准] 初始冻结200标的 (Daily 08:00)",
+    "final_equity": 3972.4254535108275,
+    "total_return": 297.24254535108275,
+    "max_drawdown": -53.07352628168178,
+    "calmar": 5.600580292583186,
+    "lowest_equity": 594.3789196266455,
+    "tier1_opens": 1015,
+    "dca_filled": 357,
+    "funding_paid": -104.5767077083209
+  }
+]
