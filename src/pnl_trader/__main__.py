@@ -25,6 +25,10 @@ def main() -> None:
     )
     parser = argparse.ArgumentParser(prog="pnl-trader")
     commands = parser.add_subparsers(dest="command")
+    commands.add_parser(
+        "run",
+        help="start the Binance mainnet service; this may submit real orders",
+    )
     report_parser = commands.add_parser("report", help="print the latest persisted daily report")
     report_parser.add_argument("--account-id", default=os.environ.get("PNL_ACCOUNT_ID"))
     report_parser.add_argument(
@@ -62,6 +66,9 @@ def main() -> None:
     )
     backup_verify_parser.add_argument("--path", type=Path, required=True)
     args = parser.parse_args()
+    if args.command is None:
+        parser.print_help()
+        return
     if args.command == "validate-config":
         try:
             config = RuntimeConfig.from_environment()
@@ -127,14 +134,17 @@ def main() -> None:
             logging.getLogger(__name__).exception("could not read the stored daily report")
             raise SystemExit(1) from None
         return
-    try:
-        config = RuntimeConfig.from_environment()
-        asyncio.run(run_application(config))
-    except KeyboardInterrupt:
-        logging.getLogger(__name__).info("shutdown requested")
-    except Exception:
-        logging.getLogger(__name__).exception("trading application stopped during startup or runtime")
-        raise SystemExit(1) from None
+    if args.command == "run":
+        try:
+            config = RuntimeConfig.from_environment()
+            asyncio.run(run_application(config))
+        except KeyboardInterrupt:
+            logging.getLogger(__name__).info("shutdown requested")
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "trading application stopped during startup or runtime"
+            )
+            raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

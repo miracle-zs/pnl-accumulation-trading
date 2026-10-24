@@ -2,6 +2,8 @@
 
 `pnl-trader.service` 连接 Binance USDⓈ-M Futures 主网。启动后会运行巡检，并可能提交真实市价单；当前工作区没有安装或启动该服务。
 
+不带子命令运行 `pnl-trader` 只显示帮助。只有显式执行 `pnl-trader run` 才会启动主网交易服务；systemd unit 也使用该命令。
+
 项目和虚拟环境默认安装在 `/opt/pnl-accumulation-trading`。部署时需在 `/etc/pnl-trader/pnl-trader.env` 设置：
 
 ```ini
