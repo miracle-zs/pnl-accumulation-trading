@@ -10,6 +10,8 @@ initial_notional = 10.0
 taker_fee = 0.0005
 t2_notional = 20.0
 t3_notional = 60.0
+leverage = 10.0
+initial_capital_scenarios = (1500.0, 2000.0)
 
 is_open = np.zeros(num_symbols, dtype=bool)
 tier = np.zeros(num_symbols, dtype=np.int32)
@@ -27,6 +29,15 @@ t3_init_qty = np.zeros(num_symbols, dtype=np.float64)
 
 trade_records = []
 dca_records = []
+full_close_types = {
+    "WRITE_OFF (注销清算)",
+    "T1 止盈 (+10%)",
+    "T2 止盈全平 (+50%)",
+    "T2.1 止盈全平 (+50%)",
+    "T3 第三次止盈全平 (+100%)",
+    "T3.1 第三次止盈全平 (+100%)",
+    "T3.2 第三次止盈全平 (+100%)",
+}
 
 p0 = bars[0, :, 0]
 for s in range(num_symbols):
@@ -39,8 +50,16 @@ for s in range(num_symbols):
         avg_price[s] = p
         entry_t1[s] = p
 
+initial_open_count = int(np.count_nonzero(is_open))
+last_mark = np.where(np.isfinite(p0) & (p0 > 0), p0, np.nan)
+wallet_change = -initial_open_count * initial_notional * taker_fee
+equity_change_history = [0.0]
+margin_used_history = [0.0]
+
 for b in range(num_bars):
     c_bar = bars[b, :, 3]
+    trade_start = len(trade_records)
+    dca_start = len(dca_records)
 
     for s in np.where(is_open)[0]:
         c = c_bar[s]
@@ -261,19 +280,27 @@ for b in range(num_bars):
                     entry_t1[s] = c
                     tier[s] = 1
 
+    valid_close = np.isfinite(c_bar) & (c_bar > 0)
+    last_mark[valid_close] = c_bar[valid_close]
+    bar_trades = trade_records[trade_start:]
+    bar_dcas = dca_records[dca_start:]
+    wallet_change += sum(record["pnl"] for record in bar_trades)
+    wallet_change -= sum(record["cost"] * taker_fee for record in bar_dcas)
+    wallet_change -= sum(
+        initial_notional * taker_fee
+        for record in bar_trades
+        if record["type"] in full_close_types
+    )
+
+    marked_positions = is_open & (qty > 0) & np.isfinite(last_mark)
+    floating_pnl = np.sum((last_mark[marked_positions] - avg_price[marked_positions]) * qty[marked_positions])
+    gross_notional = np.sum(last_mark[marked_positions] * qty[marked_positions])
+    equity_change_history.append(wallet_change + floating_pnl)
+    margin_used_history.append(gross_notional / leverage)
+
 df_trades = pd.DataFrame(trade_records)
 
 # Every market buy pays taker fees: initial/reopened T1 entries and both DCA tiers.
-full_close_types = {
-    "WRITE_OFF (注销清算)",
-    "T1 止盈 (+10%)",
-    "T2 止盈全平 (+50%)",
-    "T2.1 止盈全平 (+50%)",
-    "T3 第三次止盈全平 (+100%)",
-    "T3.1 第三次止盈全平 (+100%)",
-    "T3.2 第三次止盈全平 (+100%)",
-}
-initial_open_count = int(np.count_nonzero(~np.isnan(p0) & (p0 > 0)))
 t1_reopen_count = int(df_trades["type"].isin(full_close_types).sum())
 dca_notional = sum(record["cost"] for record in dca_records)
 entry_fees_paid = (
@@ -369,3 +396,42 @@ for _, r in df_h_sum.iterrows():
 print("-" * 96)
 print("期末未结浮亏汇总: ${:,.2f}".format(df_holdings['floating'].sum()))
 print("总净利润 (已实现现金 + 期末浮亏): ${:,.2f}".format(tot_c + df_holdings['floating'].sum()))
+
+print("\n=== 3. 账户权益与名义保证金估算 ===")
+equity_changes = np.asarray(equity_change_history)
+margin_used = np.asarray(margin_used_history)
+minimum_starting_capital = max(0.0, float(np.max(margin_used - equity_changes)))
+print(
+    "按 10x 名义初始保证金、不留额外储备，覆盖这条完整交易路径所需的起始资金下限估算: "
+    f"${minimum_starting_capital:,.2f}（不等于实盘安全本金）"
+)
+for starting_capital in initial_capital_scenarios:
+    equity_curve = starting_capital + equity_changes
+    high_water_mark = np.maximum.accumulate(equity_curve)
+    drawdown = equity_curve - high_water_mark
+    drawdown_pct = np.divide(
+        drawdown,
+        high_water_mark,
+        out=np.zeros_like(drawdown),
+        where=high_water_mark > 0,
+    )
+    free_equity = equity_curve - margin_used
+    positive_equity = equity_curve > 0
+    margin_utilization = np.divide(
+        margin_used,
+        equity_curve,
+        out=np.full_like(margin_used, np.inf),
+        where=positive_equity,
+    )
+    max_utilization = np.max(margin_utilization)
+    utilization_text = (
+        "权益曾非正，比例无意义"
+        if np.any(~positive_equity)
+        else f"{max_utilization * 100:.1f}%"
+    )
+    print(
+        f"起始资金 ${starting_capital:,.0f}: 期末权益 ${equity_curve[-1]:,.2f} | "
+        f"最低权益 ${equity_curve.min():,.2f} | 最大回撤 ${-drawdown.min():,.2f} "
+        f"({-drawdown_pct.min() * 100:.1f}%) | 最大名义保证金估算 ${margin_used.max():,.2f} | "
+        f"最低可用权益 ${free_equity.min():,.2f} | 最大保证金/权益 {utilization_text}"
+    )
