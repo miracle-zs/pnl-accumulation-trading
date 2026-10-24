@@ -1,0 +1,40 @@
+[Unit]
+Description=15-minute periodic review trading service (Binance USDⓈ-M Futures)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=exec
+User=pnl-trader
+Group=pnl-trader
+WorkingDirectory=/opt/pnl-accumulation-trading
+EnvironmentFile=/etc/pnl-trader/pnl-trader.env
+Environment=PNL_DATA_DIR=/var/lib/pnl-trader
+StateDirectory=pnl-trader
+StateDirectoryMode=0700
+LoadCredential=binance_api_key:/etc/pnl-trader/credentials/binance-api-key
+LoadCredential=binance_api_secret:/etc/pnl-trader/credentials/binance-api-secret
+ExecStartPre=/opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
+ExecStart=/opt/pnl-accumulation-trading/.venv/bin/pnl-trader
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=60s
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

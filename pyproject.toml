@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pnl-periodic-review"
+version = "0.1.0"
+description = "15-minute periodic review trading system"
+requires-python = ">=3.11"
+dependencies = ["APScheduler>=3.11,<4", "httpx>=0.27,<1"]
+
+[project.scripts]
+pnl-trader = "pnl_trader.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pnl_trader*"]

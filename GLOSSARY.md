@@ -47,3 +47,27 @@ _Avoid_: Random fill, default fallback, cache retry
 **WAL State Store (预写日志状态库)**:
 The single-file SQLite database configured with Write-Ahead Logging to provide crash-proof ACID persistence without external service dependencies.
 _Avoid_: Flat JSON, local cache, external DB
+
+**Asset Classification Directory (资产分类目录)**:
+A versioned, reviewed mapping from a contract's base asset to `NATIVE_CRYPTO`, `NON_CRYPTO`, or `UNKNOWN`, with a source and review time. Missing classifications remain `UNKNOWN` until reviewed.
+_Avoid_: Symbol-name heuristic, suffix allowlist
+
+**Eligible Contract (合格合约)**:
+A currently trading USDT-margined USDT-quoted perpetual whose base asset is reviewed as native crypto and whose market-order quantity rules are usable. Eligibility is separate from account risk authorization.
+_Avoid_: Admitted position, all exchange symbols
+
+**Admitted Symbol (准入标的)**:
+A symbol whose current observation permits opening a new Tier 1 position; the account risk gate still authorizes each order independently.
+_Avoid_: Guaranteed order approval, risk-free position
+
+**Scale-In Authorization (增仓授权)**:
+A per-symbol permission to make a DCA increase; an exit-only or unreviewed symbol does not receive this permission, even if an existing position remains managed.
+_Avoid_: New-entry admission, account budget approval
+
+**Managed Symbol (托管标的)**:
+A symbol that remains in review because it has an active local strategy lifecycle, a non-zero exchange position, or an unresolved order intent, even if it is no longer eligible for new capital.
+_Avoid_: Universe candidate, active contract only
+
+**Exit-Only Directive (仅减仓指令)**:
+A reviewed contract-level instruction that blocks opening, DCA, and reopening while allowing strategy reductions when the exchange still permits them.
+_Avoid_: Automatic delisting prediction, forced market close
