@@ -91,6 +91,22 @@ class AccountRiskGate:
             )
 
         if plan.side == "SELL":
+            if snapshot.symbol_position_qty is None:
+                return self._denied(
+                    account_id,
+                    state,
+                    plan,
+                    now_ms,
+                    "account snapshot is missing the symbol position quantity for reduction",
+                )
+            if snapshot.symbol_position_qty != state.qty:
+                return self._denied(
+                    account_id,
+                    state,
+                    plan,
+                    now_ms,
+                    "exchange position quantity changed since strategy state reconciliation",
+                )
             return self._authorization(
                 account_id=account_id,
                 state=state,
