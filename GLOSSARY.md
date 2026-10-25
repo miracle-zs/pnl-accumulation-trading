@@ -1,73 +1,38 @@
-# PnL Accumulation Trading Context
+# 15 分钟周期巡检交易
 
-This context governs the multi-symbol crypto futures accumulation and grid-martingale strategy on Binance USDT-M.
+本术语表描述当前周期巡检策略中的业务概念。具体阈值和动作规则以 [PRD](docs/PRD_15M_PERIODIC_REVIEW_TRADING.md) 为准。
 
 ## Language
 
-**Tier (阶梯)**:
-A discrete capital allocation level (Tier 1 = 10U, Tier 2 = 20U, Tier 3 = 60U) triggered when a contract price drops by 50% relative to the prior entry price.
-_Avoid_: Layer, stage, level, step
+**15 分钟巡检**：在一根 15 分钟 K 线收盘后，按收盘价为每个候选标的判断一次策略动作。
+_Avoid_: 实时巡检、逐笔决策
 
-**Devaluation Recycling (市值缩水循环)**:
-A risk-controlled recovery mechanism that activates only after Tier 3 is reached and the remaining position's market value drops below 5.0 USDT (-96.5% drawdown from origin), entering a secondary 20U/60U DCA cycle.
-_Avoid_: Infinite Martingale, bottom-fishing, averaging down
+**Tier（层级）**：策略中的持仓阶段。T1 为初始仓位，T2 和 T3 分别代表两次下跌补仓后的阶段。
+_Avoid_: 网格层、无限马丁
 
-**Bottom Fresh Pulse TP (底部脉冲止盈)**:
-A take-profit rule for recycled additions calculated strictly against the latest entry price (+20% / +50%), exiting quickly without being dragged down by historical high-altitude average price.
-_Avoid_: Unified average TP, global TP
+**补仓**：标的价格相对当前层级入场锚点达到规则中的下跌阈值时，增加该标的仓位并进入下一 Tier。
+_Avoid_: 自动摊平、无限加仓
 
-**Static Order Lifecycle (方案 A 静态挂单)**:
-A policy where pending limit take-profit orders remain untouched on the order book until either hit or cancelled upon falling into the next lower Tier DCA buy.
-_Avoid_: Break-even stop, trailing stop, stop-loss
+**分批止盈**：同一 Tier 按收益阈值逐步减仓；每轮只执行本轮已达到的最高止盈档。
+_Avoid_: 逐档补做、挂单止盈
 
-**Rebalance (每日调仓/补仓)**:
-The daily 08:00 UTC check that opens new Tier 1 positions on idle candidate symbols up to the available margin capacity.
-_Avoid_: Reset, re-entry, reshuffle
+**止盈跨档**：价格一次越过多个止盈阈值时，直接执行最高已达阈值对应的动作，不补做较低档动作。
+_Avoid_: 补做漏档
 
-**Equity Cushion (沉淀安全垫)**:
-The organic accumulation of realized profits retained inside the futures wallet to automatically absorb drawdowns during tail-risk market events.
-_Avoid_: Surplus capital, unextracted profit, idle cash
+**全平后重开**：当前仓位全部平掉后，开始新的 T1 持仓周期。
+_Avoid_: 仅重置本地状态
 
-**Delisting Hold-Through (停牌死扛)**:
-The operational policy of keeping limit take-profit orders active until trading suspension, settling residual positions via exchange index delivery rather than market-closing.
-_Avoid_: Delisting panic sell, manual liquidation
+**注销价（`P_writeoff`）**：T3 阶段用于触发全平并开始新 T1 周期的价格阈值。
+_Avoid_: 强平价、清算价
 
-**State Reconciliation (全局状态对齐)**:
-The single-batch synchronization routine executed upon WebSocket reconnection using account-wide REST endpoints to align local state with exchange reality.
-_Avoid_: Order polling, status sync, cache refresh
+**标的资格**：允许新开 T1、补仓或全平后重开的条件；标的必须是正常交易的 USDT-M 永续合约，基础资产已审核为原生加密资产，且具备可用市价数量规则。仅减仓标的不具备新开资格。
+_Avoid_: 所有 Binance 合约
 
-**Min-Notional Merging (残单合批)**:
-The automatic consolidation of fractional take-profit batch orders into a single 100% order when individual batches fall below Binance's 5.0 USDT threshold.
-_Avoid_: Dust handling, rounding up, order skipping
+**资产分类**：维护者审核后，将基础资产标记为原生加密资产或非加密资产；未分类资产不自动获得开仓资格。
+_Avoid_: 根据交易对名称猜测
 
-**Volume Fallback (成交额降级)**:
-The automatic switch to sorting Binance active futures by lowest 24h quote volume whenever the external CoinMarketCap API fails.
-_Avoid_: Random fill, default fallback, cache retry
+**仅减仓指令**：对指定合约禁止新开、补仓和重开，但仍按策略管理已有仓位。
+_Avoid_: 自动退市预测、强制全平
 
-**WAL State Store (预写日志状态库)**:
-The single-file SQLite database configured with Write-Ahead Logging to provide crash-proof ACID persistence without external service dependencies.
-_Avoid_: Flat JSON, local cache, external DB
-
-**Asset Classification Directory (资产分类目录)**:
-A versioned, reviewed mapping from a contract's base asset to `NATIVE_CRYPTO`, `NON_CRYPTO`, or `UNKNOWN`, with a source and review time. Missing classifications remain `UNKNOWN` until reviewed.
-_Avoid_: Symbol-name heuristic, suffix allowlist
-
-**Eligible Contract (合格合约)**:
-A currently trading USDT-margined USDT-quoted perpetual whose base asset is reviewed as native crypto and whose market-order quantity rules are usable. Eligibility is separate from account risk authorization.
-_Avoid_: Admitted position, all exchange symbols
-
-**Admitted Symbol (准入标的)**:
-A symbol whose current observation permits opening a new Tier 1 position; the account risk gate still authorizes each order independently.
-_Avoid_: Guaranteed order approval, risk-free position
-
-**Scale-In Authorization (增仓授权)**:
-A per-symbol permission to make a DCA increase; an exit-only or unreviewed symbol does not receive this permission, even if an existing position remains managed.
-_Avoid_: New-entry admission, account budget approval
-
-**Managed Symbol (托管标的)**:
-A symbol that remains in review because it has an active local strategy lifecycle, a non-zero exchange position, or an unresolved order intent, even if it is no longer eligible for new capital.
-_Avoid_: Universe candidate, active contract only
-
-**Exit-Only Directive (仅减仓指令)**:
-A reviewed contract-level instruction that blocks opening, DCA, and reopening while allowing strategy reductions when the exchange still permits them.
-_Avoid_: Automatic delisting prediction, forced market close
+**托管标的**：系统已有持仓或未完成订单、仍需继续巡检的标的；失去新开资格不代表停止管理已有仓位。
+_Avoid_: 仅指当前合格标的

@@ -2,13 +2,13 @@
 
 本仓库的产品目标以 [PRD](docs/PRD_15M_PERIODIC_REVIEW_TRADING.md) 为准：构建 15 分钟定时巡检的自动交易系统。当前实现先聚焦巡检、策略决策、订单确认和 SQLite 状态保存。
 
-## 当前文档入口
+## 当前文档
 
 - [PRD](docs/PRD_15M_PERIODIC_REVIEW_TRADING.md)：当前唯一业务需求依据。
 - [架构设计](docs/ARCHITECTURE_15M_PERIODIC_REVIEW_TRADING.md)：从 PRD 推导的模块边界、状态模型、执行和恢复设计。
 - [术语表](GLOSSARY.md)：项目领域术语。
 
-需求与实现不一致时，先按 PRD 判断产品行为，再更新架构与实现；不要从历史回测脚本或旧设计推断当前交易规则。
+当前交易规则以 PRD 为准，架构设计说明实现边界。旧版规格、ADR、历史回测和图解均不是当前规范；不要据此推断交易规则。
 
 ## 开发与运行
 
@@ -18,11 +18,13 @@
 python -m pip install -e .
 ```
 
-启动本地只读看板（默认仅绑定 `127.0.0.1`）：
+启动本地只读看板（默认仅绑定 `127.0.0.1`，需显式指定数据库目录）：
 
 ```sh
-pnl-trader web
+PNL_DATA_DIR=./var pnl-trader web
 ```
+
+也可以传入 `--data-dir` 覆盖环境变量。
 
 看板只读取 `PNL_DATA_DIR` 下的 `state.sqlite3`，不会连接交易所或提交订单。它展示成交账本和本地策略状态，不展示账户权益或保证金快照。
 
@@ -38,8 +40,7 @@ python -m unittest discover -s tests -v
 
 ## 历史资料
 
-- [旧 SPEC](docs/SPEC.md)描述此前的事件驱动、限价挂单和市值缩水循环方案，不是当前系统规范。
-- `docs/adr/` 保存早期架构决策。引用其中任何决策前，先确认它仍符合当前 PRD 和架构设计。
-- `data/` 仅存放本地回测与研究材料，已从 Git 版本控制中排除。当前交易服务使用 `config/` 中的生产配置，运行状态默认写入 `var/`。
+- [旧版 SPEC](docs/SPEC.md)：记录此前的事件驱动、限价挂单和市值缩水循环方案，仅供追溯。
+- [ADR 历史记录说明](docs/adr/README.md)：ADR 保留当时的决策背景；部分内容已与当前方案不同，当前行为以 PRD 和架构设计为准。
+- `data/` 仅存放本地回测与研究材料，已从 Git 版本控制中排除。当前交易服务使用 `config/` 中的生产配置，运行状态目录必须通过 `PNL_DATA_DIR` 显式指定。
 - `research/` 下的历史回测、模拟和数据处理脚本不属于当前交易服务，也不构成实盘安全或收益保证。
-- `docs/ARCHITECTURE_15M_OVERVIEW.html` 是架构图解材料；若与 Markdown 架构文档不一致，以 Markdown 为准。

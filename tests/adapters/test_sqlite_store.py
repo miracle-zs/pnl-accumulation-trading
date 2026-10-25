@@ -1,30 +1,19 @@
 from contextlib import closing
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 import sqlite3
 import tempfile
-from threading import Barrier
 import unittest
 
-from pnl_trader.adapters.sqlite import (
-    ActiveIntentConflict,
-    IntentConflict,
-    IntentStatus,
-    IntentTransitionError,
-    OrderAttempt,
-    OrderIntent,
-    SQLiteStateStore,
-    StateVersionConflict,
-)
+from pnl_trader.adapters.sqlite import SQLiteStateStore
+from pnl_trader.application.execution_models import IntentStatus, OrderIntent
+from pnl_trader.application.store_errors import ActiveIntentConflict
 from pnl_trader.domain import (
     Action,
     ExecutionReceipt,
-    SymbolState,
     TradeFillRecord,
-    apply_confirmed_execution,
 )
+from tests.helpers import seed_buy_execution
 
 
 D = Decimal
@@ -45,170 +34,89 @@ class SQLiteStateStoreTests(unittest.TestCase):
             mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
         self.assertEqual(mode.lower(), "wal")
 
-        idle = SymbolState(symbol="BTCUSDT")
-        self.store.save_symbol_state("primary", idle, expected_version=None, updated_at_ms=100)
-        opened = apply_confirmed_execution(
+        idle = self.store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+        opened = seed_buy_execution(
+            self.store,
             idle,
-            ExecutionReceipt(Action.OPEN_T1, D("0.1"), D("10")),
+            action=Action.OPEN_T1,
+            quantity=D("0.1"),
+            price=D("10"),
+            intent_id="round-trip-open",
+            timestamp_ms=200,
         )
-        self.store.save_symbol_state("primary", opened, expected_version=0, updated_at_ms=200)
 
-        self.assertEqual(self.store.load_symbol_state("primary", "BTCUSDT"), opened)
-
-    def test_stale_state_version_cannot_overwrite_a_newer_row(self) -> None:
-        idle = SymbolState(symbol="BTCUSDT")
-        self.store.save_symbol_state("primary", idle, expected_version=None, updated_at_ms=100)
-        opened = apply_confirmed_execution(
-            idle,
-            ExecutionReceipt(Action.OPEN_T1, D("0.1"), D("10")),
-        )
-        self.store.save_symbol_state("primary", opened, expected_version=0, updated_at_ms=200)
-
-        with self.assertRaises(StateVersionConflict):
-            self.store.save_symbol_state("primary", opened, expected_version=0, updated_at_ms=300)
+        self.assertEqual(self.store.load_symbol_state("BTCUSDT"), opened)
 
     def test_only_one_active_intent_can_reserve_a_symbol(self) -> None:
-        first = self.buy_intent("intent-1", "slot-1")
-        second = self.buy_intent("intent-2", "slot-2")
+        first = self.buy_intent("intent-1")
+        second = self.buy_intent("intent-2")
         self.seed_idle_symbol()
 
-        self.assertTrue(self.store.create_order_intent(first))
-        self.assertFalse(self.store.create_order_intent(first))
+        self.store.create_order_intent(first)
+        self.store.create_order_intent(first)
+        self.assertEqual(
+            len(self.store.list_active_order_intents("BTCUSDT")),
+            1,
+        )
         with self.assertRaises(ActiveIntentConflict):
             self.store.create_order_intent(second)
-
-    def test_active_intents_for_different_symbols_do_not_share_a_margin_cap(self) -> None:
-        for symbol in ("BTCUSDT", "ETHUSDT"):
-            self.store.save_symbol_state(
-                "primary",
-                SymbolState(symbol=symbol),
-                expected_version=None,
-                updated_at_ms=100,
-            )
-        intents = (
-            self.buy_intent(
-                "intent-btc",
-                "slot-btc",
-                symbol="BTCUSDT",
-            ),
-            self.buy_intent(
-                "intent-eth",
-                "slot-eth",
-                symbol="ETHUSDT",
-            ),
-        )
-        other_connection = SQLiteStateStore(self.db_path)
-        barrier = Barrier(2)
-
-        def reserve(store: SQLiteStateStore, intent: OrderIntent) -> str:
-            barrier.wait(timeout=5)
-            store.create_order_intent(intent)
-            return "accepted"
-
-        try:
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                futures = (
-                    executor.submit(reserve, self.store, intents[0]),
-                    executor.submit(reserve, other_connection, intents[1]),
-                )
-                outcomes = [future.result(timeout=10) for future in futures]
-
-            self.assertCountEqual(("accepted", "accepted"), outcomes)
-            active = self.store.list_active_order_intents("primary")
-            self.assertEqual(len(active), 2)
-        finally:
-            other_connection.close()
 
     def test_unknown_order_blocks_its_symbol_but_not_other_symbols(self) -> None:
         self.seed_idle_symbol("BTCUSDT")
         self.seed_idle_symbol("ETHUSDT")
         first = self.buy_intent(
             "intent-btc",
-            "slot-btc",
             symbol="BTCUSDT",
         )
         next_symbol = self.buy_intent(
             "intent-eth",
-            "slot-eth",
             symbol="ETHUSDT",
         )
         self.store.create_order_intent(first)
-        self.store.create_order_attempt(
-            OrderAttempt(
-                attempt_id="attempt-btc",
-                intent_id=first.intent_id,
-                attempt_no=1,
-                client_order_id="bot-intent-btc",
-                requested_qty=D("0.1"),
-                sent_at_ms=1_001,
-            )
-        )
+        self.store.create_order_attempt(first.intent_id, requested_qty=D("0.1"))
         self.store.transition_intent(
             first.intent_id,
-            expected=IntentStatus.SUBMITTING,
+            expected=IntentStatus.PENDING,
             target=IntentStatus.UNKNOWN,
         )
 
         self.store.close()
         self.store = SQLiteStateStore(self.db_path)
-        recovered = self.store.list_active_order_intents("primary")
+        recovered = self.store.list_active_order_intents()
         self.assertEqual(len(recovered), 1)
         self.assertEqual(recovered[0].status, IntentStatus.UNKNOWN)
-        self.assertIsNotNone(recovered[0].attempt)
-        self.assertEqual(recovered[0].attempt.status, IntentStatus.UNKNOWN)
+        self.assertEqual(recovered[0].requested_qty, D("0.1"))
 
-        self.assertTrue(self.store.create_order_intent(next_symbol))
+        self.store.create_order_intent(next_symbol)
 
         self.store.resolve_no_fill(
             first.intent_id,
-            receipt_id="receipt-btc-no-fill",
             expected=IntentStatus.UNKNOWN,
             terminal_status=IntentStatus.CANCELED,
-            resolved_at_ms=1_002,
-            confirmed_filled_qty=D("0"),
-            confirmed_quote_qty=D("0"),
         )
 
-        active = self.store.list_active_order_intents("primary")
+        active = self.store.list_active_order_intents()
         self.assertEqual([record.intent.symbol for record in active], ["ETHUSDT"])
 
     def test_partial_fill_keeps_its_symbol_active_until_terminal_execution_is_applied(self) -> None:
         self.seed_idle_symbol("BTCUSDT")
         self.seed_idle_symbol("ETHUSDT")
-        first = self.buy_intent(
-            "intent-btc",
-            "slot-btc",
-            symbol="BTCUSDT",
-        )
-        next_symbol = self.buy_intent(
-            "intent-eth",
-            "slot-eth",
-            symbol="ETHUSDT",
-        )
+        first = self.buy_intent("intent-btc", symbol="BTCUSDT")
+        next_symbol = self.buy_intent("intent-eth", symbol="ETHUSDT")
         self.store.create_order_intent(first)
-        self.store.create_order_attempt(
-            OrderAttempt(
-                attempt_id="attempt-btc",
-                intent_id=first.intent_id,
-                attempt_no=1,
-                client_order_id="bot-intent-btc",
-                requested_qty=D("0.1"),
-                sent_at_ms=1_001,
-            )
-        )
+        self.store.create_order_attempt(first.intent_id, requested_qty=D("0.1"))
         self.store.transition_intent(
             first.intent_id,
-            expected=IntentStatus.SUBMITTING,
+            expected=IntentStatus.PENDING,
             target=IntentStatus.PARTIALLY_FILLED,
         )
 
-        self.assertTrue(self.store.create_order_intent(next_symbol))
+        self.store.create_order_intent(next_symbol)
 
         receipt = ExecutionReceipt(Action.OPEN_T1, D("0.04"), D("4"))
         fill = TradeFillRecord(
             symbol="BTCUSDT",
             exchange_trade_id="trade-btc-1",
-            client_order_id="bot-intent-btc",
             side="BUY",
             price=D("100"),
             qty=D("0.04"),
@@ -218,108 +126,65 @@ class SQLiteStateStoreTests(unittest.TestCase):
             traded_at_ms=1_002,
         )
         self.store.commit_confirmed_execution(
-            receipt_id="receipt-btc-partial-cancel",
             intent_id=first.intent_id,
             receipt=receipt,
             fills=(fill,),
             expected_intent_status=IntentStatus.PARTIALLY_FILLED,
             terminal_status=IntentStatus.CANCELED,
-            applied_at_ms=1_003,
+            updated_at_ms=1_003,
         )
 
         self.assertEqual(self.store.get_intent_status(first.intent_id), IntentStatus.CANCELED)
         self.assertEqual(
-            self.store.load_symbol_state("primary", "BTCUSDT").qty,
+            self.store.load_symbol_state("BTCUSDT").qty,
             D("0.04"),
         )
-        active = self.store.list_active_order_intents("primary")
+        active = self.store.list_active_order_intents()
         self.assertEqual([record.intent.symbol for record in active], ["ETHUSDT"])
 
-    def test_business_key_cannot_be_reused_for_a_different_intent(self) -> None:
-        first = self.buy_intent("intent-1", "slot-1")
-        reused_key = replace(first, intent_id="intent-2", buy_notional=D("20"))
-        self.seed_idle_symbol()
-        self.store.create_order_intent(first)
-
-        with self.assertRaises(IntentConflict):
-            self.store.create_order_intent(reused_key)
-
     def test_intent_status_requires_an_allowed_compare_and_swap(self) -> None:
-        intent = self.buy_intent("intent-1", "slot-1")
+        intent = self.buy_intent("intent-1")
         self.seed_idle_symbol()
         self.store.create_order_intent(intent)
-        self.store.create_order_attempt(
-            OrderAttempt(
-                attempt_id="attempt-1",
-                intent_id=intent.intent_id,
-                attempt_no=1,
-                client_order_id="bot-intent-1",
-                requested_qty=D("0.1"),
-                sent_at_ms=1_001,
-            )
-        )
+        self.store.create_order_attempt(intent.intent_id, requested_qty=D("0.1"))
         self.store.transition_intent(
             intent.intent_id,
-            expected=IntentStatus.SUBMITTING,
+            expected=IntentStatus.PENDING,
             target=IntentStatus.UNKNOWN,
         )
 
         self.assertEqual(self.store.get_intent_status(intent.intent_id), IntentStatus.UNKNOWN)
-        active = self.store.list_active_order_intents("primary")
-        self.assertEqual(active[0].attempt.status, IntentStatus.UNKNOWN)
-        with self.assertRaises(IntentTransitionError):
+        active = self.store.list_active_order_intents()
+        self.assertEqual(active[0].status, IntentStatus.UNKNOWN)
+        with self.assertRaises(RuntimeError):
             self.store.transition_intent(
                 intent.intent_id,
-                expected=IntentStatus.SUBMITTING,
+                expected=IntentStatus.PENDING,
                 target=IntentStatus.FILLED,
             )
 
-    def test_reopening_database_keeps_state_and_schema_version(self) -> None:
-        state = SymbolState(symbol="BTCUSDT")
-        self.store.save_symbol_state("primary", state, expected_version=None, updated_at_ms=100)
+    def test_reopening_database_keeps_symbol_state(self) -> None:
+        state = self.store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
         self.store.close()
 
         self.store = SQLiteStateStore(self.db_path)
 
-        self.assertEqual(self.store.load_symbol_state("primary", "BTCUSDT"), state)
-
-    def test_stale_strategy_decision_cannot_reserve_an_intent(self) -> None:
-        idle = SymbolState(symbol="BTCUSDT")
-        self.store.save_symbol_state("primary", idle, expected_version=None, updated_at_ms=100)
-        opened = apply_confirmed_execution(
-            idle,
-            ExecutionReceipt(Action.OPEN_T1, D("0.1"), D("10")),
-        )
-        self.store.save_symbol_state("primary", opened, expected_version=0, updated_at_ms=200)
-
-        with self.assertRaises(StateVersionConflict):
-            self.store.create_order_intent(self.buy_intent("stale", "slot-stale"))
+        self.assertEqual(self.store.load_symbol_state("BTCUSDT"), state)
 
     def seed_idle_symbol(self, symbol: str = "BTCUSDT") -> None:
-        self.store.save_symbol_state(
-            "primary",
-            SymbolState(symbol=symbol),
-            expected_version=None,
-            updated_at_ms=100,
-        )
+        self.store.ensure_idle_symbol_state(symbol, created_at_ms=100)
 
     @staticmethod
     def buy_intent(
         intent_id: str,
-        business_key: str,
         *,
         symbol: str = "BTCUSDT",
     ) -> OrderIntent:
         return OrderIntent(
             intent_id=intent_id,
-            account_id="primary",
             symbol=symbol,
-            cycle_id=0,
             action=Action.OPEN_T1,
-            business_key=business_key,
-            expected_state_version=0,
             created_at_ms=1_000,
-            buy_notional=D("10"),
         )
 
 

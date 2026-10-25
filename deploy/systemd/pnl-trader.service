@@ -16,12 +16,10 @@ StateDirectory=pnl-trader
 StateDirectoryMode=0700
 LoadCredential=binance_api_key:/etc/pnl-trader/credentials/binance-api-key
 LoadCredential=binance_api_secret:/etc/pnl-trader/credentials/binance-api-secret
-ExecStartPre=/opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
 ExecStart=/opt/pnl-accumulation-trading/.venv/bin/pnl-trader run
 Restart=on-failure
 RestartSec=10s
 TimeoutStopSec=60s
-KillSignal=SIGTERM
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes
@@ -33,7 +31,6 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 CapabilityBoundingSet=
-AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]

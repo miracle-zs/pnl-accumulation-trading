@@ -41,7 +41,6 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 client=client,
                 api_key="test-api-key",
                 api_secret="test-api-secret",
-                base_url="https://binance.test",
                 clock_ms=lambda: 1_700_000_000_000,
             )
             result = await gateway.submit_market_order(
@@ -50,7 +49,6 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                     side="SELL",
                     quantity=Decimal("0.01"),
                     client_order_id="test-close-1",
-                    reduce_only=True,
                 )
             )
 
@@ -90,7 +88,6 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 client=client,
                 api_key="test-api-key",
                 api_secret="test-api-secret",
-                base_url="https://binance.test",
                 clock_ms=lambda: 1_700_000_000_000,
             )
             result = await gateway.submit_market_order(
@@ -99,7 +96,6 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                     side="BUY",
                     quantity=Decimal("0.01"),
                     client_order_id="test-open-1",
-                    reduce_only=False,
                 )
             )
 
@@ -133,7 +129,6 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 client=client,
                 api_key="test-api-key",
                 api_secret="test-api-secret",
-                base_url="https://binance.test",
             )
             with patch(
                 "pnl_trader.adapters.binance.gateway.asyncio.sleep",
@@ -175,12 +170,10 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 client=client,
                 api_key="test-api-key",
                 api_secret="test-api-secret",
-                base_url="https://binance.test",
             )
             snapshot = await gateway.get_fifteen_minute_close("BTCUSDT", slot_start_ms)
 
         self.assertEqual(snapshot.close_price, Decimal("60500.5"))
-        self.assertEqual(snapshot.close_time_ms, expected_close_time_ms)
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].url.path, "/fapi/v1/klines")
         self.assertEqual(requests[0].url.params["interval"], "15m")

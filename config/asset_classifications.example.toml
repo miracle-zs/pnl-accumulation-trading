@@ -5,35 +5,15 @@ version = "example-v1"
 [[assets]]
 base_asset = "BTC"
 classification = "NATIVE_CRYPTO"
-source = "manual-review-example"
-reviewed_at_ms = 0
-note = "Example record; replace its review metadata before deployment."
 
 [[assets]]
 base_asset = "ETH"
 classification = "NATIVE_CRYPTO"
-source = "manual-review-example"
-reviewed_at_ms = 0
-note = "Example record; replace its review metadata before deployment."
 
 [[assets]]
 base_asset = "AAPL"
 classification = "NON_CRYPTO"
-source = "PRD non-crypto example"
-reviewed_at_ms = 0
-note = "Tokenized equity example from the PRD."
 
 [[assets]]
 base_asset = "USDC"
 classification = "NON_CRYPTO"
-source = "PRD non-crypto example"
-reviewed_at_ms = 0
-note = "Stablecoin swap example from the PRD."
-
-# A contract-level announcement or operator decision can be recorded as:
-# [[contracts]]
-# symbol = "TOKENUSDT"
-# kind = "EXIT_ONLY"
-# source = "reviewed Binance delisting announcement"
-# recorded_at_ms = 0
-# note = "Stop increases and reopening; reduce only while exchange trading allows."

@@ -15,10 +15,9 @@
 3. **脉冲暴拉时的追高陷阱**：山寨币短时暴涨（如 5 秒内暴拉 +25%）打穿 +10% 限价单时，程序收到成交推送时市价往往已飙至高位，此时“原价秒开”根本无法成交，市价追单则面临巨大追高滑点，直接挂在山顶。
 
 ### 1.2 15 分钟定时统计的设计哲学
-本方案采用**“离散时间采样（Discrete-Time Sampling）+ 无状态轮询（Stateless Polling）”**的设计哲学：
-* **工程降维**：完全抛弃 WebSocket 订单监听与盘面挂单，每 15 分钟只跑一次极轻量的 REST API 巡检，单核低配 VPS 即可稳如泰山运行；
-* **捕获单边大阳线（Overshoot 溢价）**：在遇到大暴拉行情时，15 分钟收盘可直接以市价一次性锁定 +20%~+30% 的超额收益，避免在 +10% 处被过早贱卖；
-* **回测实证数据支撑**：在 100 个核心高成交量标的、26,208 根 15 分钟真实 K 线的全量回测中，15 分钟定时统计的总净利润达到 **+$1,349.68**，与盘中限价单（+$1,323.25）完全持平甚至微幅占优。
+本方案采用**“离散时间采样（Discrete-Time Sampling）+ REST 周期轮询 + 最小持久状态”**的设计：
+* **工程降维**：不使用 WebSocket 订单监听或策略限价挂单；每 15 分钟通过 REST 巡检，SQLite 只保留策略状态、订单意图与成交明细；
+* **收盘价决策**：只根据已收盘的 15 分钟 K 线判断策略动作，再提交市价单；实际成交价格由交易所执行决定。
 
 ---
 
@@ -33,9 +32,9 @@
                                       v
        +-------------------------------------------------------------+
        |             ReviewExecutor (15m 巡检执行核心)                |
-       | 1. GET /fapi/v2/positionRisk (一次性拉取全部多头持仓)        |
-       | 2. 与本地 SQLite 对账并识别当前 Tier 层级与分批状态           |
-       | 3. 计算收益率 ret = (15mClose - avgPrice) / avgPrice        |
+       | 1. GET /fapi/v3/positionRisk (一次性读取全部持仓)             |
+       | 2. 与本地 SQLite 状态及未完成订单核对                         |
+       | 3. 读取候选标的 15m K 线收盘价并计算策略动作                  |
        +------------------------------+------------------------------+
                                       |
                +----------------------+----------------------+
@@ -52,25 +51,25 @@
                                       |
                                       v
        +-------------------------------------------------------------+
-       |        OrderExecutionGateway (市价下单 & 精度格式化)         |
-       | - 自动适配 LOT_SIZE (stepSize) 与 MIN_NOTIONAL (>= 5 USDT)   |
+       |        OrderExecutionGateway (市价下单与成交确认)              |
+       | - 按 MARKET_LOT_SIZE 对齐，检查 MIN_NOTIONAL                  |
        +------------------------------+------------------------------+
                                       |
                +----------------------+----------------------+
                |                                             |
                v                                             v
 +-------------------------------+             +-------------------------------+
-|     SQLite (WAL 模式持久化)    |             |      Webhook 告警与通知       |
-| - 记录 symbols_state 状态锁   |             | - 飞书 / 钉钉 / Telegram      |
-| - 记录 trade_history 成交账本 |             | - 实时止盈卡片、每日晨报汇总  |
+|     SQLite (WAL 模式持久化)    |             |        可选告警与日报         |
+| - symbol_states 标的状态      |             | - 核心交易闭环不依赖通知      |
+| - order_intents / trade_fills |             |                               |
 +-------------------------------+             +-------------------------------+
 ```
 
 * **开发语言**：Python 3.11+
-* **交易所连接**：Binance USDT-M Futures REST API（使用 `requests` 或 `aiohttp`）
-* **存储引擎**：SQLite 3（开启 `PRAGMA journal_mode=WAL;`，支持高并发无锁读写）
+* **交易所连接**：Binance USDT-M Futures REST API（`httpx`）
+* **存储引擎**：SQLite 3（开启 `PRAGMA journal_mode=WAL;`，供单实例交易进程写入和仪表盘只读）
 * **调度机制**：系统级 `cron` 或 Python 内置 `APScheduler`（每 15 分钟执行一次）
-* **消息通知**：支持 飞书 / 钉钉 / Telegram Webhook
+* **消息通知**：后续可扩展飞书 / 钉钉 / Telegram Webhook，不属于当前精简交易闭环
 
 ---
 
@@ -90,13 +89,12 @@
 #### 2. 新币发现与人工审核
 * 系统每日或启动时扫描 `exchangeInfo`。新发现的合约先标记为待审核，不参与开仓或补仓；
 * 维护者确认其为原生加密资产后，将它加入已审核的标的分类文件。重启后系统加载该审核版本；符合正常交易条件的标的从下一轮开始进入策略判断，按策略决定是否开立 10 USDT Tier 1 底仓；
-* **退市保护**：若交易所发布下架公告或合约状态变为 `SETTLING` / `CLOSE`，系统停止补仓，并在下架前最终交割结算。
+* **退市处置**：当前闭环不订阅下架公告，也不自动执行交割结算或重建本地状态。合约状态不再是 `TRADING` 后，该标的不再通过准入，下单规划也拒绝该合约的订单，因此系统不会自动开仓、补仓或平仓；已有本地仓位不会自动清除。若结算后币安不再返回该仓位而本地仍记为 `OPEN`，仓位核对会停止整轮；维护者需人工核对并修复本地状态后再恢复交易。
 
 #### 3. 资金规模与账户保证金测算（以 630 个原生币为例）
 * **单币底仓参数**：名义价值 10 USDT，杠杆假设 10x；按名义价值除以杠杆估算，单币初始保证金为 1 USDT。
 * **初始底仓估算**：630 个标的全部开立 T1 时，名义总额 6,300 USDT，初始保证金估算为 630 USDT。
-* **历史路径估算**：当前简化回测的最大名义保证金估算为 1,534.04 USDT；在同一路径下，为使权益减去该保证金估算不为负，起始资金下限约为 2,480.73 USDT，且没有额外储备。
-* 该数值不是实盘安全本金或强平结论。真实保证金取决于 Binance 合约风险限额、维持保证金、资金费、滑点和账户持仓。本系统不在下单前读取账户快照做保证金准入；买单由 Binance 接受或拒绝，拒单原因写入运行日志。上述估算不承诺“安全”或“绝无爆仓”。
+* 该初始保证金估算只是按假设杠杆计算的参考值，不是实盘安全本金或强平结论。真实保证金取决于 Binance 合约风险限额、维持保证金、资金费、滑点和账户持仓。本系统不在下单前读取账户快照做保证金准入；买单由 Binance 接受或拒绝，拒单原因写入运行日志。
 
 ---
 
@@ -155,173 +153,45 @@
 
 ---
 
-### 3.3 全系统执行模式：100% 纯无状态 15 分钟市价流 (Pure Stateless Execution)
+### 3.3 全系统执行模式：15 分钟 REST 市价轮询（不挂限价单）
 
-用户最终确认采用**全系统零挂单方案**：
-* **彻底不挂任何限价单**：不在交易所保留任何未结挂单（Open Orders 为 0）。
-* **所有买卖均在 15m 收盘瞬间判定**：
+用户最终确认采用**不挂限价单的方案**：
+* **不提交限价单**：策略不在交易所保留等待触发的限价挂单。
+* **每轮在 15m 收盘后判定动作**：
   * 止盈平仓：15m 收盘市价平仓；
   * 平仓后重开：15m 收盘市价开 10U；
   * DCA 跌破补仓：15m 收盘若价格 $\le$ 上一档价格的 50%，市价买入 20U / 60U；
   * 利润反哺注销：15m 收盘若现价 $\le P_{writeoff}$，市价全平注销死仓并重开 10U T1。
-* **工程巨大优势**：无需处理 WebSocket 订单状态推送，无需处理由于价格剧烈跳动导致的限价单未成交/部分成交死锁。本地只需单向按时钟触发 REST API，单次耗时不超过 2 秒。
-
----
-
-### 3.4 当前规则的历史回测统计
-
-以下为此前基于本地回测脚本和行情缓存计算的历史结果（保存在 `data/`，该目录不纳入 Git，也不随代码仓库分发）。数据包含 630 个标的、26,208 根 15 分钟 K 线。模拟按 K 线收盘价成交，名义金额为 T1 10 USDT、T2 增仓 20 USDT、T3 增仓 60 USDT，Taker 手续费率为 0.05%；统计包含开仓、补仓、平仓和注销重开的手续费。
-
-* **总净利润**：**+$5,430.12 USDT**（已实现净现金 + 期末未结仓位浮动盈亏）
-* **已实现净现金**：**+$9,379.11 USDT**（扣除开仓、补仓及平仓手续费）
-* **期末未结仓位浮动盈亏**：**-$3,948.99 USDT**
-* **止盈事件**：**3,556 次**（部分止盈按每次成交事件计数）
-* **补仓事件**：**862 次**
-* **T3 注销并重开 T1**：**7 次**
-* **累计手续费**：**56.79 USDT**
-
-同一回测脚本还按 10x 名义初始保证金估算账户路径。起始资金 1,500 USDT 时最低权益为 -206.82 USDT、最大回撤 3,075.25 USDT（109.1%）；起始资金 2,000 USDT 时最低权益为 293.18 USDT、最大回撤 3,075.25 USDT（89.4%）。两种情景的最低可用权益分别为 -980.73 USDT 和 -480.73 USDT，表示历史路径中的部分时点无法覆盖估算的初始保证金。
-
-账户路径是未加资金门禁的回放：即使可用权益为负，脚本仍继续执行后续交易。因此以上回撤与权益是压力诊断，不代表这些资金规模能真实执行完整策略。模型按 15 分钟收盘价成交、固定 10x 估算初始保证金；没有纳入 Binance 风险限额与维持保证金、强平、资金费、滑点、数量精度或动态标的准入。实盘安全本金仍未得到验证。
+* **订单结果仍需确认**：市价单提交后，通过 REST 查询订单和成交；结果未知时按客户端订单 ID 查询，不重复提交。SQLite 保存必要的策略状态和未完成订单，用于按实际成交更新仓位并在重启后恢复。
+* **执行方式**：系统不使用 WebSocket，也不保留策略限价挂单。每轮执行时间取决于候选标的数量和 REST 请求耗时，不承诺固定在 2 秒内完成。
 
 ---
 
 ## 4. 15 分钟巡检调度执行细节 (Review Engine Execution)
 
 ### 4.1 触发时序
-* 触发时间点设定在每 15 分钟收盘后的 **第 3~5 秒**（如 `12:00:04`, `12:15:04`, `12:30:04`, `12:45:04`）；
-* 留出 3~5 秒延迟的目的是：等待币安完成上一根 15 分钟 K 线收盘，避免读取尚未完成的 K 线。
+* 调度器使用 UTC，在每小时的 `00`、`15`、`30`、`45` 分第 5 秒启动巡检；
+* 每轮只处理刚收盘的 15 分钟时段，不补跑超过调度宽限期的旧时段。
 
-### 4.2 巡检 5 步走核心逻辑
-
-```python
-def on_15m_timer_trigger():
-    # 1. 抓取交易所最新全量多头持仓 (单次 API 调用)
-    positions = exchange.get_all_positions(filter_positive=True)
-    
-    # 2. 读取本地数据库状态
-    db_states = db.get_all_symbol_states()
-    
-    # 3. 遍历当前持仓标的进行损益判定与处理
-    for symbol, pos in positions.items():
-        state = db_states.get(symbol) or init_state_from_position(pos)
-        
-        # 按本轮 15 分钟 K 线收盘价计算策略收益率
-        close_price = exchange.get_15m_close(symbol, slot_start_ms)
-        ret = (close_price - pos.avg_price) / pos.avg_price
-        
-        # --- Tier 1 判定 ---
-        if state.tier == 1:
-            if ret >= 0.10: # 浮盈 >= 10%
-                exchange.market_close_all(symbol)
-                db.record_trade(symbol, "TP_T1", pnl=pos.unrealized_pnl)
-                # 立刻重开 Tier 1
-                exchange.market_open(symbol, notional=10.0)
-                db.reset_tier(symbol, tier=1)
-                notifier.send_tp_alert(symbol, tier=1, ret=ret, pnl=pos.unrealized_pnl)
-                
-        # --- Tier 2 判定 ---
-        elif state.tier == 2:
-            if ret >= 0.50: # Batch 2 目标达成: 全平
-                exchange.market_close_all(symbol)
-                db.record_trade(symbol, "TP_T2_BATCH2", pnl=pos.unrealized_pnl)
-                exchange.market_open(symbol, notional=10.0)
-                db.reset_tier(symbol, tier=1)
-                notifier.send_tp_alert(symbol, tier=2, ret=ret, pnl=pos.unrealized_pnl)
-            elif ret >= 0.20 and not state.t2_batch1_done: # Batch 1 目标达成: 平一半
-                close_qty = state.t2_initial_qty * 0.5
-                exchange.market_close_partial(symbol, qty=close_qty)
-                db.mark_t2_batch1_done(symbol)
-                notifier.send_tp_alert(symbol, tier=2, ret=ret, msg="已锁定第一批 50% 利润")
-
-        # --- Tier 3 判定 ---
-        elif state.tier == 3:
-            # 优先判定：是否触发利润反哺注销重启 (close_price <= 5U / Q_T3)
-            if state.writeoff_price > 0 and close_price <= state.writeoff_price:
-                exchange.market_close_all(symbol) # 彻底平仓割肉注销
-                db.record_trade(symbol, "WRITE_OFF_CLEANUP", pnl=pos.unrealized_pnl)
-                # 立刻超跌底价重开全新 Tier 1 底仓
-                exchange.market_open(symbol, notional=10.0)
-                db.reset_tier(symbol, tier=1)
-                notifier.send_alert(f"【打扫战场注销】{symbol} 触发归零注销，扣除利润核销，已在底价重启 T1")
-                continue
-
-            if ret >= 1.00: # Batch 3: 全平
-                exchange.market_close_all(symbol)
-                exchange.market_open(symbol, notional=10.0)
-                db.reset_tier(symbol, tier=1)
-            elif ret >= 0.50 and state.t3_batches_done < 2:
-                # 平第二批
-                exchange.market_close_partial(symbol, qty=state.t3_initial_qty * (2 - state.t3_batches_done) / 3.0)
-                db.set_t3_batches_done(symbol, 2)
-            elif ret >= 0.20 and state.t3_batches_done == 0:
-                # 平第一批
-                exchange.market_close_partial(symbol, qty=state.t3_initial_qty / 3.0)
-                db.set_t3_batches_done(symbol, 1)
-
-    # 4. 检查标的池中空闲币种 (已完全平仓或尚未开仓的)，自动补开 Tier 1 (10U)
-    for symbol in TARGET_UNIVERSE:
-        if symbol not in positions or positions[symbol].qty == 0:
-            exchange.market_open(symbol, notional=10.0)
-            db.init_symbol_state(symbol, tier=1)
-
-```
+### 4.2 每轮巡检要求
+1. 先按客户端订单 ID 恢复未完成订单；结果不确定时不重复提交，相关标的保持阻塞。
+2. 每轮读取一次交易所持仓，并读取已审核标的资格；将本地状态与交易所持仓及未完成订单的预期数量范围核对。无法解释的仓位差异或无本地状态的非零仓位会停止本轮。
+3. 按持仓优先、开仓其次的顺序处理标的。策略只使用该时段 15 分钟 K 线收盘价，不另取标记价。
+4. 每个标的每轮最多执行一个止盈或补仓动作。全平成交确认后，若标的仍通过审核且符合开仓条件，则在同轮重开 T1。
+5. 下单前按交易所数量规则对齐并估算最小名义价值；先保存订单意图，再提交市价单。只有交易所成交得到确认后，才按实际成交更新仓位状态和成交流水。
+6. 单个标的的行情、规则或下单失败只记录异常并继续处理其他标的；持仓或标的资格整批快照失败，以及无法解释的持仓差异，会停止本轮。
 
 ---
 
-## 5. 数据库设计 (Database Schema - SQLite)
+## 5. 本地持久化要求
 
-使用嵌入式 SQLite 数据库，启用 WAL 模式保证高性能与崩溃自愈。
+使用单机 SQLite 保存精简闭环必需的执行事实：
 
-### 表 1：标的状态表 (`symbols_state`)
-记录当前各标的生命周期及分批止盈锁状态：
-```sql
-CREATE TABLE IF NOT EXISTS symbols_state (
-    symbol TEXT PRIMARY KEY,
-    tier INTEGER NOT NULL DEFAULT 1,          -- 当前层级: 1, 2, 3
-    is_active INTEGER NOT NULL DEFAULT 1,      -- 是否在场内
-    t2_batch1_done INTEGER NOT NULL DEFAULT 0, -- T2 第一批是否已平仓 (0/1 状态锁)
-    t3_batches_done INTEGER NOT NULL DEFAULT 0,-- T3 已平批次数 (0, 1, 2)
-    t2_initial_qty REAL DEFAULT 0.0,           -- 进入 T2 时的初始总持仓数量
-    t3_initial_qty REAL DEFAULT 0.0,           -- 进入 T3 时的初始总持仓数量
-    entry_price REAL NOT NULL,                 -- 当前持仓加权均价
-    entry_t1 REAL NOT NULL,                    -- T1 初始开仓价
-    entry_t2 REAL DEFAULT 0.0,                 -- T2 补仓触发价
-    entry_t3 REAL DEFAULT 0.0,                 -- T3 补仓触发价
-    writeoff_price REAL DEFAULT 0.0,           -- 铁底注销价格点 (5.0 / t3_initial_qty)
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
+* `symbol_states` 保存标的当前 Tier、数量、均价、当前 Tier 的入场数据、止盈批次和生命周期；累计已卖数量由 Tier 入场数量减当前数量得出，不重复保存。
+* `order_intents` 保存动作、累计卖出目标、请求数量和执行状态；`intent_id` 同时作为 Binance 客户端订单 ID。订单意图和请求数量必须在提交前保存。
+* `trade_fills` 保存 Binance 已确认成交明细。确认成交后，在同一事务中写入成交、更新标的状态并结束订单意图。
 
-### 表 2：交易流水表 (`trade_history`)
-```sql
-CREATE TABLE IF NOT EXISTS trade_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL,
-    action TEXT NOT NULL,                      -- 'OPEN_T1', 'BUY_T2', 'TP_T1', 'TP_T2_B1' 等
-    tier INTEGER NOT NULL,
-    price REAL NOT NULL,
-    qty REAL NOT NULL,
-    realized_pnl REAL DEFAULT 0.0,             -- 实现盈亏 (USDT)
-    commission REAL DEFAULT 0.0,               -- 手续费
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### 表 3：账户资产快照表 (`account_snapshots`，后续扩展)
-
-该表用于未来的账户报表，不参与当前交易准入；当前精简交易闭环不请求或写入账户资产快照。
-```sql
-CREATE TABLE IF NOT EXISTS account_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    total_wallet_balance REAL NOT NULL,        -- 钱包本金
-    total_unrealized_pnl REAL NOT NULL,        -- 未结浮动盈亏
-    total_margin_used REAL NOT NULL,           -- 已用保证金
-    margin_ratio REAL NOT NULL,                -- 维持保证金率 (防爆仓)
-    open_positions_count INTEGER NOT NULL      -- 持仓标的数
-);
-```
+账户资产快照、每轮巡检历史和自动重建持仓状态不属于当前闭环。旧数据库不迁移；若本地状态缺失而交易所仍有策略仓位或未决订单，负责人必须先恢复或人工核对后再启动。表结构以《15 分钟定时交易系统：精简架构》为准。
 
 ---
 
@@ -332,19 +202,19 @@ CREATE TABLE IF NOT EXISTS account_snapshots (
 * **处理方案**：
   * Tier 1 开仓为 10 USDT（高于 5U，正常通过）；
   * Tier 2 分批平仓为 15 USDT（高于 5U，正常通过）；
-  * 若因币种价格极度暴跌导致半仓市值 $< 5\text{ USDT}$，系统应自动执行**“整仓合并平仓（Merge into 100% Close）”**，直接一次性平掉全部仓位，防止抛出 `Filter failure: MIN_NOTIONAL` 异常。
+  * 若按最近 15 分钟收盘价估算的分批平仓名义价值低于 5 USDT，系统合并为整仓平仓。由于不单独请求标记价，本地结果只是估算；Binance 仍按标记价做市价单最终校验，拒单时记录异常，不保证合并单一定通过。
 
-### 6.2 数量精度自动对齐（LOT_SIZE / stepSize）
-* 每次下单前，自动读取从 `/fapi/v1/exchangeInfo` 获取的 `stepSize`，对 `qty` 执行向下截断取整（`floor_to_step(qty, stepSize)`），严禁四舍五入导致超额平仓。
+### 6.2 市价单数量对齐（MARKET_LOT_SIZE）
+* 下单使用 `/fapi/v1/exchangeInfo` 中的 `minQty`、`maxQty` 和 `stepSize`；合约目录由网关进程内缓存，不逐笔下单刷新。数量从 `minQty` 起按 `stepSize` 向下对齐，且不得超过 `maxQty`，严禁向上取整导致超额下单或平仓。
 
 ### 6.3 网络超时与 API 限流（429 频控防范）
-* 单次 15 分钟巡检中，持仓查询仅需**单次调用**（权重仅为 5），远低于币安每分钟 1,200 的请求权重上限；
-* 批量下单时增加单次间隔（20ms），若遇到网络超时，采用指数退避重试（重试 3 次，间隔 1s, 2s, 4s）。
+* 每轮只读取一次账户持仓；合约目录在进程内缓存 24 小时；每个进入策略决策的候选标的读取一根 15 分钟 K 线，不额外请求标记价或账户资产快照；
+* 只读 GET 遇到网络错误、服务端错误或 429 时，指数退避重试最多 3 次；市价下单 POST 不自动重试，结果不确定时按客户端订单 ID 查询，确认前不重复提交。
 
-### 6.4 宕机自愈机制（Crash Resilience）
-* 若由于服务器断电或重启错过某一轮 15m 巡检：
-  * 程序下次启动时，直接调用 `GET /fapi/v2/positionRisk` 重新拉取实盘持仓；
-  * 若数据库文件丢失，系统可根据各币种当前的 `notional` 自动逆向推导层级（$10\text{U} \to \text{T1}$, $30\text{U} \to \text{T2}$, $90\text{U} \to \text{T3}$），**实现 0 状态秒级自愈**！
+### 6.4 重启恢复与本地状态丢失
+* SQLite 状态文件仍在时，每轮策略处理前先按客户端订单 ID 查询未完成订单，再按确认成交更新本地状态；实盘持仓快照用于核对本地状态。
+* 不从持仓名义金额推断 Tier 或止盈批次。数据库丢失时，新数据库不包含原策略状态；若账户仍有本系统持仓或未决订单，负责人必须先恢复或人工核对状态，再启动交易服务。
+* 当前不迁移旧数据库，也不提供数据库丢失后的自动重建。
 
 ---
 
@@ -365,12 +235,9 @@ CREATE TABLE IF NOT EXISTS account_snapshots (
 
 ## 8. 上线里程碑与交付计划 (Roadmap)
 
-1. **Phase 1（核心执行器与数据库实现，1-2天）**：
-   * 编写 `exchange_gateway.py`（封装仓位查询、市价下单、精度对齐）；
-   * 编写 `db_manager.py`（初始化 SQLite 表及状态锁读写）；
-   * 编写 `engine_15m.py`（实现 15 分钟核心巡检判定闭环）。
-2. **Phase 2（模拟网与小资金实盘验证，2-3天）**：
-   * 在币安合约 Testnet 或实盘账户选取 3~5 个标的（每单 10U）实盘观察 48 小时；
-   * 验证 15m 触发点是否精准、止盈分批锁是否稳健、重开是否平滑。
-3. **Phase 3（全标的部署与监控接入，1天）**：
-   * 导入完整标的池，配置 Webhook 告警机器人，通过 systemd 或 Docker 容器化守护运行。
+1. **Phase 1（精简交易闭环）**：
+   * 完成策略判断、SQLite 状态与订单保存、Binance REST 交易接入及 15 分钟巡检调度。
+2. **Phase 2（主网运行验收，由项目负责人另行决定）**：
+   * 确认账户状态、审核后的标的分类和本地状态文件后，由负责人明确决定是否启动主网服务；开发和代码审查过程不自动启动服务或提交订单。
+3. **Phase 3（可选扩展）**：
+   * 核心交易闭环稳定后，再考虑 Webhook 告警和每日晨报；它们不作为交易执行的前置条件。

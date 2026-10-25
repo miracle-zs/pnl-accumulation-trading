@@ -28,14 +28,11 @@ from pnl_trader.application.review_run_models import (
 )
 from pnl_trader.domain import (
     Action,
-    ExecutionReceipt,
     Lifecycle,
-    Observation,
-    SymbolState,
     Tier,
     TradeFillRecord,
-    apply_confirmed_execution,
 )
+from tests.helpers import seed_buy_execution
 
 
 D = Decimal
@@ -49,21 +46,25 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
                 idle = store.ensure_idle_symbol_state(
-                    "primary", "BTCUSDT", created_at_ms=100
+                    "BTCUSDT", created_at_ms=100
                 )
-                t1 = apply_confirmed_execution(
+                t1 = seed_buy_execution(
+                    store,
                     idle,
-                    ExecutionReceipt(Action.OPEN_T1, D("0.1"), D("10")),
+                    action=Action.OPEN_T1,
+                    quantity=D("0.1"),
+                    price=D("10"),
+                    intent_id="seed-review-t1",
+                    timestamp_ms=200,
                 )
-                store.save_symbol_state(
-                    "primary", t1, expected_version=idle.version, updated_at_ms=200
-                )
-                t2 = apply_confirmed_execution(
+                t2 = seed_buy_execution(
+                    store,
                     t1,
-                    ExecutionReceipt(Action.ADD_T2, D("0.4"), D("20")),
-                )
-                store.save_symbol_state(
-                    "primary", t2, expected_version=t1.version, updated_at_ms=300
+                    action=Action.ADD_T2,
+                    quantity=D("0.4"),
+                    price=D("50"),
+                    intent_id="seed-review-t2",
+                    timestamp_ms=300,
                 )
 
                 exchange = _FilledExchange()
@@ -76,34 +77,27 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     store=store,
                     exchange=exchange,
                     execution=execution,
-                    clock_ms=lambda: NOW_MS,
                 )
                 review_runs = ReviewRunCoordinator(
                     store=store,
                     execution=execution,
                     symbol_reviews=symbol_reviews,
                     batch_source=_OneSymbolBatchSource(),
-                    process_lock=_HeldProcessLock(),
-                    clock_ms=lambda: NOW_MS,
                 )
 
                 result = await review_runs.run_slot(
-                    account_id="primary",
-                    strategy_version="strategy-v1",
                     slot_start_ms=SLOT_START_MS,
                 )
 
-                final_state = store.load_symbol_state("primary", "BTCUSDT")
-                self.assertEqual(result.failure_count, 0)
-                self.assertEqual(result.processed_count, 1)
+                final_state = store.load_symbol_state("BTCUSDT")
+                counts = dict(result.result_counts)
+                self.assertEqual(result.candidate_count, 1)
+                self.assertEqual(counts.get("ERROR", 0), 0)
                 self.assertEqual(exchange.submitted_sides, ["SELL", "BUY"])
-                self.assertTrue(exchange.submitted_reduce_only[0])
-                self.assertFalse(exchange.submitted_reduce_only[1])
                 self.assertEqual(final_state.lifecycle, Lifecycle.OPEN)
                 self.assertEqual(final_state.tier, Tier.T1)
-                self.assertEqual(final_state.cycle_id, 2)
                 self.assertEqual(final_state.avg_entry_price, D("90"))
-                self.assertEqual(len(store.list_active_order_intents("primary")), 0)
+                self.assertEqual(len(store.list_active_order_intents()), 0)
             finally:
                 store.close()
 
@@ -111,41 +105,24 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
 class _OneSymbolBatchSource:
     async def load_review_batch(
         self,
-        account_id: str,
-        strategy_version: str,
         slot_start_ms: int,
     ) -> ReviewBatch:
         return ReviewBatch(
-            account_id=account_id,
-            strategy_version=strategy_version,
             slot_start_ms=slot_start_ms,
-            sampled_at_ms=NOW_MS,
             candidates=(
                 ReviewCandidate(
                     symbol="BTCUSDT",
-                    signals=Observation(
-                        close_price=D("90"),
-                        admitted=True,
-                        reopen_authorized=True,
-                        scale_in_authorized=True,
-                    ),
-                    priority=ReviewPriority.REDUCE,
+                    admitted=True,
+                    priority=ReviewPriority.POSITION,
                 ),
             ),
         )
 
 
-class _HeldProcessLock:
-    @property
-    def is_held(self) -> bool:
-        return True
-
-
 class _FilledExchange:
     def __init__(self) -> None:
         self.submitted_sides: list[str] = []
-        self.submitted_reduce_only: list[bool] = []
-        self._fills: dict[str, tuple[TradeFillRecord, ...]] = {}
+        self._fills_by_exchange_order_id: dict[str, tuple[TradeFillRecord, ...]] = {}
         self._order_snapshots: dict[str, ExchangeOrderSnapshot] = {}
         self._rules = InstrumentRules(
             symbol="BTCUSDT",
@@ -157,7 +134,6 @@ class _FilledExchange:
                 min_qty=D("0.001"),
                 max_qty=D("1000"),
                 step_size=D("0.001"),
-                step_origin=D("0"),
             ),
             min_market_notional=D("5"),
         )
@@ -169,9 +145,7 @@ class _FilledExchange:
     ) -> FifteenMinuteCloseSnapshot:
         return FifteenMinuteCloseSnapshot(
             symbol=symbol,
-            slot_start_ms=slot_start_ms,
             close_price=D("90"),
-            close_time_ms=slot_start_ms + 899_999,
         )
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
@@ -179,13 +153,11 @@ class _FilledExchange:
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         self.submitted_sides.append(request.side)
-        self.submitted_reduce_only.append(request.reduce_only)
         index = len(self.submitted_sides)
         order_id = f"sim-order-{index}"
         fill = TradeFillRecord(
             symbol=request.symbol,
             exchange_trade_id=f"sim-trade-{index}",
-            client_order_id=request.client_order_id,
             side=request.side,
             price=D("90"),
             qty=request.quantity,
@@ -193,9 +165,6 @@ class _FilledExchange:
             commission=D("0"),
             commission_asset="USDT",
             traded_at_ms=NOW_MS,
-            exchange_order_id=order_id,
-            position_side="BOTH",
-            margin_asset="USDT",
         )
         order = ExchangeOrderSnapshot(
             status=ExchangeOrderStatus.FILLED,
@@ -203,7 +172,7 @@ class _FilledExchange:
             cumulative_quote=request.quantity * D("90"),
             exchange_order_id=order_id,
         )
-        self._fills[request.client_order_id] = (fill,)
+        self._fills_by_exchange_order_id[order_id] = (fill,)
         self._order_snapshots[request.client_order_id] = order
         return SubmissionResult(SubmissionCertainty.ACCEPTED, order=order)
 
@@ -217,11 +186,10 @@ class _FilledExchange:
     async def list_order_fills(
         self,
         symbol: str,
-        client_order_id: str,
         order_snapshot: ExchangeOrderSnapshot,
         order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
-        return self._fills[client_order_id]
+        return self._fills_by_exchange_order_id[order_snapshot.exchange_order_id]
 
 
 if __name__ == "__main__":

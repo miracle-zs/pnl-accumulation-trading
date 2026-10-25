@@ -24,19 +24,16 @@ def open_state(
     entry_qty: str,
     average: str,
     anchor: str,
-    sold: str = "0",
     completed_batches: int = 0,
 ) -> SymbolState:
     return SymbolState(
         symbol="TESTUSDT",
-        cycle_id=1,
         tier=tier,
         lifecycle=Lifecycle.OPEN,
         qty=D(qty),
         avg_entry_price=D(average),
         tier_entry_qty=D(entry_qty),
         tier_anchor_price=D(anchor),
-        tier_sold_qty=D(sold),
         completed_batches=completed_batches,
     )
 
@@ -45,8 +42,11 @@ class StrategyPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = StrategyPolicy()
 
-    def decide(self, state: SymbolState, price: str, **kwargs: bool):
-        return self.policy.decide(state, Observation(close_price=D(price), **kwargs))
+    def decide(self, state: SymbolState, price: str, *, admitted: bool = False):
+        return self.policy.decide(
+            state,
+            Observation(admitted=admitted, close_price=D(price)),
+        )
 
     def test_t1_takes_profit_at_exact_threshold(self) -> None:
         state = open_state(Tier.T1, qty="0.1", entry_qty="0.1", average="100", anchor="100")
@@ -59,7 +59,7 @@ class StrategyPolicyTests(unittest.TestCase):
     def test_t1_adds_t2_at_exact_half_price(self) -> None:
         state = open_state(Tier.T1, qty="0.1", entry_qty="0.1", average="100", anchor="100")
 
-        decision = self.decide(state, "50")
+        decision = self.decide(state, "50", admitted=True)
 
         self.assertEqual(decision.action, Action.ADD_T2)
         self.assertEqual(decision.buy_notional, D("20.0"))
@@ -87,7 +87,6 @@ class StrategyPolicyTests(unittest.TestCase):
             entry_qty="0.5",
             average="60",
             anchor="50",
-            sold="0.25",
             completed_batches=1,
         )
 
@@ -119,7 +118,6 @@ class StrategyPolicyTests(unittest.TestCase):
             entry_qty="3",
             average="10",
             anchor="5",
-            sold="1",
             completed_batches=1,
         )
 
@@ -144,7 +142,6 @@ class StrategyPolicyTests(unittest.TestCase):
                 entry_qty="3",
                 average="10",
                 anchor="5",
-                sold="1",
                 completed_batches=1,
             ),
             open_state(
@@ -153,7 +150,6 @@ class StrategyPolicyTests(unittest.TestCase):
                 entry_qty="3",
                 average="10",
                 anchor="5",
-                sold="2",
                 completed_batches=2,
             ),
         )
@@ -173,21 +169,20 @@ class StrategyPolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, Action.OPEN_T1)
         self.assertEqual(decision.buy_notional, D("10.0"))
 
-    def test_reopen_pending_requires_explicit_authorization(self) -> None:
-        state = SymbolState(symbol="TESTUSDT", cycle_id=1, lifecycle=Lifecycle.REOPEN_PENDING)
+    def test_reopen_pending_requires_admission(self) -> None:
+        state = SymbolState(symbol="TESTUSDT", lifecycle=Lifecycle.REOPEN_PENDING)
 
-        decision = self.decide(state, "100", admitted=True)
+        decision = self.decide(state, "100")
 
         self.assertEqual(decision.action, Action.HOLD)
 
-    def test_reopen_pending_opens_t1_when_explicitly_authorized(self) -> None:
-        state = SymbolState(symbol="TESTUSDT", cycle_id=1, lifecycle=Lifecycle.REOPEN_PENDING)
+    def test_reopen_pending_opens_t1_when_admitted(self) -> None:
+        state = SymbolState(symbol="TESTUSDT", lifecycle=Lifecycle.REOPEN_PENDING)
 
         decision = self.decide(
             state,
             "100",
             admitted=True,
-            reopen_authorized=True,
         )
 
         self.assertEqual(decision.action, Action.OPEN_T1)
@@ -240,23 +235,21 @@ class ConfirmedExecutionTransitionTests(unittest.TestCase):
         self.assertEqual(complete.qty, D("0.25"))
 
     def test_full_close_moves_to_reopen_pending(self) -> None:
-        state = open_state(Tier.T2, qty="0.25", entry_qty="0.5", average="60", anchor="50", sold="0.25", completed_batches=1)
+        state = open_state(Tier.T2, qty="0.25", entry_qty="0.5", average="60", anchor="50", completed_batches=1)
 
         flat = apply_confirmed_execution(
             state,
-            ExecutionReceipt(Action.CLOSE_T2_FULL, D("0.25"), D("20")),
+            ExecutionReceipt(
+                Action.CLOSE_T2_FULL,
+                D("0.25"),
+                D("20"),
+                target_cumulative_sold_qty=D("0.5"),
+            ),
         )
 
         self.assertEqual(flat.lifecycle, Lifecycle.REOPEN_PENDING)
         self.assertEqual(flat.tier, Tier.NONE)
         self.assertEqual(flat.qty, D("0"))
-
-    def test_nonterminal_order_cannot_advance_tier(self) -> None:
-        with self.assertRaises(InvalidExecution):
-            apply_confirmed_execution(
-                SymbolState(symbol="TESTUSDT"),
-                ExecutionReceipt(Action.OPEN_T1, D("0.1"), D("10"), order_terminal=False),
-            )
 
     def test_sell_fill_cannot_exceed_known_long_quantity(self) -> None:
         state = open_state(Tier.T1, qty="0.1", entry_qty="0.1", average="100", anchor="100")

@@ -1,14 +1,12 @@
 from decimal import Decimal
 import unittest
 
-from pnl_trader.application import (
+from pnl_trader.application.market_models import (
     FifteenMinuteCloseSnapshot,
     InstrumentRules,
-    MarketOrderPlanner,
     MarketQuantityRules,
-    OrderPlanningError,
-    OrderPlanRejection,
 )
+from pnl_trader.application.order_planning import MarketOrderPlanner
 from pnl_trader.domain import Action, Decision, Lifecycle, SymbolState, Tier
 
 
@@ -18,9 +16,7 @@ D = Decimal
 def candle(price: str) -> FifteenMinuteCloseSnapshot:
     return FifteenMinuteCloseSnapshot(
         symbol="TESTUSDT",
-        slot_start_ms=0,
         close_price=D(price),
-        close_time_ms=899_999,
     )
 
 
@@ -35,7 +31,6 @@ def market_rules(*, max_qty: str = "1000") -> InstrumentRules:
             min_qty=D("0.01"),
             max_qty=D(max_qty),
             step_size=D("0.01"),
-            step_origin=D("0"),
         ),
         min_market_notional=D("5"),
     )
@@ -50,20 +45,19 @@ class MarketOrderPlannerTests(unittest.TestCase):
         state = SymbolState(symbol="TESTUSDT")
 
         plan = self.planner.plan(
-            Decision(Action.OPEN_T1, "open initial position", buy_notional=D("10")),
+            Decision(Action.OPEN_T1, buy_notional=D("10")),
             state,
             self.rules,
             candle("3"),
         )
 
         self.assertEqual(plan.quantity, D("3.33"))
-        self.assertLessEqual(plan.estimated_notional, D("10"))
-        self.assertEqual(plan.estimated_notional, D("9.99"))
+        self.assertLessEqual(plan.quantity * D("3"), D("10"))
+        self.assertEqual(plan.quantity * D("3"), D("9.99"))
 
     def test_subminimum_take_profit_batch_merges_to_full_close(self) -> None:
         state = SymbolState(
             symbol="TESTUSDT",
-            cycle_id=1,
             tier=Tier.T2,
             lifecycle=Lifecycle.OPEN,
             qty=D("0.5"),
@@ -73,23 +67,20 @@ class MarketOrderPlannerTests(unittest.TestCase):
         )
 
         plan = self.planner.plan(
-            Decision(Action.CLOSE_T2_BATCH1, "first batch", close_qty=D("0.25")),
+            Decision(Action.CLOSE_T2_BATCH1, close_qty=D("0.25")),
             state,
             self.rules,
             candle("10"),
         )
 
-        self.assertEqual(plan.source_action, Action.CLOSE_T2_BATCH1)
         self.assertEqual(plan.action, Action.CLOSE_T2_FULL)
         self.assertEqual(plan.quantity, D("0.5"))
         self.assertEqual(plan.target_cumulative_sold_qty, D("0.5"))
-        self.assertEqual(plan.estimated_notional, D("5.0"))
-        self.assertTrue(plan.merged_to_full_close)
+        self.assertEqual(plan.quantity * D("10"), D("5.0"))
 
     def test_below_minimum_batch_is_rejected_when_full_close_is_also_below_minimum(self) -> None:
         state = SymbolState(
             symbol="TESTUSDT",
-            cycle_id=1,
             tier=Tier.T2,
             lifecycle=Lifecycle.OPEN,
             qty=D("0.5"),
@@ -98,15 +89,14 @@ class MarketOrderPlannerTests(unittest.TestCase):
             tier_anchor_price=D("50"),
         )
 
-        with self.assertRaises(OrderPlanningError) as raised:
+        with self.assertRaises(ValueError):
             self.planner.plan(
-                Decision(Action.CLOSE_T2_BATCH1, "first batch", close_qty=D("0.25")),
+                Decision(Action.CLOSE_T2_BATCH1, close_qty=D("0.25")),
                 state,
                 self.rules,
                 candle("9"),
             )
 
-        self.assertEqual(raised.exception.reason, OrderPlanRejection.BELOW_MIN_NOTIONAL)
 
 
 if __name__ == "__main__":

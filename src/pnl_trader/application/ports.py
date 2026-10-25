@@ -7,19 +7,17 @@ from typing import Protocol
 
 from ..domain.models import ExecutionReceipt, SymbolState, TradeFillRecord
 from .market_models import (
-    ExchangeInfoSnapshot,
+    ExchangeInstrument,
     FifteenMinuteCloseSnapshot,
     InstrumentRules,
 )
-from .position_models import ExchangePositionSnapshot
-from .order_reconciliation_models import ExchangeOpenOrdersSnapshot
-from .review_batch_models import ReviewSignalSnapshot
-from .review_run_models import ReviewBatch, ReviewPriority
+from .position_models import ExchangePosition
+from .review_batch_models import ReviewSignal
+from .review_run_models import ReviewBatch
 from .execution_models import (
     ExchangeOrderSnapshot,
     IntentStatus,
     MarketOrderRequest,
-    OrderAttempt,
     OrderIntent,
     PersistedOrderIntent,
     SubmissionResult,
@@ -27,39 +25,23 @@ from .execution_models import (
 
 
 class StateStorePort(Protocol):
-    def load_symbol_state(self, account_id: str, symbol: str) -> SymbolState | None: ...
+    def load_symbol_state(self, symbol: str) -> SymbolState: ...
 
-    def list_symbol_states(self, account_id: str) -> tuple[SymbolState, ...]: ...
+    def list_symbol_states(self) -> tuple[SymbolState, ...]: ...
 
     def ensure_idle_symbol_state(
-        self, account_id: str, symbol: str, *, created_at_ms: int
+        self, symbol: str, *, created_at_ms: int
     ) -> SymbolState: ...
-
-    def load_review_rotation_cursor(
-        self,
-        account_id: str,
-        strategy_version: str,
-        priority: ReviewPriority,
-    ) -> str | None: ...
-
-    def save_review_rotation_cursor(
-        self,
-        account_id: str,
-        strategy_version: str,
-        priority: ReviewPriority,
-        symbol: str,
-    ) -> None: ...
 
     def create_order_intent(
         self,
         intent: OrderIntent,
-    ) -> bool: ...
+    ) -> None: ...
 
-    def create_order_attempt(self, attempt: OrderAttempt) -> bool: ...
+    def create_order_attempt(self, intent_id: str, *, requested_qty: Decimal) -> None: ...
 
     def list_active_order_intents(
         self,
-        account_id: str,
         symbol: str | None = None,
     ) -> tuple[PersistedOrderIntent, ...]: ...
 
@@ -71,34 +53,26 @@ class StateStorePort(Protocol):
         *,
         expected: IntentStatus,
         target: IntentStatus,
-        exchange_order_id: str | None = None,
     ) -> None: ...
 
     def commit_confirmed_execution(
         self,
         *,
-        receipt_id: str,
         intent_id: str,
         receipt: ExecutionReceipt,
         fills: tuple[TradeFillRecord, ...],
         expected_intent_status: IntentStatus,
         terminal_status: IntentStatus,
-        applied_at_ms: int,
-        exchange_order_id: str | None = None,
-    ) -> bool: ...
+        updated_at_ms: int,
+    ) -> None: ...
 
     def resolve_no_fill(
         self,
         intent_id: str,
         *,
-        receipt_id: str,
         expected: IntentStatus,
         terminal_status: IntentStatus,
-        resolved_at_ms: int,
-        confirmed_filled_qty: Decimal,
-        confirmed_quote_qty: Decimal,
-        exchange_order_id: str | None = None,
-    ) -> bool: ...
+    ) -> None: ...
 
 
 class ExchangeGatewayPort(Protocol):
@@ -121,45 +95,29 @@ class ExchangeGatewayPort(Protocol):
     async def list_order_fills(
         self,
         symbol: str,
-        client_order_id: str,
         order_snapshot: ExchangeOrderSnapshot,
         order_side: str,
     ) -> tuple[TradeFillRecord, ...]: ...
 
 
-
 class PositionSnapshotPort(Protocol):
-    async def get_position_snapshot(self, account_id: str) -> ExchangePositionSnapshot: ...
-
-
-class OpenOrdersSnapshotPort(Protocol):
-    async def get_open_orders_snapshot(self, account_id: str) -> ExchangeOpenOrdersSnapshot: ...
+    async def get_position_snapshot(self) -> tuple[ExchangePosition, ...]: ...
 
 
 class ExchangeInstrumentCatalogPort(Protocol):
-    async def get_exchange_info_snapshot(self) -> ExchangeInfoSnapshot: ...
+    async def get_exchange_info_snapshot(self) -> tuple[ExchangeInstrument, ...]: ...
 
 
 class ReviewSignalSourcePort(Protocol):
     async def load_review_signals(
         self,
-        account_id: str,
-        strategy_version: str,
-        slot_start_ms: int,
         *,
         managed_symbols: tuple[str, ...],
-    ) -> ReviewSignalSnapshot: ...
-
-
-class ProcessLockPort(Protocol):
-    @property
-    def is_held(self) -> bool: ...
+    ) -> tuple[ReviewSignal, ...]: ...
 
 
 class ReviewBatchSourcePort(Protocol):
     async def load_review_batch(
         self,
-        account_id: str,
-        strategy_version: str,
         slot_start_ms: int,
     ) -> ReviewBatch: ...

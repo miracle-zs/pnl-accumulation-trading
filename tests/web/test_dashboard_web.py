@@ -26,27 +26,21 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         cur = conn.cursor()
         cur.executescript("""
             CREATE TABLE symbol_states (
-                account_id TEXT NOT NULL,
                 symbol TEXT NOT NULL,
-                cycle_id INTEGER NOT NULL,
                 tier INTEGER NOT NULL,
                 lifecycle TEXT NOT NULL,
                 qty TEXT NOT NULL,
                 avg_entry_price TEXT NOT NULL,
                 tier_entry_qty TEXT NOT NULL,
                 tier_anchor_price TEXT NOT NULL,
-                tier_sold_qty TEXT NOT NULL,
                 completed_batches INTEGER NOT NULL,
-                version INTEGER NOT NULL,
                 updated_at_ms INTEGER NOT NULL,
-                PRIMARY KEY (account_id, symbol)
+                PRIMARY KEY (symbol)
             );
 
             CREATE TABLE trade_fills (
-                account_id TEXT NOT NULL,
                 symbol TEXT NOT NULL,
                 exchange_trade_id TEXT NOT NULL,
-                client_order_id TEXT NOT NULL,
                 side TEXT NOT NULL,
                 price TEXT NOT NULL,
                 qty TEXT NOT NULL,
@@ -54,17 +48,18 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 commission TEXT NOT NULL,
                 commission_asset TEXT NOT NULL,
                 traded_at_ms INTEGER NOT NULL,
-                PRIMARY KEY (account_id, symbol, exchange_trade_id)
+                intent_id TEXT NOT NULL,
+                PRIMARY KEY (symbol, exchange_trade_id)
             );
 
             INSERT INTO symbol_states VALUES
-            ('test-acct', 'BTCUSDT', 1, 1, 'OPEN', '0.001', '60000.0', '0.001', '60000.0', '0', 0, 1, 1700000000000),
-            ('test-acct', 'ETHUSDT', 1, 2, 'OPEN', '0.05', '3000.0', '0.05', '3000.0', '0', 0, 1, 1700000000000),
-            ('test-acct', 'SOLUSDT', 1, 2, 'OPEN', '0.2', '150.0', '0.2', '150.0', '0.1', 1, 1, 1700000000000),
-            ('test-acct', 'DOGEUSDT', 1, 0, 'IDLE', '0', '0', '0', '0', '0', 0, 0, 1700000000000);
+            ('BTCUSDT', 1, 'OPEN', '0.001', '60000.0', '0.001', '60000.0', 0, 1700000000000),
+            ('ETHUSDT', 2, 'OPEN', '0.05', '3000.0', '0.05', '3000.0', 0, 1700000000000),
+            ('SOLUSDT', 2, 'OPEN', '0.2', '150.0', '0.4', '150.0', 1, 1700000000000),
+            ('DOGEUSDT', 0, 'IDLE', '0', '0', '0', '0', 0, 1700000000000);
 
             INSERT INTO trade_fills VALUES
-            ('test-acct', 'BTCUSDT', 't-1', 'c-1', 'SELL', '66000.0', '0.001', '6.0', '0.033', 'USDT', 1700000000000);
+            ('BTCUSDT', 't-1', 'SELL', '66000.0', '0.001', '6.0', '0.033', 'USDT', 1700000000000, 'intent-1');
 
         """)
         conn.commit()
@@ -85,10 +80,10 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
             self.assertEqual(data["status"], "LOCAL_LEDGER_ONLY")
-            self.assertAlmostEqual(data["realized_cash"], 5.967)
+            self.assertAlmostEqual(data["realized_cash"], 5.97)
             self.assertEqual(data["realized_gross"], 6.0)
             self.assertEqual(data["fill_count"], 1)
-            self.assertAlmostEqual(data["total_commission"], 0.033)
+            self.assertAlmostEqual(data["total_commission"], 0.03)
             self.assertEqual(data["active_positions_count"], 3)
 
             # 3. Test tier distribution API
@@ -98,8 +93,7 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(td["t1"], 1)
             self.assertEqual(td["t2"], 1)
             self.assertEqual(td["t21"], 1)
-            self.assertEqual(td["idle"], 1)
-            self.assertEqual(td["total"], 4)
+            self.assertEqual(td["total"], 3)
 
             # 4. Test positions API
             resp = await client.get("/api/positions")

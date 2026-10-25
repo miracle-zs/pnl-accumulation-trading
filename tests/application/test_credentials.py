@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pnl_trader.credentials import read_secret, require_secret
+from pnl_trader.credentials import require_secret
 
 
 class CredentialLoadingTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class CredentialLoadingTests(unittest.TestCase):
                 },
                 clear=True,
             ):
-                self.assertEqual(read_secret("BINANCE_API_KEY"), "systemd-key")
+                self.assertEqual(require_secret("BINANCE_API_KEY"), "systemd-key")
 
     def test_process_environment_remains_supported(self) -> None:
         with patch.dict(
@@ -30,10 +30,7 @@ class CredentialLoadingTests(unittest.TestCase):
             {"BINANCE_API_SECRET": "environment-secret"},
             clear=True,
         ):
-            self.assertEqual(
-                require_secret("BINANCE_API_SECRET"),
-                "environment-secret",
-            )
+            self.assertEqual(require_secret("BINANCE_API_SECRET"), "environment-secret")
 
     def test_required_secret_fails_when_both_sources_are_missing(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

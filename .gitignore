@@ -11,14 +11,10 @@ __pycache__/
 *.egg-info/
 
 # Local runtime state
-*.sqlite
-*.sqlite3
-*.db
-*.log
-logs/
+/var/
 
 # Local research and backtest data; keep it on disk, out of Git history
-data/
+/data/
 
 # Editor and operating system files
 .DS_Store

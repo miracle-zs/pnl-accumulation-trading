@@ -12,9 +12,8 @@ _SYSTEMD_CREDENTIALS = {
 }
 
 
-def read_secret(name: str) -> str:
-    """Read a supported systemd credential first, then the process environment."""
-
+def require_secret(name: str) -> str:
+    """Read a required secret from systemd credentials or the environment."""
     credential_name = _SYSTEMD_CREDENTIALS.get(name)
     credentials_directory = os.environ.get("CREDENTIALS_DIRECTORY", "").strip()
     if credential_name and credentials_directory:
@@ -22,19 +21,14 @@ def read_secret(name: str) -> str:
         try:
             credential = credential_path.read_text(encoding="utf-8").strip()
         except FileNotFoundError:
-            credential = ""
+            raise ValueError(f"systemd credential for {name} is missing") from None
         except (OSError, UnicodeError) as exc:
             raise ValueError(f"could not read systemd credential for {name}") from exc
-        if credential:
-            return credential
-    return os.environ.get(name, "").strip()
+        if not credential:
+            raise ValueError(f"systemd credential for {name} is empty")
+        return credential
 
-
-def require_secret(name: str) -> str:
-    value = read_secret(name)
+    value = os.environ.get(name, "").strip()
     if not value:
-        raise ValueError(
-            f"required secret {name} is missing from the process environment "
-            "and systemd credentials"
-        )
+        raise ValueError(f"required secret {name} is missing from the process environment")
     return value

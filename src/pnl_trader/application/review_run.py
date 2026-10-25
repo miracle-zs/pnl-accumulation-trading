@@ -5,23 +5,16 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import logging
-import time
-from typing import Callable
 
-from ..domain.models import Action, Lifecycle
+from ..domain.models import FULL_CLOSE_ACTIONS, Lifecycle
 from .execution import ExecutionCoordinator, ExecutionResult
 from .execution_models import IntentStatus
-from .ports import ProcessLockPort, ReviewBatchSourcePort, StateStorePort
+from .ports import ReviewBatchSourcePort, StateStorePort
 from .review_executor import SymbolReviewExecutor
-from .review_run_models import ReviewBatch, ReviewCandidate, ReviewPriority
+from .review_run_models import ReviewBatch
 
 
 logger = logging.getLogger(__name__)
-_FULL_CLOSE_ACTIONS = {
-    Action.CLOSE_T1,
-    Action.CLOSE_T2_FULL,
-    Action.CLOSE_T3_FULL,
-}
 _EXECUTION_ISSUE_STATUSES = {
     IntentStatus.UNKNOWN,
     IntentStatus.REJECTED,
@@ -34,26 +27,17 @@ def _log_execution_issue(symbol: str, result: ExecutionResult | None) -> None:
     if result is None or result.status not in _EXECUTION_ISSUE_STATUSES:
         return
     logger.warning(
-        "market order did not complete normally: symbol=%s intent_id=%s "
-        "status=%s resolution=%s detail=%s",
+        "market order did not complete normally: symbol=%s intent_id=%s status=%s detail=%s",
         symbol,
         result.intent_id,
         result.status.value,
-        result.resolution.value,
-        result.detail or "no exchange detail",
+        result.detail,
     )
-
-
-class ReviewRunError(RuntimeError):
-    """The review cannot safely start or continue."""
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewRunResult:
     candidate_count: int
-    processed_count: int
-    skipped_count: int
-    failure_count: int
     result_counts: tuple[tuple[str, int], ...]
 
 
@@ -67,174 +51,60 @@ class ReviewRunCoordinator:
         execution: ExecutionCoordinator,
         symbol_reviews: SymbolReviewExecutor,
         batch_source: ReviewBatchSourcePort,
-        process_lock: ProcessLockPort,
-        clock_ms: Callable[[], int] | None = None,
-        max_run_budget_ms: int = 120_000,
-        max_batch_snapshot_age_ms: int = 30_000,
-        future_clock_skew_ms: int = 1_000,
     ) -> None:
-        if max_run_budget_ms <= 0 or max_batch_snapshot_age_ms <= 0:
-            raise ValueError("run budget and snapshot age must be positive")
-        if future_clock_skew_ms < 0:
-            raise ValueError("future clock skew must be non-negative")
         self._store = store
         self._execution = execution
         self._symbol_reviews = symbol_reviews
         self._batch_source = batch_source
-        self._process_lock = process_lock
-        self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
-        self._max_run_budget_ms = max_run_budget_ms
-        self._max_batch_snapshot_age_ms = max_batch_snapshot_age_ms
-        self._future_clock_skew_ms = future_clock_skew_ms
 
     async def run_slot(
         self,
         *,
-        account_id: str,
-        strategy_version: str,
         slot_start_ms: int,
     ) -> ReviewRunResult:
-        if not account_id or not strategy_version:
-            raise ValueError("account_id and strategy_version must not be empty")
-        if slot_start_ms < 0 or slot_start_ms % 900_000 != 0:
-            raise ValueError("slot_start_ms must be a UTC 15-minute boundary")
-        self._ensure_process_lock_held()
-        await self._recover_pending(account_id)
+        await self._execution.recover_pending()
         batch = await self._batch_source.load_review_batch(
-            account_id,
-            strategy_version,
             slot_start_ms,
         )
-        if (
-            batch.account_id != account_id
-            or batch.strategy_version != strategy_version
-            or batch.slot_start_ms != slot_start_ms
-        ):
-            raise ReviewRunError("batch source returned a different review slot")
         return await self._run_batch(batch)
 
-    async def recover_pending_on_startup(
-        self,
-        account_id: str,
-    ) -> tuple[ExecutionResult, ...]:
-        if not account_id:
-            raise ValueError("account_id must not be empty")
-        self._ensure_process_lock_held()
-        return await self._recover_pending(account_id)
-
-    async def _recover_pending(self, account_id: str) -> tuple[ExecutionResult, ...]:
-        try:
-            return await self._execution.recover_pending(account_id)
-        except Exception as exc:
-            raise ReviewRunError(
-                f"order recovery failed ({type(exc).__name__}); review was not started"
-            ) from exc
-
     async def _run_batch(self, batch: ReviewBatch) -> ReviewRunResult:
-        started_at_ms = self._clock_ms()
-        self._validate_batch(batch, started_at_ms)
         counts: Counter[str] = Counter()
-        processed_count = 0
-        skipped_count = 0
-        failure_count = 0
-        ordered = self._ordered_candidates(batch)
+        ordered = sorted(
+            batch.candidates,
+            key=lambda candidate: (candidate.priority, candidate.symbol),
+        )
 
-        for index, candidate in enumerate(ordered):
-            if self._clock_ms() - started_at_ms >= self._max_run_budget_ms:
-                skipped_count = len(ordered) - index
-                counts["SKIPPED_BUDGET"] += skipped_count
-                break
-            self._ensure_process_lock_held()
+        for candidate in ordered:
             try:
                 result = await self._symbol_reviews.review_symbol(
-                    account_id=batch.account_id,
                     symbol=candidate.symbol,
-                    strategy_version=batch.strategy_version,
                     slot_start_ms=batch.slot_start_ms,
-                    signals=candidate.signals,
+                    admitted=candidate.admitted,
                 )
                 counts[result.disposition.value] += 1
                 _log_execution_issue(candidate.symbol, result.execution)
                 if (
                     result.plan is not None
-                    and result.plan.action in _FULL_CLOSE_ACTIONS
-                    and candidate.signals.admitted
-                    and candidate.signals.reopen_authorized
+                    and result.plan.action in FULL_CLOSE_ACTIONS
+                    and candidate.admitted
                 ):
                     state = self._store.load_symbol_state(
-                        batch.account_id,
                         candidate.symbol,
                     )
-                    if state is not None and state.lifecycle is Lifecycle.REOPEN_PENDING:
-                        self._ensure_process_lock_held()
+                    if state.lifecycle is Lifecycle.REOPEN_PENDING:
                         reopen_result = await self._symbol_reviews.review_symbol(
-                            account_id=batch.account_id,
                             symbol=candidate.symbol,
-                            strategy_version=batch.strategy_version,
                             slot_start_ms=batch.slot_start_ms,
-                            signals=candidate.signals,
+                            admitted=candidate.admitted,
+                            close_snapshot=result.close_snapshot,
                         )
                         counts[reopen_result.disposition.value] += 1
                         _log_execution_issue(candidate.symbol, reopen_result.execution)
-            except Exception as exc:
+            except Exception:
                 logger.exception("symbol review failed: symbol=%s", candidate.symbol)
                 counts["ERROR"] += 1
-                failure_count += 1
-            processed_count += 1
-            self._store.save_review_rotation_cursor(
-                batch.account_id,
-                batch.strategy_version,
-                candidate.priority,
-                candidate.symbol,
-            )
-
         return ReviewRunResult(
             candidate_count=len(batch.candidates),
-            processed_count=processed_count,
-            skipped_count=skipped_count,
-            failure_count=failure_count,
             result_counts=tuple(sorted(counts.items())),
         )
-
-    def _ensure_process_lock_held(self) -> None:
-        if not self._process_lock.is_held:
-            raise ReviewRunError("the application process lock must be held")
-
-    def _validate_batch(self, batch: ReviewBatch, now_ms: int) -> None:
-        age_ms = now_ms - batch.sampled_at_ms
-        if age_ms > self._max_batch_snapshot_age_ms:
-            raise ReviewRunError(f"review snapshot is stale ({age_ms}ms old)")
-        if age_ms < -self._future_clock_skew_ms:
-            raise ReviewRunError("review snapshot timestamp is in the future")
-        slot_close_time_ms = batch.slot_start_ms + 899_999
-        if now_ms < slot_close_time_ms:
-            raise ReviewRunError("review slot has not closed yet")
-        if now_ms - slot_close_time_ms >= self._max_run_budget_ms:
-            raise ReviewRunError("review slot is too old to start new actions")
-
-    def _ordered_candidates(self, batch: ReviewBatch) -> tuple[ReviewCandidate, ...]:
-        result: list[ReviewCandidate] = []
-        for priority in ReviewPriority:
-            group = sorted(
-                (
-                    candidate
-                    for candidate in batch.candidates
-                    if candidate.priority is priority
-                ),
-                key=lambda candidate: candidate.symbol,
-            )
-            cursor = self._store.load_review_rotation_cursor(
-                batch.account_id,
-                batch.strategy_version,
-                priority,
-            )
-            if cursor is not None:
-                index = next(
-                    (i for i, candidate in enumerate(group) if candidate.symbol == cursor),
-                    None,
-                )
-                if index is not None:
-                    offset = (index + 1) % len(group)
-                    group = group[offset:] + group[:offset]
-            result.extend(group)
-        return tuple(result)

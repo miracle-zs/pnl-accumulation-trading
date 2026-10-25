@@ -420,9 +420,9 @@
       renderPositions();
     }
 
-    // Initial fetch & auto poll every 5s
+    // Initial fetch & auto poll every minute
     fetchData();
-    setInterval(fetchData, 5000);
+    setInterval(fetchData, 60_000);
   </script>
 </body>
 </html>

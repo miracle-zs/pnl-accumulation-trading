@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import argparse
-from datetime import UTC, datetime
 import json
 import logging
 import os
 from pathlib import Path
 
-from .adapters.sqlite import SQLiteStateStore, create_online_backup, verify_backup
 from .runtime import (
     RuntimeConfig,
     run_application,
@@ -33,26 +31,6 @@ def main() -> None:
         "validate-config",
         help="validate local runtime values and asset classifications without network access",
     )
-    backup_parser = commands.add_parser(
-        "backup",
-        help="create an online SQLite backup without migrating the source database",
-    )
-    backup_parser.add_argument(
-        "--data-dir",
-        type=Path,
-        default=Path(os.environ.get("PNL_DATA_DIR", "./var")).expanduser(),
-    )
-    backup_parser.add_argument("--destination", type=Path)
-    backup_parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="replace an existing destination atomically after validation",
-    )
-    backup_verify_parser = commands.add_parser(
-        "verify-backup",
-        help="check a SQLite backup and rehearse restoring it to a temporary database",
-    )
-    backup_verify_parser.add_argument("--path", type=Path, required=True)
     web_parser = commands.add_parser(
         "web",
         help="start the local web dashboard to monitor positions and performance",
@@ -60,9 +38,9 @@ def main() -> None:
     web_parser.add_argument(
         "--data-dir",
         type=Path,
-        default=Path(os.environ.get("PNL_DATA_DIR", "./var")).expanduser(),
+        help="directory containing state.sqlite3 (or set PNL_DATA_DIR)",
     )
-    web_parser.add_argument("--port", type=int, default=8000, help="port to bind (default: 8000)")
+    web_parser.add_argument("--port", type=int, default=8000, help="port to bind")
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -80,43 +58,14 @@ def main() -> None:
             raise SystemExit(1) from None
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
-    if args.command == "backup":
-        source_path = args.data_dir.expanduser().resolve() / "state.sqlite3"
-        if not source_path.is_file():
-            parser.error(f"state database does not exist: {source_path}")
-        if args.destination is None:
-            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
-            destination = args.data_dir.expanduser() / "backups" / f"state-{timestamp}.sqlite3"
-        else:
-            destination = args.destination.expanduser()
-        try:
-            backup_path = create_online_backup(
-                source_path,
-                destination,
-                overwrite=args.overwrite,
-            )
-        except Exception as exc:
-            logging.getLogger(__name__).error(
-                "SQLite online backup failed (%s)", type(exc).__name__
-            )
-            raise SystemExit(1) from None
-        print(json.dumps({"status": "created", "path": str(backup_path)}, ensure_ascii=False, indent=2))
-        return
-    if args.command == "verify-backup":
-        try:
-            result = verify_backup(args.path)
-        except Exception as exc:
-            logging.getLogger(__name__).error(
-                "SQLite backup verification failed (%s)", type(exc).__name__
-            )
-            raise SystemExit(1) from None
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return
     if args.command == "web":
         try:
             import uvicorn
             from .web import create_app
-            app = create_app(data_dir=args.data_dir)
+            data_dir = args.data_dir or os.environ.get("PNL_DATA_DIR", "").strip()
+            if not data_dir:
+                parser.error("web requires --data-dir or PNL_DATA_DIR")
+            app = create_app(data_dir=data_dir)
             print(f"\nPNL Trader Dashboard running at http://127.0.0.1:{args.port}")
             uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
         except KeyboardInterrupt:
