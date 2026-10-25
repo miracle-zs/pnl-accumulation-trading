@@ -6,7 +6,7 @@
 
 ## 安装与预检（不启动）
 
-目标主机需运行 Linux/systemd，安装 Git 和包含 `venv`、`pip` 的 Python 3.11 或更新版本。以下步骤只安装和验证，不启用或启动服务。
+目标主机需运行 Linux、systemd 247 或更新版本（本 unit 使用 `LoadCredential=`），并安装 Git 和包含 `venv`、`pip` 的 Python 3.11 或更新版本。以下步骤只安装和验证，不启用或启动服务。
 
 1. 创建服务用户（已存在时跳过），克隆项目并安装：
 
