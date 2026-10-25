@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pnl_trader.credentials import require_secret
+from pnl_trader.credentials import optional_secret, require_secret
 
 
 class CredentialLoadingTests(unittest.TestCase):
@@ -36,6 +36,27 @@ class CredentialLoadingTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "BINANCE_API_KEY"):
                 require_secret("BINANCE_API_KEY")
+
+    def test_optional_secret_uses_systemd_credential_then_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(
+                os.environ,
+                {
+                    "CREDENTIALS_DIRECTORY": directory,
+                    "SERVERCHAN_SENDKEY": "environment-key",
+                },
+                clear=True,
+            ):
+                self.assertEqual(optional_secret("SERVERCHAN_SENDKEY"), "environment-key")
+
+                Path(directory, "serverchan_sendkey").write_text(
+                    "systemd-key\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual(optional_secret("SERVERCHAN_SENDKEY"), "systemd-key")
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(optional_secret("SERVERCHAN_SENDKEY"))
 
 
 if __name__ == "__main__":
