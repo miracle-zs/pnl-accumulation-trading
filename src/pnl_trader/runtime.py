@@ -207,7 +207,6 @@ async def run_application(config: RuntimeConfig) -> None:
                 risk_gate = AccountRiskGate(
                     snapshots=exchange,
                     brackets=exchange,
-                    store=store,
                     policy=policy,
                 )
                 symbol_reviews = SymbolReviewExecutor(
@@ -249,8 +248,7 @@ async def run_application(config: RuntimeConfig) -> None:
                     startup_slot_ms,
                 )
                 logger.info(
-                    "startup state reconciliation completed: snapshot_id=%s candidates=%s",
-                    startup_batch.snapshot_id,
+                    "startup state reconciliation completed: candidates=%s",
                     len(startup_batch.candidates),
                 )
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum, IntEnum
+from enum import IntEnum
 
 from ..domain.models import Observation
 
@@ -12,13 +12,6 @@ class ReviewPriority(IntEnum):
     REDUCE = 0
     ADD = 1
     OPEN = 2
-
-
-class ReviewRunStatus(str, Enum):
-    RUNNING = "RUNNING"
-    COMPLETED = "COMPLETED"
-    PARTIAL = "PARTIAL"
-    FAILED = "FAILED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,13 +43,12 @@ class ReviewBatch:
     account_id: str
     strategy_version: str
     slot_start_ms: int
-    snapshot_id: str
     sampled_at_ms: int
     candidates: tuple[ReviewCandidate, ...]
 
     def __post_init__(self) -> None:
-        if not self.account_id or not self.strategy_version or not self.snapshot_id:
-            raise ValueError("account, strategy and snapshot identities must not be empty")
+        if not self.account_id or not self.strategy_version:
+            raise ValueError("account and strategy identities must not be empty")
         if self.slot_start_ms < 0 or self.slot_start_ms % 900_000 != 0:
             raise ValueError("slot_start_ms must be a UTC 15-minute boundary")
         if self.sampled_at_ms < 0:
@@ -69,18 +61,3 @@ class ReviewBatch:
             raise TypeError("candidates must be a tuple of ReviewCandidate values")
         if len({candidate.symbol for candidate in self.candidates}) != len(self.candidates):
             raise ValueError("a review batch cannot contain a symbol more than once")
-
-
-@dataclass(frozen=True, slots=True)
-class PersistedReviewRun:
-    run_id: str
-    account_id: str
-    strategy_version: str
-    slot_start_ms: int
-    status: ReviewRunStatus
-    snapshot_id: str | None
-    started_at_ms: int
-    finished_at_ms: int | None
-    result_counts: tuple[tuple[str, int], ...]
-    earliest_sampled_at_ms: int | None
-    latest_sampled_at_ms: int | None

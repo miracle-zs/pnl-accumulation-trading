@@ -15,6 +15,7 @@ from pnl_trader.adapters.sqlite import (
     verify_backup,
 )
 from pnl_trader.__main__ import main
+from pnl_trader.domain import SymbolState
 
 
 class SQLiteBackupTests(unittest.TestCase):
@@ -29,12 +30,11 @@ class SQLiteBackupTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_online_backup_contains_committed_wal_state_and_verifies(self) -> None:
-        self.store.create_review_run(
-            run_id="run-1",
-            account_id="primary",
-            strategy_version="v1",
-            slot_start_ms=900_000,
-            started_at_ms=900_005,
+        self.store.save_symbol_state(
+            "primary",
+            SymbolState(symbol="BTCUSDT"),
+            expected_version=None,
+            updated_at_ms=900_005,
         )
         destination = self.root / "backups" / "latest.sqlite3"
 
@@ -43,7 +43,7 @@ class SQLiteBackupTests(unittest.TestCase):
         self.assertEqual(backup_path, destination.resolve())
         with closing(sqlite3.connect(backup_path)) as connection, connection:
             self.assertEqual(
-                connection.execute("SELECT COUNT(*) FROM review_runs").fetchone()[0],
+                connection.execute("SELECT COUNT(*) FROM symbol_states").fetchone()[0],
                 1,
             )
         self.assertEqual(stat.S_IMODE(backup_path.stat().st_mode), 0o600)

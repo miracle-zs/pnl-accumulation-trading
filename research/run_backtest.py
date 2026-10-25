@@ -7,11 +7,11 @@ import matplotlib.pyplot as plt
 
 from engine import BacktestEngine
 
-RESULTS_DIR = Path(__file__).parent / "data" / "results"
+RESULTS_DIR = Path(__file__).resolve().parent.parent / "data" / "results"
 RESULTS_DIR.mkdir(exist_ok=True, parents=True)
 
 def main():
-    universe_file = Path(__file__).parent / "data" / "initial_universe_20260101.json"
+    universe_file = Path(__file__).resolve().parent.parent / "data" / "initial_universe_20260101.json"
     if not universe_file.exists():
         print("Universe file not found!")
         return

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from hashlib import sha256
 import time
 from typing import Callable
 
@@ -32,16 +31,9 @@ _CLOSE_ACTIONS = {
 }
 _ADD_ACTIONS = {Action.ADD_T2, Action.ADD_T3}
 _OPEN_ACTIONS = {Action.OPEN_T1}
-_POSITION_LIFECYCLES = {
-    Lifecycle.OPEN,
-    Lifecycle.QUARANTINED,
-    Lifecycle.SETTLEMENT_PENDING,
-}
 _MANAGED_LIFECYCLES = {
     Lifecycle.OPEN,
     Lifecycle.REOPEN_PENDING,
-    Lifecycle.QUARANTINED,
-    Lifecycle.SETTLEMENT_PENDING,
 }
 
 
@@ -133,7 +125,6 @@ class ReconciledReviewBatchSource:
             if sampled_at_ms - now_ms > self._future_clock_skew_ms:
                 raise ReviewBatchSourceError(f"{label} snapshot timestamp is in the future")
 
-        position_snapshot_id = self._store.save_position_snapshot(position_snapshot)
         positions_by_symbol = self._index_positions(position_snapshot)
         self._reconcile_open_orders(open_orders_snapshot, intents_by_symbol)
         self._reconcile_positions(states, positions_by_symbol, intents_by_symbol)
@@ -187,38 +178,10 @@ class ReconciledReviewBatchSource:
                 ReviewCandidate(symbol=symbol, signals=observation, priority=priority)
             )
 
-        snapshot_identity = [
-            account_id,
-            strategy_version,
-            str(slot_start_ms),
-            position_snapshot_id,
-            str(open_orders_snapshot.sampled_at_ms),
-            signal_snapshot.snapshot_id,
-        ]
-        snapshot_identity.extend(
-            "open-order:{}:{}:{}:{}:{}:{}".format(
-                "algo" if order.algorithmic else "standard",
-                order.symbol,
-                order.exchange_order_id,
-                order.status,
-                order.original_qty,
-                order.executed_qty,
-            )
-            for order in sorted(
-                open_orders_snapshot.orders,
-                key=lambda item: (item.algorithmic, item.symbol, item.exchange_order_id),
-            )
-        )
-        snapshot_identity.extend(
-            f"{candidate.symbol}:{states[candidate.symbol].version}"
-            for candidate in candidates
-        )
-        snapshot_id = sha256("\0".join(snapshot_identity).encode("utf-8")).hexdigest()
         return ReviewBatch(
             account_id=account_id,
             strategy_version=strategy_version,
             slot_start_ms=slot_start_ms,
-            snapshot_id=snapshot_id,
             sampled_at_ms=min(
                 position_snapshot.sampled_at_ms,
                 open_orders_snapshot.sampled_at_ms,
@@ -355,7 +318,7 @@ class ReconciledReviewBatchSource:
                     )
                 continue
 
-            expected_qty = state.qty if state.lifecycle in _POSITION_LIFECYCLES else ZERO
+            expected_qty = state.qty if state.lifecycle is Lifecycle.OPEN else ZERO
             if actual_qty != expected_qty:
                 raise ReviewBatchSourceError(
                     f"position mismatch for {symbol}: local={expected_qty}, exchange={actual_qty}"
@@ -373,11 +336,11 @@ class ReconciledReviewBatchSource:
             return ReviewPriority.ADD
         if action in _OPEN_ACTIONS:
             return ReviewPriority.OPEN
-        if state.lifecycle in _POSITION_LIFECYCLES:
-            return ReviewPriority.REDUCE
-        if state.lifecycle is Lifecycle.REOPEN_PENDING:
-            return ReviewPriority.OPEN
-        return ReviewPriority.OPEN
+        return (
+            ReviewPriority.REDUCE
+            if state.lifecycle is Lifecycle.OPEN
+            else ReviewPriority.OPEN
+        )
 
     @staticmethod
     def _action_priority(action: Action) -> ReviewPriority:

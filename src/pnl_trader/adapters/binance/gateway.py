@@ -24,10 +24,6 @@ from ...application.execution_models import (
     SubmissionCertainty,
     SubmissionResult,
 )
-from ...application.income_models import (
-    MAX_INCOME_HISTORY_PAGE_SIZE,
-    IncomeLedgerRecord,
-)
 from ...application.market_models import (
     ExchangeInfoSnapshot,
     ExchangeInstrument,
@@ -46,11 +42,6 @@ from ...application.risk_models import (
     AccountRiskSnapshot,
     MaintenanceMarginBracket,
     MaintenanceMarginBracketSnapshot,
-)
-from ...application.trade_history_models import (
-    MAX_TRADE_HISTORY_PAGE_SIZE,
-    MAX_TRADE_HISTORY_RANGE_MS,
-    TradeHistorySymbolUnavailable,
 )
 from ...domain.models import TradeFillRecord, ZERO
 
@@ -654,129 +645,7 @@ class BinanceFuturesGateway:
             raise BinanceProtocolError("userTrades do not reconcile with the queried order totals")
         return fills
 
-    async def get_account_trade_history(
-        self,
-        symbol: str,
-        start_time_ms: int,
-        end_time_ms: int,
-        *,
-        limit: int = MAX_TRADE_HISTORY_PAGE_SIZE,
-    ) -> tuple[TradeFillRecord, ...]:
-        """Read one bounded per-symbol account trade-history page."""
 
-        if not symbol:
-            raise ValueError("symbol must not be empty")
-        if (
-            isinstance(start_time_ms, bool)
-            or not isinstance(start_time_ms, int)
-            or start_time_ms < 0
-        ):
-            raise ValueError("start_time_ms must be a non-negative integer")
-        if (
-            isinstance(end_time_ms, bool)
-            or not isinstance(end_time_ms, int)
-            or end_time_ms < start_time_ms
-            or end_time_ms - start_time_ms > MAX_TRADE_HISTORY_RANGE_MS
-        ):
-            raise ValueError("end_time_ms must be within seven days of start_time_ms")
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= MAX_TRADE_HISTORY_PAGE_SIZE
-        ):
-            raise ValueError(
-                "trade history limit must be between 1 and "
-                f"{MAX_TRADE_HISTORY_PAGE_SIZE}"
-            )
-
-        try:
-            payload = await self._request_json(
-                "GET",
-                "/fapi/v1/userTrades",
-                params={
-                    "symbol": symbol,
-                    "startTime": str(start_time_ms),
-                    "endTime": str(end_time_ms),
-                    "limit": str(limit),
-                },
-                signed=True,
-            )
-        except BinanceApiError as exc:
-            if exc.code == -1121:
-                raise TradeHistorySymbolUnavailable(symbol) from exc
-            raise
-        if not isinstance(payload, list):
-            raise BinanceProtocolError("userTrades response must be a list")
-        records = tuple(
-            _parse_account_trade_fill(row, symbol)
-            for row in payload
-        )
-        if any(
-            record.traded_at_ms < start_time_ms or record.traded_at_ms > end_time_ms
-            for record in records
-        ):
-            raise BinanceProtocolError("userTrades returned a fill outside the requested time range")
-        return tuple(
-            sorted(records, key=lambda item: (item.traded_at_ms, item.exchange_trade_id))
-        )
-
-    async def get_income_history(
-        self,
-        start_time_ms: int,
-        end_time_ms: int,
-        *,
-        limit: int = MAX_INCOME_HISTORY_PAGE_SIZE,
-    ) -> tuple[IncomeLedgerRecord, ...]:
-        """Read one inclusive, explicitly bounded account-income history page."""
-
-        if (
-            isinstance(start_time_ms, bool)
-            or not isinstance(start_time_ms, int)
-            or start_time_ms < 0
-        ):
-            raise ValueError("start_time_ms must be a non-negative integer")
-        if (
-            isinstance(end_time_ms, bool)
-            or not isinstance(end_time_ms, int)
-            or end_time_ms < start_time_ms
-        ):
-            raise ValueError("end_time_ms must be an integer at or after start_time_ms")
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= MAX_INCOME_HISTORY_PAGE_SIZE
-        ):
-            raise ValueError(
-                "income history limit must be between 1 and "
-                f"{MAX_INCOME_HISTORY_PAGE_SIZE}"
-            )
-
-        payload = await self._request_json(
-            "GET",
-            "/fapi/v1/income",
-            params={
-                "startTime": str(start_time_ms),
-                "endTime": str(end_time_ms),
-                "limit": str(limit),
-            },
-            signed=True,
-        )
-        if not isinstance(payload, list):
-            raise BinanceProtocolError("income history response must be a list")
-        records: list[IncomeLedgerRecord] = []
-        for index, row in enumerate(payload):
-            try:
-                record = _parse_income_record(row)
-            except (TypeError, ValueError, BinanceProtocolError) as exc:
-                raise BinanceProtocolError(
-                    f"income history row {index} is invalid: {exc}"
-                ) from exc
-            if not start_time_ms <= record.occurred_at_ms <= end_time_ms:
-                raise BinanceProtocolError(
-                    f"income history row {index} is outside the requested time window"
-                )
-            records.append(record)
-        return tuple(records)
 
     async def _lookup_order_record(self, symbol: str, client_order_id: str) -> Mapping[str, Any]:
         if not symbol or not client_order_id:
@@ -801,32 +670,62 @@ class BinanceFuturesGateway:
         params: Mapping[str, str] | None = None,
         signed: bool = False,
     ) -> Any:
-        """Send one REST request and validate its JSON response."""
+        """Send a REST request and validate its JSON response.
+
+        Idempotent reads retry transport failures, server errors, and rate limits
+        three times with exponential backoff. Order submissions are never retried
+        here: after a transport failure their exchange outcome must be looked up
+        by client order ID before the system can decide what to do next.
+        """
 
         request_params = dict(params or {})
+        read_only = method.upper() in {"GET", "HEAD"}
+        max_attempts = 4 if read_only else 1
         headers = {"Accept": "application/json"}
         if signed:
             headers["X-MBX-APIKEY"] = self._api_key
-        if signed:
-            request_params["timestamp"] = str(self._clock_ms())
-            request_params["recvWindow"] = str(self._recv_window_ms)
-            encoded = urlencode(request_params)
-            signature = hmac.new(
-                self._api_secret,
-                encoded.encode("utf-8"),
-                hashlib.sha256,
-            ).hexdigest()
-            url = f"{self._base_url}{path}?{encoded}&signature={signature}"
-            request_params = None
-        else:
-            url = f"{self._base_url}{path}"
 
-        response = await self._client.request(
-            method,
-            url,
-            params=request_params,
-            headers=headers,
-        )
+        for attempt in range(max_attempts):
+            attempt_params = dict(request_params)
+            if signed:
+                attempt_params["timestamp"] = str(self._clock_ms())
+                attempt_params["recvWindow"] = str(self._recv_window_ms)
+                encoded = urlencode(attempt_params)
+                signature = hmac.new(
+                    self._api_secret,
+                    encoded.encode("utf-8"),
+                    hashlib.sha256,
+                ).hexdigest()
+                url = f"{self._base_url}{path}?{encoded}&signature={signature}"
+                attempt_params = None
+            else:
+                url = f"{self._base_url}{path}"
+
+            try:
+                response = await self._client.request(
+                    method,
+                    url,
+                    params=attempt_params,
+                    headers=headers,
+                )
+            except httpx.TransportError:
+                if attempt + 1 >= max_attempts:
+                    raise
+                await asyncio.sleep(1 << attempt)
+                continue
+
+            retryable_response = response.status_code == 429 or response.status_code >= 500
+            if read_only and retryable_response and attempt + 1 < max_attempts:
+                delay_seconds = 1 << attempt
+                retry_after = response.headers.get("Retry-After")
+                if response.status_code == 429 and retry_after is not None:
+                    try:
+                        delay_seconds = max(delay_seconds, float(retry_after))
+                    except ValueError:
+                        pass
+                await asyncio.sleep(delay_seconds)
+                continue
+            break
 
         try:
             payload = response.json()
@@ -977,70 +876,16 @@ def _parse_trade_fill(
             if row.get("orderId") is None
             else str(_strict_integer(row.get("orderId"), "orderId"))
         ),
-        position_side=_optional_income_text(row.get("positionSide"), "positionSide"),
-        margin_asset=_optional_income_text(row.get("marginAsset"), "marginAsset"),
+        position_side=_optional_text(row.get("positionSide"), "positionSide"),
+        margin_asset=_optional_text(row.get("marginAsset"), "marginAsset"),
     )
 
 
-def _parse_account_trade_fill(row: Any, symbol: str) -> TradeFillRecord:
-    if not isinstance(row, dict):
-        raise BinanceProtocolError("userTrades fill must be an object")
-    if row.get("symbol") != symbol:
-        raise BinanceProtocolError("userTrades returned a fill for a different symbol")
-    side = row.get("side")
-    if side not in {"BUY", "SELL"}:
-        buyer = row.get("buyer")
-        if not isinstance(buyer, bool):
-            raise BinanceProtocolError("userTrades fill is missing side/buyer")
-        side = "BUY" if buyer else "SELL"
-    commission_asset = _required_text(row.get("commissionAsset"), "commissionAsset")
-    trade_id = _strict_integer(row.get("id"), "id")
-    order_id = _strict_integer(row.get("orderId"), "orderId")
-    if order_id <= 0:
-        raise BinanceProtocolError("orderId must be positive")
-    return TradeFillRecord(
-        symbol=symbol,
-        exchange_trade_id=str(trade_id),
-        client_order_id=None,
-        side=side,
-        price=_decimal(row.get("price"), "price"),
-        qty=_decimal(row.get("qty"), "qty"),
-        realized_pnl=_decimal(row.get("realizedPnl", "0"), "realizedPnl"),
-        commission=_decimal(row.get("commission", "0"), "commission"),
-        commission_asset=commission_asset,
-        traded_at_ms=_strict_integer(row.get("time"), "time"),
-        exchange_order_id=str(order_id),
-        position_side=_optional_income_text(row.get("positionSide"), "positionSide"),
-        margin_asset=_optional_income_text(row.get("marginAsset"), "marginAsset"),
-    )
 
 
-def _parse_income_record(row: Any) -> IncomeLedgerRecord:
-    if not isinstance(row, dict):
-        raise BinanceProtocolError("row must be an object")
-    raw_transaction_id = row.get("tranId")
-    if isinstance(raw_transaction_id, bool) or not isinstance(raw_transaction_id, (int, str)):
-        raise BinanceProtocolError("tranId must be an integer or integer string")
-    try:
-        transaction_number = int(raw_transaction_id)
-    except ValueError as exc:
-        raise BinanceProtocolError("tranId must be an integer") from exc
-    if transaction_number < 0:
-        raise BinanceProtocolError("tranId must be non-negative")
-
-    return IncomeLedgerRecord(
-        transaction_id=str(transaction_number),
-        income_type=_required_text(row.get("incomeType"), "incomeType"),
-        asset=_required_text(row.get("asset"), "asset"),
-        amount=_decimal(row.get("income"), "income"),
-        occurred_at_ms=_strict_integer(row.get("time"), "time"),
-        symbol=_optional_income_text(row.get("symbol"), "symbol"),
-        info=_optional_income_text(row.get("info"), "info"),
-        trade_id=_optional_income_text(row.get("tradeId"), "tradeId"),
-    )
 
 
-def _optional_income_text(value: Any, field: str) -> str | None:
+def _optional_text(value: Any, field: str) -> str | None:
     if value is None or value == "":
         return None
     if not isinstance(value, str):

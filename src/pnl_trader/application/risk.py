@@ -10,7 +10,7 @@ from ..domain.models import Action, Decision, SymbolState, ZERO
 from .execution_models import RiskAuthorization
 from .market_models import InstrumentRules, MarkPriceSnapshot
 from .order_planning import MarketOrderPlan
-from .ports import AccountRiskSnapshotPort, MaintenanceMarginBracketPort, StateStorePort
+from .ports import AccountRiskSnapshotPort, MaintenanceMarginBracketPort
 from .risk_models import AccountRiskPolicy, AccountRiskSnapshot
 
 
@@ -38,17 +38,13 @@ class AccountRiskGate:
         self,
         *,
         snapshots: AccountRiskSnapshotPort,
-        store: StateStorePort,
         policy: AccountRiskPolicy,
         brackets: MaintenanceMarginBracketPort | None = None,
-        notification_channel: str | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         self._snapshots = snapshots
         self._brackets = brackets
-        self._store = store
         self._policy = policy
-        self._notification_channel = notification_channel
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
 
     async def authorize_order(
@@ -63,11 +59,6 @@ class AccountRiskGate:
     ) -> RiskAuthorization:
         now_ms = self._clock_ms()
         snapshot = await self._snapshots.get_account_risk_snapshot(account_id, state.symbol)
-        self._store.save_account_risk_snapshot(
-            snapshot,
-            notification_channel=self._notification_channel,
-            max_initial_margin_utilization=self._policy.max_initial_margin_utilization,
-        )
         reason = self._snapshot_rejection(
             snapshot,
             account_id=account_id,

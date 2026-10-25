@@ -94,7 +94,6 @@ class SymbolReviewExecutor:
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._max_mark_price_age_ms = max_mark_price_age_ms
         self._future_clock_skew_ms = future_clock_skew_ms
-        self._review_lock = asyncio.Lock()
 
     async def review_symbol(
         self,
@@ -104,7 +103,6 @@ class SymbolReviewExecutor:
         strategy_version: str,
         slot_start_ms: int,
         signals: Observation,
-        reconcile_active_intents: bool = True,
     ) -> SymbolReviewResult:
         """Review one action for a symbol in a 15-minute slot."""
 
@@ -113,219 +111,217 @@ class SymbolReviewExecutor:
         if slot_start_ms < 0 or slot_start_ms % 900_000 != 0:
             raise ValueError("slot_start_ms must be a UTC 15-minute boundary")
 
-        async with self._review_lock:
-            state = self._store.load_symbol_state(account_id, symbol)
-            if state is None:
-                raise ReviewExecutorError(
-                    f"symbol state for {account_id}/{symbol} must be initialized before review"
-                )
-            business_key = f"{strategy_version}:{slot_start_ms}:{symbol}"
-            if state.lifecycle is Lifecycle.REOPEN_PENDING:
-                business_key += ":reopen"
-            intent_id = str(
-                uuid5(NAMESPACE_URL, f"pnl-periodic-review:{account_id}:{business_key}")
+        state = self._store.load_symbol_state(account_id, symbol)
+        if state is None:
+            raise ReviewExecutorError(
+                f"symbol state for {account_id}/{symbol} must be initialized before review"
             )
-            existing = await self._resolve_prior_symbol_intent(
-                account_id=account_id,
-                symbol=symbol,
-                current_intent_id=intent_id,
-                reconcile_active_intents=reconcile_active_intents,
-            )
-            if existing is not None:
-                return existing
+        business_key = f"{strategy_version}:{slot_start_ms}:{symbol}"
+        if state.lifecycle is Lifecycle.REOPEN_PENDING:
+            business_key += ":reopen"
+        intent_id = str(
+            uuid5(NAMESPACE_URL, f"pnl-periodic-review:{account_id}:{business_key}")
+        )
+        existing = await self._resolve_prior_symbol_intent(
+            account_id=account_id,
+            symbol=symbol,
+            current_intent_id=intent_id,
+        )
+        if existing is not None:
+            return existing
 
-            price, candle = await asyncio.gather(
-                self._exchange.get_mark_price(symbol),
-                self._exchange.get_fifteen_minute_close(symbol, slot_start_ms),
-            )
-            now_ms = self._clock_ms()
-            age_ms = now_ms - price.observed_at_ms
-            if age_ms > self._max_mark_price_age_ms or age_ms < -self._future_clock_skew_ms:
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.STALE_PRICE,
-                    price=price,
-                    detail=f"mark price age {age_ms}ms is outside the allowed window",
-                )
-            candle_age_ms = now_ms - candle.close_time_ms
-            if (
-                candle.symbol != symbol
-                or candle.slot_start_ms != slot_start_ms
-                or candle_age_ms > self._max_mark_price_age_ms
-                or candle_age_ms < -self._future_clock_skew_ms
-            ):
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.STALE_PRICE,
-                    price=price,
-                    detail=(
-                        "15-minute close candle is missing, mismatched or outside the allowed window"
-                    ),
-                )
-
-            observation = Observation(
-                mark_price=price.mark_price,
-                admitted=signals.admitted,
-                reopen_authorized=signals.reopen_authorized,
-                valid=signals.valid,
-                scale_in_authorized=signals.scale_in_authorized,
-                close_price=candle.close_price,
-            )
-            decision = self._policy.decide(state, observation)
-            if decision.action is Action.HOLD:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.NO_ACTION,
-                    decision=decision,
-                    price=price,
-                    detail=decision.reason,
-                )
-
-            rules = await self._exchange.get_instrument_rules(symbol)
-            try:
-                plan = self._planner.plan(decision, state, rules, price)
-            except OrderPlanningError as exc:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.NO_ACTION,
-                    decision=decision,
-                    price=price,
-                    detail=str(exc),
-                )
-
-            authorization = await self._risk_gate.authorize_order(
-                account_id=account_id,
-                state=state,
-                decision=decision,
-                plan=plan,
-                price=price,
-                rules=rules,
-            )
-            self._validate_authorization(
-                authorization,
-                account_id=account_id,
-                state=state,
-                plan=plan,
-            )
-            if not authorization.approved:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.RISK_REJECTED,
-                    decision=decision,
-                    plan=plan,
-                    price=price,
-                    detail=authorization.reason,
-                )
-            if self._clock_ms() >= authorization.valid_until_ms:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
-                    decision=decision,
-                    plan=plan,
-                    price=price,
-                    detail="risk authorization expired before intent reservation",
-                )
-
-            intent = self._make_intent(
-                account_id=account_id,
-                state=state,
-                plan=plan,
-                decision=decision,
-                business_key=business_key,
-                intent_id=intent_id,
-                slot_start_ms=slot_start_ms,
-                authorization=authorization,
-            )
-            try:
-                self._store.create_order_intent(
-                    intent,
-                    max_active_reserved_margin=(
-                        authorization.max_active_reserved_margin
-                        if authorization.reserved_margin > ZERO
-                        else None
-                    ),
-                )
-            except ReservationLimitExceeded as exc:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.RESERVATION_REJECTED,
-                    decision=decision,
-                    plan=plan,
-                    price=price,
-                    detail=str(exc),
-                )
-            except StateVersionConflict as exc:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.STATE_CHANGED,
-                    decision=decision,
-                    plan=plan,
-                    price=price,
-                    detail=str(exc),
-                )
-            except IntentConflict as exc:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.INTENT_CONFLICT,
-                    decision=decision,
-                    plan=plan,
-                    price=price,
-                    detail=str(exc),
-                )
-            except ActiveIntentConflict as exc:
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.ORDER_PENDING,
-                    decision=decision,
-                    plan=plan,
-                    price=price,
-                    detail=str(exc),
-                )
-
-            if self._clock_ms() >= authorization.valid_until_ms:
-                self._cancel_prepared_intent(intent_id)
-                return SymbolReviewResult(
-                    symbol=symbol,
-                    disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
-                    decision=decision,
-                    plan=plan,
-                    price=price,
-                    detail="risk authorization expired before the submit attempt",
-                )
-
-            client_order_id = _client_order_id(account_id, business_key)
-            attempt = OrderAttempt(
-                attempt_id=str(uuid5(UUID(intent_id), "attempt:1")),
-                intent_id=intent_id,
-                attempt_no=1,
-                client_order_id=client_order_id,
-                requested_qty=plan.quantity,
-                sent_at_ms=self._clock_ms(),
-            )
-            request = MarketOrderRequest(
-                symbol=symbol,
-                side=plan.side,
-                quantity=plan.quantity,
-                client_order_id=client_order_id,
-                reduce_only=plan.reduce_only,
-            )
-            execution_result = await self._execution.execute_prepared(intent, attempt, request)
+        price, candle = await asyncio.gather(
+            self._exchange.get_mark_price(symbol),
+            self._exchange.get_fifteen_minute_close(symbol, slot_start_ms),
+        )
+        now_ms = self._clock_ms()
+        age_ms = now_ms - price.observed_at_ms
+        if age_ms > self._max_mark_price_age_ms or age_ms < -self._future_clock_skew_ms:
             return SymbolReviewResult(
                 symbol=symbol,
-                disposition=ReviewDisposition.EXECUTION,
+                disposition=ReviewDisposition.STALE_PRICE,
+                price=price,
+                detail=f"mark price age {age_ms}ms is outside the allowed window",
+            )
+        candle_age_ms = now_ms - candle.close_time_ms
+        if (
+            candle.symbol != symbol
+            or candle.slot_start_ms != slot_start_ms
+            or candle_age_ms > self._max_mark_price_age_ms
+            or candle_age_ms < -self._future_clock_skew_ms
+        ):
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.STALE_PRICE,
+                price=price,
+                detail=(
+                    "15-minute close candle is missing, mismatched or outside the allowed window"
+                ),
+            )
+
+        observation = Observation(
+            mark_price=price.mark_price,
+            admitted=signals.admitted,
+            reopen_authorized=signals.reopen_authorized,
+            valid=signals.valid,
+            scale_in_authorized=signals.scale_in_authorized,
+            close_price=candle.close_price,
+        )
+        decision = self._policy.decide(state, observation)
+        if decision.action is Action.HOLD:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.NO_ACTION,
+                decision=decision,
+                price=price,
+                detail=decision.reason,
+            )
+
+        rules = await self._exchange.get_instrument_rules(symbol)
+        try:
+            plan = self._planner.plan(decision, state, rules, price)
+        except OrderPlanningError as exc:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.NO_ACTION,
+                decision=decision,
+                price=price,
+                detail=str(exc),
+            )
+
+        authorization = await self._risk_gate.authorize_order(
+            account_id=account_id,
+            state=state,
+            decision=decision,
+            plan=plan,
+            price=price,
+            rules=rules,
+        )
+        self._validate_authorization(
+            authorization,
+            account_id=account_id,
+            state=state,
+            plan=plan,
+        )
+        if not authorization.approved:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.RISK_REJECTED,
                 decision=decision,
                 plan=plan,
                 price=price,
-                execution=execution_result,
-                detail=execution_result.detail,
+                detail=authorization.reason,
             )
+        if self._clock_ms() >= authorization.valid_until_ms:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
+                decision=decision,
+                plan=plan,
+                price=price,
+                detail="risk authorization expired before intent reservation",
+            )
+
+        intent = self._make_intent(
+            account_id=account_id,
+            state=state,
+            plan=plan,
+            decision=decision,
+            business_key=business_key,
+            intent_id=intent_id,
+            slot_start_ms=slot_start_ms,
+            authorization=authorization,
+        )
+        try:
+            self._store.create_order_intent(
+                intent,
+                max_active_reserved_margin=(
+                    authorization.max_active_reserved_margin
+                    if authorization.reserved_margin > ZERO
+                    else None
+                ),
+            )
+        except ReservationLimitExceeded as exc:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.RESERVATION_REJECTED,
+                decision=decision,
+                plan=plan,
+                price=price,
+                detail=str(exc),
+            )
+        except StateVersionConflict as exc:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.STATE_CHANGED,
+                decision=decision,
+                plan=plan,
+                price=price,
+                detail=str(exc),
+            )
+        except IntentConflict as exc:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.INTENT_CONFLICT,
+                decision=decision,
+                plan=plan,
+                price=price,
+                detail=str(exc),
+            )
+        except ActiveIntentConflict as exc:
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.ORDER_PENDING,
+                decision=decision,
+                plan=plan,
+                price=price,
+                detail=str(exc),
+            )
+
+        if self._clock_ms() >= authorization.valid_until_ms:
+            self._cancel_prepared_intent(account_id, intent_id)
+            return SymbolReviewResult(
+                symbol=symbol,
+                disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
+                decision=decision,
+                plan=plan,
+                price=price,
+                detail="risk authorization expired before the submit attempt",
+            )
+
+        client_order_id = _client_order_id(account_id, business_key)
+        attempt = OrderAttempt(
+            attempt_id=str(uuid5(UUID(intent_id), "attempt:1")),
+            intent_id=intent_id,
+            attempt_no=1,
+            client_order_id=client_order_id,
+            requested_qty=plan.quantity,
+            sent_at_ms=self._clock_ms(),
+        )
+        request = MarketOrderRequest(
+            symbol=symbol,
+            side=plan.side,
+            quantity=plan.quantity,
+            client_order_id=client_order_id,
+            reduce_only=plan.reduce_only,
+        )
+        execution_result = await self._execution.execute_prepared(intent, attempt, request)
+        return SymbolReviewResult(
+            symbol=symbol,
+            disposition=ReviewDisposition.EXECUTION,
+            decision=decision,
+            plan=plan,
+            price=price,
+            execution=execution_result,
+            detail=execution_result.detail,
+        )
 
     async def _resolve_prior_symbol_intent(
         self,
@@ -333,7 +329,6 @@ class SymbolReviewExecutor:
         account_id: str,
         symbol: str,
         current_intent_id: str,
-        reconcile_active_intents: bool,
     ) -> SymbolReviewResult | None:
         active = self._store.list_active_order_intents(account_id, symbol)
         if active:
@@ -348,44 +343,11 @@ class SymbolReviewExecutor:
                     target=IntentStatus.CANCELED,
                 )
             else:
-                if not reconcile_active_intents:
-                    return SymbolReviewResult(
-                        symbol=symbol,
-                        disposition=ReviewDisposition.ORDER_PENDING,
-                        detail="active intent remained after the batch recovery pass",
-                    )
-                results = await self._execution.recover_pending(account_id, symbol)
-                result = next(
-                    (item for item in results if item.intent_id == record.intent.intent_id),
-                    None,
+                return SymbolReviewResult(
+                    symbol=symbol,
+                    disposition=ReviewDisposition.ORDER_PENDING,
+                    detail="active intent remained after the batch recovery pass",
                 )
-                refreshed_status = self._store.get_intent_status(record.intent.intent_id)
-                still_active = bool(
-                    self._store.list_active_order_intents(account_id, symbol)
-                )
-                if still_active:
-                    return SymbolReviewResult(
-                        symbol=symbol,
-                        disposition=ReviewDisposition.ORDER_PENDING,
-                        execution=result,
-                        detail=(
-                            result.detail
-                            if result is not None
-                            else "an active intent is being reconciled"
-                        ),
-                    )
-                if same_slot and refreshed_status is not None:
-                    return SymbolReviewResult(
-                        symbol=symbol,
-                        disposition=ReviewDisposition.ORDER_RESOLVED,
-                        execution=result
-                        or ExecutionResult(
-                            intent_id=record.intent.intent_id,
-                            status=refreshed_status,
-                            resolution=ExecutionResolution.ALREADY_TERMINAL,
-                        ),
-                        detail=(result.detail if result is not None else None),
-                    )
 
         current_status = self._store.get_intent_status(current_intent_id)
         if current_status in _TERMINAL_INTENT_STATUSES:
@@ -400,10 +362,10 @@ class SymbolReviewExecutor:
             )
         return None
 
-    def _cancel_prepared_intent(self, intent_id: str) -> None:
+    def _cancel_prepared_intent(self, account_id: str, intent_id: str) -> None:
         if self._store.get_intent_status(intent_id) is not IntentStatus.PREPARED:
             return
-        active = self._store.list_active_order_intents()
+        active = self._store.list_active_order_intents(account_id)
         record = next((item for item in active if item.intent.intent_id == intent_id), None)
         if record is None:
             return

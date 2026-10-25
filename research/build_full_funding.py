@@ -16,7 +16,7 @@ import pandas as pd
 
 import fetch_funding as FF
 
-DATA = Path(__file__).parent / "data"
+DATA = Path(__file__).resolve().parent.parent / "data"
 ORIGIN_MS = 1767225600000
 HOUR_MS = 3600000
 

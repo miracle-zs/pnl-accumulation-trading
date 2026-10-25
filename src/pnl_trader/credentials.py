@@ -9,10 +9,6 @@ from pathlib import Path
 _SYSTEMD_CREDENTIALS = {
     "BINANCE_API_KEY": "binance_api_key",
     "BINANCE_API_SECRET": "binance_api_secret",
-    "PNL_NOTIFICATION_WEBHOOK_URL": "pnl_notification_webhook_url",
-    "PNL_NOTIFICATION_SIGNING_SECRET": "pnl_notification_signing_secret",
-    "PNL_TELEGRAM_BOT_TOKEN": "pnl_telegram_bot_token",
-    "PNL_TELEGRAM_CHAT_ID": "pnl_telegram_chat_id",
 }
 
 

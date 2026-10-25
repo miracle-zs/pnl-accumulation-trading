@@ -17,13 +17,13 @@ from pathlib import Path
 
 import requests
 
-DATA = Path(__file__).parent / "data"
+DATA = Path(__file__).resolve().parent.parent / "data"
 DATE = "2026-01-01"
 
 
 def main():
     key = ""
-    for line in (Path(__file__).parent / ".env").read_text().splitlines():
+    for line in (Path(__file__).resolve().parent.parent / ".env").read_text().splitlines():
         if line.startswith("CMC_API_KEY="):
             key = line.split("=", 1)[1].strip()
     if not key:

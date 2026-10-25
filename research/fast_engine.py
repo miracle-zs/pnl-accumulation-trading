@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple
 import pandas as pd
 import numpy as np
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RESULTS_DIR = DATA_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True, parents=True)
 

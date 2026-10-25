@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 FUNDING_DIR = DATA_DIR / "funding"
 FUNDING_DIR.mkdir(exist_ok=True, parents=True)
 

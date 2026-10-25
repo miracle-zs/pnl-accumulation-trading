@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-DATA = Path(__file__).parent / "data"
+DATA = Path(__file__).resolve().parent.parent / "data"
 MONTH = "2025-12"
 WINDOW = 720          # hours in December
 

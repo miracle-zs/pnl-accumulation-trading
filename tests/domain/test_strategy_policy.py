@@ -80,10 +80,26 @@ class StrategyPolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, Action.CLOSE_T2_FULL)
         self.assertEqual(decision.close_qty, D("0.5"))
 
+    def test_t2_1_full_exit_closes_remaining_half_at_50_percent(self) -> None:
+        state = open_state(
+            Tier.T2,
+            qty="0.25",
+            entry_qty="0.5",
+            average="60",
+            anchor="50",
+            sold="0.25",
+            completed_batches=1,
+        )
+
+        decision = self.decide(state, "90")
+
+        self.assertEqual(decision.action, Action.CLOSE_T2_FULL)
+        self.assertEqual(decision.close_qty, D("0.25"))
+
     def test_t3_jumps_to_cumulative_two_thirds_target(self) -> None:
         state = open_state(Tier.T3, qty="3", entry_qty="3", average="10", anchor="5")
 
-        decision = self.decide(state, "16")
+        decision = self.decide(state, "15")
 
         self.assertEqual(decision.action, Action.CLOSE_T3_TO_TWO_THIRDS)
         self.assertEqual(decision.close_qty, D("2"))
@@ -119,6 +135,36 @@ class StrategyPolicyTests(unittest.TestCase):
 
         self.assertEqual(decision.action, Action.HOLD)
 
+    def test_t3_writeoff_closes_every_t3_batch_state(self) -> None:
+        states = (
+            open_state(Tier.T3, qty="3", entry_qty="3", average="10", anchor="5"),
+            open_state(
+                Tier.T3,
+                qty="2",
+                entry_qty="3",
+                average="10",
+                anchor="5",
+                sold="1",
+                completed_batches=1,
+            ),
+            open_state(
+                Tier.T3,
+                qty="1",
+                entry_qty="3",
+                average="10",
+                anchor="5",
+                sold="2",
+                completed_batches=2,
+            ),
+        )
+
+        for state in states:
+            with self.subTest(sold=state.tier_sold_qty):
+                decision = self.decide(state, "1.66")
+
+                self.assertEqual(decision.action, Action.CLOSE_T3_FULL)
+                self.assertEqual(decision.close_qty, state.qty)
+
     def test_idle_symbol_requires_admission_to_open(self) -> None:
         state = SymbolState(symbol="TESTUSDT")
 
@@ -133,6 +179,19 @@ class StrategyPolicyTests(unittest.TestCase):
         decision = self.decide(state, "100", admitted=True)
 
         self.assertEqual(decision.action, Action.HOLD)
+
+    def test_reopen_pending_opens_t1_when_explicitly_authorized(self) -> None:
+        state = SymbolState(symbol="TESTUSDT", cycle_id=1, lifecycle=Lifecycle.REOPEN_PENDING)
+
+        decision = self.decide(
+            state,
+            "100",
+            admitted=True,
+            reopen_authorized=True,
+        )
+
+        self.assertEqual(decision.action, Action.OPEN_T1)
+        self.assertEqual(decision.buy_notional, D("10.0"))
 
 
 class ConfirmedExecutionTransitionTests(unittest.TestCase):

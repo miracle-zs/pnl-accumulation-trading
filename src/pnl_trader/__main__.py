@@ -29,18 +29,6 @@ def main() -> None:
         "run",
         help="start the Binance mainnet service; this may submit real orders",
     )
-    report_parser = commands.add_parser("report", help="print the latest persisted daily report")
-    report_parser.add_argument("--account-id", default=os.environ.get("PNL_ACCOUNT_ID"))
-    report_parser.add_argument(
-        "--strategy-version",
-        default=os.environ.get("PNL_STRATEGY_VERSION", "periodic-review-v1"),
-    )
-    report_parser.add_argument(
-        "--data-dir",
-        type=Path,
-        default=Path(os.environ.get("PNL_DATA_DIR", "./var")).expanduser(),
-    )
-    report_parser.add_argument("--period-start-ms", type=int)
     commands.add_parser(
         "validate-config",
         help="validate local runtime values and asset classifications without network access",
@@ -113,26 +101,6 @@ def main() -> None:
             )
             raise SystemExit(1) from None
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return
-    if args.command == "report":
-        if not args.account_id:
-            parser.error("report requires --account-id or PNL_ACCOUNT_ID")
-        database_path = args.data_dir.resolve() / "state.sqlite3"
-        if not database_path.is_file():
-            parser.error(f"state database does not exist: {database_path}")
-        try:
-            with SQLiteStateStore(database_path) as store:
-                report = store.load_latest_daily_report(
-                    args.account_id,
-                    args.strategy_version,
-                    period_start_ms=args.period_start_ms,
-                )
-            if report is None:
-                parser.error("no daily report is stored for that account and strategy")
-            print(json.dumps(report, ensure_ascii=False, indent=2))
-        except Exception:
-            logging.getLogger(__name__).exception("could not read the stored daily report")
-            raise SystemExit(1) from None
         return
     if args.command == "run":
         try:

@@ -67,13 +67,6 @@ class StrategyPolicy:
         if price is None or price <= ZERO:
             return Decision(Action.HOLD, "15-minute close price is missing or non-positive")
 
-        if state.lifecycle in {
-            Lifecycle.QUARANTINED,
-            Lifecycle.SETTLEMENT_PENDING,
-            Lifecycle.RETIRED,
-        }:
-            return Decision(Action.HOLD, f"symbol lifecycle is {state.lifecycle.value}")
-
         if state.lifecycle is Lifecycle.IDLE:
             if observation.admitted:
                 return Decision(
@@ -91,9 +84,6 @@ class StrategyPolicy:
                     buy_notional=self._config.t1_notional,
                 )
             return Decision(Action.HOLD, "reopen is not authorized")
-
-        if state.lifecycle is not Lifecycle.OPEN:
-            return Decision(Action.HOLD, "unsupported lifecycle")
 
         ret = (price - state.avg_entry_price) / state.avg_entry_price
         dca_price = state.tier_anchor_price * (Decimal("1") - self._config.dca_drop)

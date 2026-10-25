@@ -133,7 +133,7 @@ class MarketOrderPlanner:
                 "close decision is missing its incremental quantity",
             )
         if (
-            state.lifecycle not in {Lifecycle.OPEN, Lifecycle.QUARANTINED}
+            state.lifecycle is not Lifecycle.OPEN
             or state.qty <= ZERO
             or not _action_matches_tier(decision.action, state.tier)
             or decision.close_qty > state.qty
@@ -306,11 +306,11 @@ def _buy_action_matches_state(action: Action, state: SymbolState) -> bool:
         or (
             action is Action.ADD_T2
             and state.tier is Tier.T1
-            and state.lifecycle in {Lifecycle.OPEN, Lifecycle.QUARANTINED}
+            and state.lifecycle is Lifecycle.OPEN
         )
         or (
             action is Action.ADD_T3
             and state.tier is Tier.T2
-            and state.lifecycle in {Lifecycle.OPEN, Lifecycle.QUARANTINED}
+            and state.lifecycle is Lifecycle.OPEN
         )
     )

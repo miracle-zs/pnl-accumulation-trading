@@ -59,12 +59,10 @@ class ExecutionCoordinator:
         store: StateStorePort,
         exchange: ExchangeGatewayPort,
         clock_ms: Callable[[], int] | None = None,
-        notification_channel: str | None = None,
     ) -> None:
         self._store = store
         self._exchange = exchange
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
-        self._notification_channel = notification_channel
         self._order_lock = asyncio.Lock()
 
     async def execute_prepared(
@@ -162,15 +160,11 @@ class ExecutionCoordinator:
             expected_status=IntentStatus.SUBMITTING,
         )
 
-    async def recover_pending(
-        self,
-        account_id: str | None = None,
-        symbol: str | None = None,
-    ) -> tuple[ExecutionResult, ...]:
+    async def recover_pending(self, account_id: str) -> tuple[ExecutionResult, ...]:
         """Reconcile active attempts by client order ID without resubmitting."""
 
         results: list[ExecutionResult] = []
-        for record in self._store.list_active_order_intents(account_id, symbol):
+        for record in self._store.list_active_order_intents(account_id):
             results.append(await self._recover_record(record))
         return tuple(results)
 
@@ -310,7 +304,6 @@ class ExecutionCoordinator:
             terminal_status=terminal_status,
             applied_at_ms=self._clock_ms(),
             exchange_order_id=order.exchange_order_id,
-            notification_channel=self._notification_channel,
         )
         return ExecutionResult(
             intent_id=intent.intent_id,

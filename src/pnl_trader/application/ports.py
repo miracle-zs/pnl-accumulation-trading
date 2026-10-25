@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from pathlib import Path
-from typing import Mapping, Protocol
+from typing import Protocol
 
 from ..domain.models import Decision, ExecutionReceipt, SymbolState, TradeFillRecord
-from .notification_models import OutboxNotification
 from .execution_models import RiskAuthorization
 from .market_models import (
     ExchangeInfoSnapshot,
@@ -22,12 +20,7 @@ from .order_reconciliation_models import ExchangeOpenOrdersSnapshot
 from .risk_models import AccountRiskSnapshot, MaintenanceMarginBracketSnapshot
 from .review_batch_models import ReviewSignalSnapshot
 from .universe_models import UniverseSnapshot
-from .review_run_models import (
-    PersistedReviewRun,
-    ReviewBatch,
-    ReviewPriority,
-    ReviewRunStatus,
-)
+from .review_run_models import ReviewBatch, ReviewPriority
 from .execution_models import (
     ExchangeOrderSnapshot,
     IntentStatus,
@@ -40,13 +33,6 @@ from .execution_models import (
 
 
 class StateStorePort(Protocol):
-    def backup_to(
-        self,
-        destination: str | Path,
-        *,
-        overwrite: bool = False,
-    ) -> Path: ...
-
     def load_symbol_state(self, account_id: str, symbol: str) -> SymbolState | None: ...
 
     def list_symbol_states(self, account_id: str) -> tuple[SymbolState, ...]: ...
@@ -55,57 +41,9 @@ class StateStorePort(Protocol):
         self, account_id: str, symbol: str, *, created_at_ms: int
     ) -> SymbolState: ...
 
-    def save_position_snapshot(self, snapshot: ExchangePositionSnapshot) -> str: ...
-
     def save_universe_snapshot(self, snapshot: UniverseSnapshot) -> None: ...
 
     def load_latest_universe_snapshot(self) -> UniverseSnapshot | None: ...
-
-    def save_account_risk_snapshot(
-        self,
-        snapshot: AccountRiskSnapshot,
-        *,
-        notification_channel: str | None = None,
-        max_initial_margin_utilization: Decimal = Decimal("0.70"),
-    ) -> None: ...
-
-
-    def create_review_run(
-        self,
-        *,
-        run_id: str,
-        account_id: str,
-        strategy_version: str,
-        slot_start_ms: int,
-        started_at_ms: int,
-        snapshot_id: str | None = None,
-    ) -> bool: ...
-
-    def get_review_run(
-        self,
-        account_id: str,
-        strategy_version: str,
-        slot_start_ms: int,
-    ) -> PersistedReviewRun | None: ...
-
-    def resume_review_run(
-        self,
-        run_id: str,
-        *,
-        snapshot_id: str,
-    ) -> None: ...
-
-    def finish_review_run(
-        self,
-        run_id: str,
-        *,
-        status: ReviewRunStatus,
-        snapshot_id: str,
-        finished_at_ms: int,
-        result_counts: Mapping[str, int],
-        earliest_sampled_at_ms: int | None,
-        latest_sampled_at_ms: int | None,
-    ) -> None: ...
 
     def load_review_rotation_cursor(
         self,
@@ -134,7 +72,7 @@ class StateStorePort(Protocol):
 
     def list_active_order_intents(
         self,
-        account_id: str | None = None,
+        account_id: str,
         symbol: str | None = None,
     ) -> tuple[PersistedOrderIntent, ...]: ...
 
@@ -160,23 +98,7 @@ class StateStorePort(Protocol):
         terminal_status: IntentStatus,
         applied_at_ms: int,
         exchange_order_id: str | None = None,
-        notification_channel: str | None = None,
     ) -> bool: ...
-
-    def load_due_notifications(
-        self, channel: str, *, now_ms: int, limit: int
-    ) -> tuple[OutboxNotification, ...]: ...
-
-    def mark_notification_delivered(self, event_id: str, *, sent_at_ms: int) -> None: ...
-
-    def reschedule_notification(
-        self,
-        event_id: str,
-        *,
-        attempted_at_ms: int,
-        next_attempt_at_ms: int,
-        error_code: str,
-    ) -> None: ...
 
     def resolve_no_fill(
         self,

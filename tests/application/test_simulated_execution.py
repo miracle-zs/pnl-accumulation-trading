@@ -43,7 +43,7 @@ D = Decimal
 
 
 class SimulatedExecutionAcceptanceTests(unittest.TestCase):
-    def test_confirmed_simulated_dca_advances_state_and_enqueues_notification_once(self) -> None:
+    def test_confirmed_simulated_dca_advances_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
@@ -117,7 +117,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     store=store,
                     exchange=gateway,
                     clock_ms=lambda: 3_000,
-                    notification_channel="feishu",
                 )
                 request = MarketOrderRequest(
                     symbol="BTCUSDT",
@@ -137,10 +136,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                 self.assertEqual(state.tier, Tier.T2)
                 self.assertEqual(state.avg_entry_price, D("75"))
                 self.assertEqual(store.list_active_order_intents("primary"), ())
-                self.assertEqual(
-                    len(store.load_due_notifications("feishu", now_ms=3_000, limit=10)),
-                    1,
-                )
             finally:
                 store.close()
 

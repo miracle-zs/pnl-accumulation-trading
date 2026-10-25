@@ -68,17 +68,6 @@ class SQLiteStateStoreTests(unittest.TestCase):
         with self.assertRaises(StateVersionConflict):
             self.store.save_symbol_state("primary", opened, expected_version=0, updated_at_ms=300)
 
-    def test_review_slot_is_idempotent_across_duplicate_triggers(self) -> None:
-        args = {
-            "account_id": "primary",
-            "strategy_version": "v1",
-            "slot_start_ms": 900_000,
-            "started_at_ms": 900_005,
-        }
-
-        self.assertTrue(self.store.create_review_run(run_id="run-1", **args))
-        self.assertFalse(self.store.create_review_run(run_id="run-2", **args))
-
     def test_only_one_active_intent_can_reserve_a_symbol(self) -> None:
         first = self.buy_intent("intent-1", "slot-1")
         second = self.buy_intent("intent-2", "slot-2")
@@ -307,7 +296,8 @@ class SQLiteStateStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(self.store.get_intent_status(intent.intent_id), IntentStatus.UNKNOWN)
-        self.assertEqual(self.store.get_attempt_status("attempt-1"), IntentStatus.UNKNOWN)
+        active = self.store.list_active_order_intents("primary")
+        self.assertEqual(active[0].attempt.status, IntentStatus.UNKNOWN)
         with self.assertRaises(IntentTransitionError):
             self.store.transition_intent(
                 intent.intent_id,

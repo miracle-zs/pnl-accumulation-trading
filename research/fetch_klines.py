@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import requests
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 KLINES_DIR = DATA_DIR / "klines"
 KLINES_DIR.mkdir(exist_ok=True, parents=True)
 

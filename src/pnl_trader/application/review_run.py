@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections import Counter
 from dataclasses import dataclass
 import logging
@@ -66,7 +65,6 @@ class ReviewRunCoordinator:
         self._max_run_budget_ms = max_run_budget_ms
         self._max_batch_snapshot_age_ms = max_batch_snapshot_age_ms
         self._future_clock_skew_ms = future_clock_skew_ms
-        self._run_lock = asyncio.Lock()
 
     async def run_slot(
         self,
@@ -80,22 +78,19 @@ class ReviewRunCoordinator:
         if slot_start_ms < 0 or slot_start_ms % 900_000 != 0:
             raise ValueError("slot_start_ms must be a UTC 15-minute boundary")
         self._ensure_process_lock_held()
-
-        async with self._run_lock:
-            self._ensure_process_lock_held()
-            await self._recover_pending(account_id)
-            batch = await self._batch_source.load_review_batch(
-                account_id,
-                strategy_version,
-                slot_start_ms,
-            )
-            if (
-                batch.account_id != account_id
-                or batch.strategy_version != strategy_version
-                or batch.slot_start_ms != slot_start_ms
-            ):
-                raise ReviewRunError("batch source returned a different review slot")
-            return await self._run_batch(batch)
+        await self._recover_pending(account_id)
+        batch = await self._batch_source.load_review_batch(
+            account_id,
+            strategy_version,
+            slot_start_ms,
+        )
+        if (
+            batch.account_id != account_id
+            or batch.strategy_version != strategy_version
+            or batch.slot_start_ms != slot_start_ms
+        ):
+            raise ReviewRunError("batch source returned a different review slot")
+        return await self._run_batch(batch)
 
     async def recover_pending_on_startup(
         self,
@@ -104,9 +99,7 @@ class ReviewRunCoordinator:
         if not account_id:
             raise ValueError("account_id must not be empty")
         self._ensure_process_lock_held()
-        async with self._run_lock:
-            self._ensure_process_lock_held()
-            return await self._recover_pending(account_id)
+        return await self._recover_pending(account_id)
 
     async def _recover_pending(self, account_id: str) -> tuple[ExecutionResult, ...]:
         try:
@@ -138,7 +131,6 @@ class ReviewRunCoordinator:
                     strategy_version=batch.strategy_version,
                     slot_start_ms=batch.slot_start_ms,
                     signals=candidate.signals,
-                    reconcile_active_intents=False,
                 )
                 counts[result.disposition.value] += 1
                 if (
@@ -159,7 +151,6 @@ class ReviewRunCoordinator:
                             strategy_version=batch.strategy_version,
                             slot_start_ms=batch.slot_start_ms,
                             signals=candidate.signals,
-                            reconcile_active_intents=False,
                         )
                         counts[reopen_result.disposition.value] += 1
             except Exception as exc:

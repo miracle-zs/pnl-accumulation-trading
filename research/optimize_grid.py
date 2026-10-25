@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 from fast_engine import prepare_data, simulate_fast
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RESULTS_DIR = DATA_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True, parents=True)
 

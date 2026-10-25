@@ -19,15 +19,3 @@ class IntentConflict(RuntimeError):
 
 class IntentTransitionError(RuntimeError):
     """An intent status change is missing or out of order."""
-
-
-class ReviewRunConflict(RuntimeError):
-    """A review run was finished or resumed with conflicting persisted data."""
-
-
-class IncomeLedgerConflict(RuntimeError):
-    """An existing exchange income identity was returned with different facts."""
-
-
-class TradeLedgerConflict(RuntimeError):
-    """An existing exchange trade identity was returned with different facts."""

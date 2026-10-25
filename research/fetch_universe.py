@@ -5,7 +5,7 @@ from pathlib import Path
 import requests
 
 def load_cmc_key():
-    env_file = Path(__file__).parent / ".env"
+    env_file = Path(__file__).resolve().parent.parent / ".env"
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             if line.startswith("CMC_API_KEY="):
@@ -73,7 +73,7 @@ def get_bottom_100_symbols(date_str="2026-01-01"):
 if __name__ == "__main__":
     print("Fetching bottom 100 contracts for 2026-01-01...")
     bottom_100 = get_bottom_100_symbols("2026-01-01")
-    out_dir = Path(__file__).parent / "data"
+    out_dir = Path(__file__).resolve().parent.parent / "data"
     out_dir.mkdir(exist_ok=True)
     out_file = out_dir / "initial_universe_20260101.json"
     out_file.write_text(json.dumps(bottom_100, indent=2))

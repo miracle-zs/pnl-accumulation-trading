@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from optimize_grid import get_cached_data
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RESULTS_DIR = DATA_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True, parents=True)
 

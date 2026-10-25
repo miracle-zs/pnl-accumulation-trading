@@ -116,7 +116,7 @@ A single high-level seam—**the `ExchangeGateway` interface**—is tested. Unit
   - Mocks CMC 500 error $\rightarrow$ verifies automatic fallback to Binance 24h ticker volume ranking.
 
 ### 3. Prior Art
-Built on the proven vectorized simulation harness in `strategy_final.py` which demonstrated +286.78% return, -54.06% max drawdown, and 0 liquidations across 6,552 hourly candles on 200 Binance USDT-M symbols.
+Built on the proven vectorized simulation harness in `research/strategy_final.py` which demonstrated +286.78% return, -54.06% max drawdown, and 0 liquidations across 6,552 hourly candles on 200 Binance USDT-M symbols.
 
 ## Out of Scope
 

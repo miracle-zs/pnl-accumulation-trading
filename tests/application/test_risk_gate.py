@@ -48,20 +48,6 @@ class _BracketSource:
         )
 
 
-class _SnapshotStore:
-    def __init__(self) -> None:
-        self.saved_snapshots: list[AccountRiskSnapshot] = []
-
-    def save_account_risk_snapshot(
-        self,
-        snapshot: AccountRiskSnapshot,
-        *,
-        notification_channel: str | None,
-        max_initial_margin_utilization: Decimal,
-    ) -> None:
-        self.saved_snapshots.append(snapshot)
-
-
 class AccountRiskGateTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.state = SymbolState(symbol="TESTUSDT")
@@ -119,11 +105,9 @@ class AccountRiskGateTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def make_gate(self, snapshot: AccountRiskSnapshot, now_ms: int = 1_000):
-        self.store = _SnapshotStore()
         return AccountRiskGate(
             snapshots=_SnapshotSource(snapshot),
             brackets=_BracketSource(),
-            store=self.store,
             policy=AccountRiskPolicy(
                 max_maintenance_margin_ratio=D("0.50"),
                 reserve_buffer=D("10"),
@@ -154,7 +138,6 @@ class AccountRiskGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(authorization.approved)
         self.assertEqual(authorization.reserved_margin, D("1.055"))
         self.assertEqual(authorization.max_active_reserved_margin, D("70.00"))
-        self.assertEqual(len(self.store.saved_snapshots), 1)
 
     async def test_stale_account_snapshot_fails_closed(self) -> None:
         gate = self.make_gate(self.snapshot(fetched_at_ms=0), now_ms=100_000)

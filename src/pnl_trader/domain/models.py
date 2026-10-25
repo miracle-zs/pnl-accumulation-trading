@@ -14,9 +14,6 @@ class Lifecycle(str, Enum):
     IDLE = "IDLE"
     OPEN = "OPEN"
     REOPEN_PENDING = "REOPEN_PENDING"
-    QUARANTINED = "QUARANTINED"
-    SETTLEMENT_PENDING = "SETTLEMENT_PENDING"
-    RETIRED = "RETIRED"
 
 
 class Tier(IntEnum):
@@ -83,11 +80,7 @@ class SymbolState:
             if value < ZERO:
                 raise ValueError(f"{name} must be non-negative")
 
-        has_position = self.lifecycle in {
-            Lifecycle.OPEN,
-            Lifecycle.QUARANTINED,
-            Lifecycle.SETTLEMENT_PENDING,
-        } and self.tier is not Tier.NONE
+        has_position = self.lifecycle is Lifecycle.OPEN and self.tier is not Tier.NONE
 
         if has_position:
             if self.qty <= ZERO or self.tier_entry_qty <= ZERO:

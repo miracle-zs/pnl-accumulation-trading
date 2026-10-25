@@ -83,7 +83,7 @@ def _apply_buy(
         )
 
     expected_prior_tier = Tier(target_tier - 1)
-    if state.lifecycle not in {Lifecycle.OPEN, Lifecycle.QUARANTINED}:
+    if state.lifecycle is not Lifecycle.OPEN:
         raise InvalidExecution("DCA fill requires a known open position")
     if state.tier is not expected_prior_tier:
         raise InvalidExecution(
@@ -110,7 +110,7 @@ def _apply_sell(
     receipt: ExecutionReceipt,
     expected_tier: Tier,
 ) -> SymbolState:
-    if state.lifecycle not in {Lifecycle.OPEN, Lifecycle.QUARANTINED}:
+    if state.lifecycle is not Lifecycle.OPEN:
         raise InvalidExecution("close fill requires a known open position")
     if state.tier is not expected_tier:
         raise InvalidExecution(
@@ -123,13 +123,6 @@ def _apply_sell(
     new_sold_qty = state.tier_sold_qty + receipt.filled_qty
 
     if new_qty == ZERO:
-        if state.lifecycle is Lifecycle.QUARANTINED:
-            return SymbolState(
-                symbol=state.symbol,
-                cycle_id=state.cycle_id,
-                lifecycle=Lifecycle.QUARANTINED,
-                version=state.version + 1,
-            )
         return SymbolState(
             symbol=state.symbol,
             cycle_id=state.cycle_id,

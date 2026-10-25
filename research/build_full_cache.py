@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-DATA = Path(__file__).parent / "data"
+DATA = Path(__file__).resolve().parent.parent / "data"
 KLINES = DATA / "klines"
 ORIGIN = pd.Timestamp("2026-01-01")
 NUM_BARS = 6552          # 2026-01-01 00:00 -> 2026-09-30 23:00, matches bars_info.json
