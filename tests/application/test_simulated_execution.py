@@ -892,6 +892,8 @@ class _ControllableExchangeGateway:
         self,
         symbol: str,
         client_order_id: str,
+        order_snapshot: ExchangeOrderSnapshot,
+        order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
         if any(fill.symbol != symbol or fill.client_order_id != client_order_id for fill in self.fills):
             raise AssertionError("fill request does not match the scripted order")
@@ -909,11 +911,18 @@ class _DelayedOrderFillsGateway(ScriptedExchangeGateway):
         self,
         symbol: str,
         client_order_id: str,
+        order_snapshot: ExchangeOrderSnapshot,
+        order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
         self.fill_queries += 1
         if self.fill_queries == 1:
             raise TimeoutError("simulated delayed trade history")
-        return await super().list_order_fills(symbol, client_order_id)
+        return await super().list_order_fills(
+            symbol,
+            client_order_id,
+            order_snapshot,
+            order_side,
+        )
 
 
 class _MismatchedOnceFillsGateway(ScriptedExchangeGateway):
@@ -928,11 +937,18 @@ class _MismatchedOnceFillsGateway(ScriptedExchangeGateway):
         self,
         symbol: str,
         client_order_id: str,
+        order_snapshot: ExchangeOrderSnapshot,
+        order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
         self.fill_queries += 1
         if self.fill_queries == 1:
             return self._mismatched_fills
-        return await super().list_order_fills(symbol, client_order_id)
+        return await super().list_order_fills(
+            symbol,
+            client_order_id,
+            order_snapshot,
+            order_side,
+        )
 
 
 def _seed_open_t1(store: SQLiteStateStore):

@@ -278,6 +278,8 @@ class ExecutionCoordinator:
             fills = await self._exchange.list_order_fills(
                 intent.symbol,
                 attempt.client_order_id,
+                order,
+                "BUY" if intent.buy_notional is not None else "SELL",
             )
         except Exception as exc:
             self._move_to_unknown(intent.intent_id, expected_status)

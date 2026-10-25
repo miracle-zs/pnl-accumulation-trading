@@ -133,6 +133,8 @@ class ScriptedExchangeGateway:
         self,
         symbol: str,
         client_order_id: str,
+        order_snapshot: ExchangeOrderSnapshot,
+        order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
         async with self._lock:
             submitted = self._submitted.get(client_order_id)
@@ -141,6 +143,8 @@ class ScriptedExchangeGateway:
             request, scenario = submitted
             if request.symbol != symbol:
                 raise ValueError("fill query symbol does not match the submitted order")
+            if request.side != order_side:
+                raise ValueError("fill query side does not match the submitted order")
             return scenario.fills
 
     @staticmethod

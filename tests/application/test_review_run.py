@@ -240,6 +240,8 @@ class _FilledExchange:
         self,
         symbol: str,
         client_order_id: str,
+        order_snapshot: ExchangeOrderSnapshot,
+        order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
         return self._fills[client_order_id]
 

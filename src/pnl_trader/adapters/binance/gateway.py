@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import time
 from decimal import Decimal
 from typing import Any, Callable, Mapping
@@ -47,6 +48,7 @@ from ...domain.models import TradeFillRecord, ZERO
 
 
 BINANCE_USDM_FUTURES_URL = "https://fapi.binance.com"
+logger = logging.getLogger(__name__)
 
 
 class BinanceGatewayError(RuntimeError):
@@ -616,12 +618,24 @@ class BinanceFuturesGateway:
         self,
         symbol: str,
         client_order_id: str,
+        order_snapshot: ExchangeOrderSnapshot,
+        order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
-        order = await self._lookup_order_record(symbol, client_order_id)
-        order_id = order.get("orderId")
-        order_side = order.get("side")
-        if order_id is None or order_side not in {"BUY", "SELL"}:
-            raise BinanceProtocolError("queried order is missing orderId or side")
+        if order_side not in {"BUY", "SELL"}:
+            raise ValueError("order_side must be BUY or SELL")
+        snapshot = order_snapshot
+        order_id = order_snapshot.exchange_order_id
+        if order_id is None:
+            # Older or incomplete exchange responses may omit orderId. Keep the
+            # lookup fallback for that case; complete snapshots need no second read.
+            order = await self._lookup_order_record(symbol, client_order_id)
+            order_id = order.get("orderId")
+            queried_side = order.get("side")
+            if order_id is None or queried_side not in {"BUY", "SELL"}:
+                raise BinanceProtocolError("queried order is missing orderId or side")
+            if queried_side != order_side:
+                raise BinanceProtocolError("queried order side does not match the intent")
+            snapshot = _parse_order_snapshot(order)
         payload = await self._request_json(
             "GET",
             "/fapi/v1/userTrades",
@@ -638,7 +652,6 @@ class BinanceFuturesGateway:
             _parse_trade_fill(row, symbol, client_order_id, order_side)
             for row in payload
         )
-        snapshot = _parse_order_snapshot(order)
         total_qty = sum((fill.qty for fill in fills), ZERO)
         total_quote = sum((fill.price * fill.qty for fill in fills), ZERO)
         if total_qty != snapshot.executed_qty or total_quote != snapshot.cumulative_quote:
@@ -713,6 +726,24 @@ class BinanceFuturesGateway:
                     raise
                 await asyncio.sleep(1 << attempt)
                 continue
+
+            used_weight = response.headers.get("X-MBX-USED-WEIGHT-1M")
+            if used_weight is not None:
+                logger.debug(
+                    "Binance request usage: path=%s status=%s used_weight_1m=%s order_count_1m=%s",
+                    path,
+                    response.status_code,
+                    used_weight,
+                    response.headers.get("X-MBX-ORDER-COUNT-1M"),
+                )
+            if response.status_code == 429:
+                logger.warning(
+                    "Binance rate limit response: path=%s used_weight_1m=%s order_count_1m=%s retry_after=%s",
+                    path,
+                    used_weight,
+                    response.headers.get("X-MBX-ORDER-COUNT-1M"),
+                    response.headers.get("Retry-After"),
+                )
 
             retryable_response = response.status_code == 429 or response.status_code >= 500
             if read_only and retryable_response and attempt + 1 < max_attempts:
