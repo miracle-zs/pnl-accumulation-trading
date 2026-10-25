@@ -18,6 +18,14 @@
 python -m pip install -e .
 ```
 
+启动本地只读看板（默认仅绑定 `127.0.0.1`）：
+
+```sh
+pnl-trader web
+```
+
+看板只读取 `PNL_DATA_DIR` 下的 `state.sqlite3`，不会连接交易所或提交订单。账户快照类指标只在数据库已有快照时显示。
+
 运行本地自动化测试：
 
 ```sh

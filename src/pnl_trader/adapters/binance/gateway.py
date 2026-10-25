@@ -130,6 +130,9 @@ class BinanceFuturesGateway:
         self._account_modes: tuple[bool, bool] | None = None
         self._account_modes_loaded_at_ms: int | None = None
         self._account_modes_lock = asyncio.Lock()
+        self._account_payload: dict[str, Any] | None = None
+        self._account_payload_loaded_at_ms: int | None = None
+        self._account_payload_lock = asyncio.Lock()
         self._maintenance_brackets: dict[
             tuple[str, str], MaintenanceMarginBracketSnapshot
         ] = {}
@@ -303,10 +306,7 @@ class BinanceFuturesGateway:
 
         if not account_id or not symbol:
             raise ValueError("account_id and symbol must not be empty")
-        payload = await self._request_json("GET", "/fapi/v3/account", signed=True)
-        if not isinstance(payload, dict):
-            raise BinanceProtocolError("account information response must be an object")
-        account_fetched_at_ms = self._clock_ms()
+        payload, account_fetched_at_ms = await self._get_account_payload()
         position_qty, symbol_maintenance_margin = _parse_symbol_account_position(
             payload,
             symbol,
@@ -509,6 +509,22 @@ class BinanceFuturesGateway:
             if self._account_modes is None:
                 raise BinanceProtocolError("account modes were not loaded")
             return self._account_modes
+
+    async def _get_account_payload(self) -> tuple[dict[str, Any], int]:
+        now_ms = self._clock_ms()
+        async with self._account_payload_lock:
+            if (
+                self._account_payload is not None
+                and self._account_payload_loaded_at_ms is not None
+                and now_ms - self._account_payload_loaded_at_ms < 5_000
+            ):
+                return self._account_payload, self._account_payload_loaded_at_ms
+            payload = await self._request_json("GET", "/fapi/v3/account", signed=True)
+            if not isinstance(payload, dict):
+                raise BinanceProtocolError("account information response must be an object")
+            self._account_payload = payload
+            self._account_payload_loaded_at_ms = now_ms
+            return self._account_payload, now_ms
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         params = {

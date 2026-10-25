@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PNL Accumulation Trader - 15m Periodic Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: #111726;
+      --card-hover: #161f33;
+      --border-color: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    .badge-t1 { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-t2 { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-t21 { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-t3 { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .badge-t31 { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
+  </style>
+</head>
+<body class="antialiased min-h-screen p-4 md:p-6 lg:p-8">
+
+  <!-- Top Navigation Header -->
+  <header class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 mb-6 border-b border-[#1e293b] gap-4">
+    <div class="flex items-center gap-3">
+      <div class="h-10 w-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold text-lg">
+        ⚡
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-xl font-bold tracking-tight text-white">PNL Periodic Review Trader</h1>
+          <span id="system-status-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30">
+            只读本地数据 · 交易服务状态未知
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 mt-0.5">Binance USDT-M 永续合约 · 15 分钟无状态定时巡检 · 方案一（利润反哺注销）</p>
+      </div>
+    </div>
+
+    <!-- Planned review time and local dashboard actions -->
+    <div class="flex items-center gap-3 flex-wrap">
+      <div class="bg-[#111726] border border-[#1e293b] rounded-lg px-3 py-1.5 flex items-center gap-2.5 text-xs text-slate-300">
+        <span class="text-slate-400">下次计划巡检倒计时:</span>
+        <span id="countdown" class="font-mono text-emerald-400 font-semibold text-sm">--:--</span>
+      </div>
+      <div class="bg-[#111726] border border-[#1e293b] rounded-lg px-3 py-1.5 text-xs text-slate-300">
+        <span>维持保证金率 (MMR):</span>
+        <span id="mmr-display" class="font-mono text-blue-400 font-semibold ml-1">--%</span>
+        <span id="account-snapshot-note" class="text-slate-500">无账户快照</span>
+      </div>
+      <button onclick="fetchData()" class="bg-[#1e293b] hover:bg-[#334155] text-slate-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+        刷新数据
+      </button>
+    </div>
+  </header>
+
+  <!-- Key Metrics Row (4 Cards) -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <!-- Card 1: Net Profit -->
+    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+        <span>已实现净盈亏 (扣除 USDT 手续费)</span>
+      </div>
+      <div class="text-2xl font-bold text-white font-mono tracking-tight" id="kpi-net-profit">—</div>
+      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
+        <span>仅含已记录成交，不含未结浮盈</span>
+        <span id="fee-warning" class="text-amber-300 font-medium">成交账本统计</span>
+      </div>
+    </div>
+
+    <!-- Card 2: Realized Cash -->
+    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+        <span>已实现毛盈亏</span>
+        <span id="kpi-fill-count" class="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded text-[11px]">0 笔</span>
+      </div>
+      <div class="text-2xl font-bold text-emerald-400 font-mono tracking-tight" id="kpi-realized-cash">—</div>
+      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
+        <span>未扣手续费</span>
+        <span>最近成交: <span id="last-fill-time" class="text-slate-200 font-mono">—</span></span>
+      </div>
+    </div>
+
+    <!-- Card 3: Floating Unrealized -->
+    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+        <span>未结浮动盈亏</span>
+        <span id="kpi-active-symbols" class="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded text-[11px]">0 个本地策略持仓</span>
+      </div>
+      <div class="text-2xl font-bold text-amber-400 font-mono tracking-tight" id="kpi-unrealized-pnl">—</div>
+      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
+        <span>仅显示最新已保存快照，非实时</span>
+        <span class="text-slate-300">持仓数来自本地策略状态</span>
+      </div>
+    </div>
+
+    <!-- Card 4: USDT fees -->
+    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+        <span>USDT 手续费</span>
+        <span class="text-slate-400 bg-slate-500/10 px-1.5 py-0.5 rounded text-[11px]">成交账本汇总</span>
+      </div>
+      <div class="text-2xl font-bold text-slate-200 font-mono tracking-tight" id="kpi-fees">—</div>
+      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
+        <span>仅统计 USDT 手续费</span>
+        <span class="text-slate-400 font-medium">非 USDT 费用不折算</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts & Tier Overview Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+    <!-- Chart: saved wallet balance and equity snapshots -->
+    <div class="lg:col-span-2 bg-[#111726] border border-[#1e293b] rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-sm font-semibold text-white">收益攀升与权益曲线 (Equity & Cash Growth)</h2>
+          <p class="text-xs text-slate-400">仅展示数据库中已有的账户快照</p>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <div class="flex items-center gap-1.5">
+            <span class="w-3 h-1 bg-emerald-400 rounded-full"></span>
+            <span class="text-slate-300">钱包余额 (Wallet)</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="w-3 h-1 bg-blue-400 rounded-full"></span>
+            <span class="text-slate-300">总净权益 (Equity)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SVG Chart -->
+      <div class="h-64 w-full relative">
+        <svg viewBox="0 0 700 220" class="w-full h-full overflow-visible" id="equity-svg">
+          <defs>
+            <linearGradient id="cashGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#10b981" stop-opacity="0.25" />
+              <stop offset="100%" stop-color="#10b981" stop-opacity="0.0" />
+            </linearGradient>
+            <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25" />
+              <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0" />
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="40" x2="700" y2="40" stroke="#1e293b" stroke-dasharray="4" />
+          <line x1="0" y1="90" x2="700" y2="90" stroke="#1e293b" stroke-dasharray="4" />
+          <line x1="0" y1="140" x2="700" y2="140" stroke="#1e293b" stroke-dasharray="4" />
+          <line x1="0" y1="190" x2="700" y2="190" stroke="#1e293b" stroke-dasharray="4" />
+
+          <path id="svg-cash-path" d="" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" />
+          <path id="svg-eq-path" d="" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" />
+          <text id="equity-empty-state" x="350" y="115" text-anchor="middle" fill="#64748b" font-size="13">暂无账户快照，未绘制权益曲线</text>
+        </svg>
+      </div>
+
+      <div class="flex items-center justify-between text-xs text-slate-500 mt-2 font-mono px-2">
+        <span>初始</span>
+        <span>最近周期</span>
+      </div>
+    </div>
+
+    <!-- Tier Distribution Donut & State Panel (1 col) -->
+    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-5 flex flex-col justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-white mb-1">标的状态结构分布</h2>
+        <p class="text-xs text-slate-400 mb-4">本地标的状态在各 Tier 的分布</p>
+
+        <div class="space-y-2 mt-2 text-xs">
+          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+              <span class="text-slate-300">T1 底仓</span>
+            </div>
+            <div class="font-mono text-slate-200" id="tier-cnt-t1">0 币</div>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+              <span class="text-slate-300">T2 普通/已分批</span>
+            </div>
+            <div class="font-mono text-slate-200" id="tier-cnt-t2">0 币</div>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+              <span class="text-slate-300">T3 深度承压</span>
+            </div>
+            <div class="font-mono text-slate-200" id="tier-cnt-t3">0 币</div>
+          </div>
+          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+              <span class="text-slate-300">T3.1 / T3.2 已分批提利</span>
+            </div>
+            <div class="font-mono text-slate-200" id="tier-cnt-t31">0 币</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-[#1e293b] flex items-center justify-between text-xs text-slate-400 mt-4">
+        <span>在管标的总计:</span>
+        <span class="font-mono text-slate-200 font-semibold" id="tier-total-cnt">0 币</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Local strategy positions table -->
+  <div class="bg-[#111726] border border-[#1e293b] rounded-xl overflow-hidden mb-6">
+    <div class="p-4 border-b border-[#1e293b] flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <h2 class="text-sm font-semibold text-white">本地策略持仓</h2>
+        <span class="text-xs text-slate-500">(来自 SQLite 状态)</span>
+      </div>
+
+      <!-- Filters & Search -->
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <div class="inline-flex rounded-lg bg-[#090d16] p-0.5 border border-[#1e293b] text-xs">
+          <button onclick="filterTier('ALL')" id="filter-all" class="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium">全部</button>
+          <button onclick="filterTier('T1')" id="filter-t1" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T1</button>
+          <button onclick="filterTier('T2')" id="filter-t2" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T2</button>
+          <button onclick="filterTier('T3')" id="filter-t3" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T3</button>
+        </div>
+
+        <div class="relative">
+          <input type="text" id="symbol-search" oninput="searchSymbols()" placeholder="搜索币种 (如 BTC, PEPE)..." class="bg-[#090d16] border border-[#1e293b] rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-44">
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto custom-scrollbar max-h-96">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-[#0f172a] text-slate-400 uppercase tracking-wider text-[11px] sticky top-0 z-10 border-b border-[#1e293b]">
+          <tr>
+            <th class="py-3 px-4">标的 / 合约</th>
+            <th class="py-3 px-3">当前 Tier</th>
+            <th class="py-3 px-3">持仓均价</th>
+            <th class="py-3 px-3">目标止盈线</th>
+            <th class="py-3 px-3">加仓 / 注销价</th>
+            <th class="py-3 px-3">持仓数量</th>
+            <th class="py-3 px-4 text-right">入场名义价值</th>
+          </tr>
+        </thead>
+        <tbody id="position-table-body" class="divide-y divide-[#1e293b] font-mono">
+          <tr>
+            <td colspan="7" class="py-8 text-center text-slate-500">正在从 SQLite 数据库同步持仓中...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="p-3 bg-[#0f172a] border-t border-[#1e293b] flex items-center justify-between text-xs text-slate-400 px-4">
+      <div id="position-summary-text">等待持仓同步...</div>
+    </div>
+  </div>
+
+  <!-- Bottom: Recent fills -->
+  <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-5">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <h2 class="text-sm font-semibold text-white">最近成交流水</h2>
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+      </div>
+      <span class="text-xs text-slate-500 font-mono">本地成交记录</span>
+    </div>
+
+    <div id="fills-feed-container" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="p-3 rounded-lg bg-[#090d16] border border-[#1e293b] text-slate-500 text-xs">暂无成交流水记录</div>
+    </div>
+  </div>
+
+  <script>
+    // 15-minute countdown clock
+    function updateCountdown() {
+      const nowMs = Date.now();
+      const intervalMs = 15 * 60 * 1000;
+      let nextReviewMs = Math.ceil(nowMs / intervalMs) * intervalMs + 5000;
+      if (nextReviewMs <= nowMs) nextReviewMs += intervalMs;
+      const remainingSeconds = Math.ceil((nextReviewMs - nowMs) / 1000);
+      const remainingMins = Math.floor(remainingSeconds / 60);
+      const remainingSecs = remainingSeconds % 60;
+      const str = `${String(remainingMins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
+      document.getElementById('countdown').textContent = str;
+    }
+    setInterval(updateCountdown, 1000);
+    updateCountdown();
+
+    let allPositions = [];
+    let currentTierFilter = 'ALL';
+
+    function formatMoney(value) {
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+      const amount = Number(value);
+      return `${amount < 0 ? '-' : amount > 0 ? '+' : ''}$${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+    }
+
+    function formatFee(value) {
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+      const amount = Math.abs(Number(value));
+      return `-$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+    }
+
+    function formatPrice(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) return '—';
+      if (amount === 0) return '0';
+      const magnitude = Math.abs(amount);
+      if (magnitude < 1e-20) return amount.toExponential(6);
+      const fractionDigits = Math.min(20, Math.max(4, 5 - Math.floor(Math.log10(magnitude))));
+      return amount.toLocaleString(undefined, { maximumFractionDigits: fractionDigits });
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[char]);
+    }
+
+    async function fetchData() {
+      try {
+        const [overviewRes, tierRes, posRes, fillsRes, historyRes] = await Promise.all([
+          fetch('/api/overview'),
+          fetch('/api/tier-distribution'),
+          fetch('/api/positions'),
+          fetch('/api/fills?limit=6'),
+          fetch('/api/history?limit=200')
+        ]);
+        const responses = [overviewRes, tierRes, posRes, fillsRes, historyRes];
+        if (responses.some(response => !response.ok)) throw new Error('dashboard API returned an error');
+
+        const ov = await overviewRes.json();
+        document.getElementById('kpi-net-profit').textContent = formatMoney(ov.realized_cash);
+        document.getElementById('kpi-realized-cash').textContent = formatMoney(ov.realized_gross);
+        document.getElementById('kpi-unrealized-pnl').textContent = formatMoney(ov.unrealized_pnl);
+        document.getElementById('kpi-fill-count').textContent = `${ov.fill_count} 笔`;
+        document.getElementById('kpi-fees').textContent = formatFee(ov.total_commission);
+        document.getElementById('kpi-active-symbols').textContent = `${ov.active_positions_count} 个本地策略持仓`;
+        document.getElementById('fee-warning').textContent = ov.other_fee_count > 0
+          ? '含未折算的非 USDT 费用'
+          : '已扣记录中的 USDT 手续费';
+        document.getElementById('last-fill-time').textContent = ov.last_fill_at_ms
+          ? new Date(ov.last_fill_at_ms).toLocaleString()
+          : '暂无成交';
+        document.getElementById('mmr-display').textContent = ov.mmr_ratio == null
+          ? '—'
+          : `${Number(ov.mmr_ratio).toFixed(1)}%`;
+        document.getElementById('account-snapshot-note').textContent = ov.account_snapshot_at_ms
+          ? `快照 ${new Date(ov.account_snapshot_at_ms).toLocaleString()}`
+          : '无账户快照';
+        document.getElementById('system-status-badge').textContent = ov.status === 'WAITING_DATA'
+          ? '本地数据尚未生成 · 交易服务状态未知'
+          : '只读本地数据 · 交易服务状态未知';
+
+        const td = await tierRes.json();
+        document.getElementById('tier-cnt-t1').textContent = `${td.t1} 币`;
+        document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
+        document.getElementById('tier-cnt-t3').textContent = `${td.t3} 币`;
+        document.getElementById('tier-cnt-t31').textContent = `${td.t31 + td.t32} 币`;
+        document.getElementById('tier-total-cnt').textContent = `${td.total} 币`;
+
+        allPositions = await posRes.json();
+        renderPositions();
+
+        const fills = await fillsRes.json();
+        renderFills(fills);
+        renderHistory(await historyRes.json());
+      } catch (err) {
+        console.error("Failed to load dashboard data:", err);
+        document.getElementById('system-status-badge').textContent = '数据读取失败 · 页面数值可能过时';
+      }
+    }
+
+    function renderHistory(points) {
+      const cashPath = document.getElementById('svg-cash-path');
+      const equityPath = document.getElementById('svg-eq-path');
+      const emptyState = document.getElementById('equity-empty-state');
+      if (!Array.isArray(points) || points.length === 0) {
+        cashPath.setAttribute('d', '');
+        equityPath.setAttribute('d', '');
+        emptyState.style.display = '';
+        return;
+      }
+
+      const values = points.flatMap(point => [Number(point.wallet_balance), Number(point.equity)]);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const span = max - min || 1;
+      const makePath = key => points.map((point, index) => {
+        const x = points.length === 1 ? 365 : 50 + index * 630 / (points.length - 1);
+        const y = 190 - (Number(point[key]) - min) / span * 150;
+        return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+      }).join(' ');
+
+      cashPath.setAttribute('d', makePath('wallet_balance'));
+      equityPath.setAttribute('d', makePath('equity'));
+      emptyState.style.display = 'none';
+    }
+
+    function renderPositions() {
+      const tbody = document.getElementById('position-table-body');
+      const summary = document.getElementById('position-summary-text');
+      if (allPositions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">本地策略状态中暂无活跃持仓</td></tr>';
+        summary.textContent = '显示 0 / 0 活跃持仓';
+        return;
+      }
+
+      const query = (document.getElementById('symbol-search').value || '').toUpperCase();
+      const filtered = allPositions.filter(p => {
+        const matchesQuery = p.symbol.includes(query);
+        let matchesTier = true;
+        if (currentTierFilter === 'T1') matchesTier = (p.tier === 1);
+        else if (currentTierFilter === 'T2') matchesTier = (p.tier === 2);
+        else if (currentTierFilter === 'T3') matchesTier = (p.tier === 3);
+        return matchesQuery && matchesTier;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">没有符合当前搜索或 Tier 筛选的持仓</td></tr>';
+        summary.textContent = `显示 0 / ${allPositions.length} 活跃持仓`;
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(p => {
+        let badgeClass = 'badge-t1';
+        if (p.tier === 2) badgeClass = p.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
+        else if (p.tier === 3) badgeClass = p.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
+
+        html += `
+          <tr class="hover:bg-[#161f33] transition-colors">
+            <td class="py-3 px-4 font-bold text-white font-sans">${escapeHtml(p.symbol)}</td>
+            <td class="py-3 px-3"><span class="${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans">${escapeHtml(p.tier_label)}</span></td>
+            <td class="py-3 px-3 text-slate-300">$${formatPrice(p.avg_entry_price)}</td>
+            <td class="py-3 px-3 text-emerald-400 font-bold">$${formatPrice(p.tp_price)}</td>
+            <td class="py-3 px-3 text-slate-400">${p.tier === 3 ? '<span class="text-purple-400 font-bold">$' + formatPrice(p.writeoff_price) + ' (注销价)</span>' : '$' + formatPrice(p.dca_price) + ' (补仓)'}</td>
+            <td class="py-3 px-3 text-slate-300">${p.qty}</td>
+            <td class="py-3 px-4 text-right text-slate-200 font-sans font-medium">$${p.entry_notional.toFixed(2)}</td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+      summary.textContent = `显示 ${filtered.length} / ${allPositions.length} 活跃持仓`;
+    }
+
+    function renderFills(fills) {
+      const container = document.getElementById('fills-feed-container');
+      if (!fills || fills.length === 0) {
+        container.innerHTML = '<div class="p-3 rounded-lg bg-[#090d16] border border-[#1e293b] text-slate-500 text-xs">暂无成交流水记录</div>';
+        return;
+      }
+
+      container.innerHTML = fills.map(f => {
+        const isPositive = f.realized_pnl >= 0;
+        const colorClass = isPositive ? 'text-emerald-400' : 'text-purple-400';
+        const sideClass = f.side === 'BUY' ? 'text-blue-300 bg-blue-500/10' : 'text-amber-300 bg-amber-500/10';
+        return `
+          <div class="p-3 rounded-lg bg-[#090d16] border border-[#1e293b] flex items-start gap-3">
+            <div class="p-1.5 rounded ${sideClass} text-xs font-bold font-mono">${escapeHtml(f.side)}</div>
+            <div class="text-xs">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-white font-sans">${escapeHtml(f.symbol)}</span>
+                <span class="${colorClass} font-mono font-semibold">${formatMoney(f.realized_pnl)}</span>
+              </div>
+              <p class="text-slate-400 text-[11px] mt-0.5">以 $${f.price} ${f.side} 数量 ${f.qty}</p>
+              <span class="text-[10px] text-slate-500 block mt-1">${new Date(f.traded_at_ms).toLocaleTimeString()} · 手续费 ${f.commission.toFixed(4)} ${escapeHtml(f.commission_asset)}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterTier(tier) {
+      currentTierFilter = tier;
+      ['all', 't1', 't2', 't3'].forEach(k => {
+        const btn = document.getElementById('filter-' + k);
+        if (btn) {
+          if (k.toUpperCase() === tier || (k === 'all' && tier === 'ALL')) {
+            btn.className = 'px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white';
+          }
+        }
+      });
+      renderPositions();
+    }
+
+    function searchSymbols() {
+      renderPositions();
+    }
+
+    // Initial fetch & auto poll every 5s
+    fetchData();
+    setInterval(fetchData, 5000);
+  </script>
+</body>
+</html>

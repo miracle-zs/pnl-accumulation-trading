@@ -53,6 +53,16 @@ def main() -> None:
         help="check a SQLite backup and rehearse restoring it to a temporary database",
     )
     backup_verify_parser.add_argument("--path", type=Path, required=True)
+    web_parser = commands.add_parser(
+        "web",
+        help="start the local web dashboard to monitor positions and performance",
+    )
+    web_parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path(os.environ.get("PNL_DATA_DIR", "./var")).expanduser(),
+    )
+    web_parser.add_argument("--port", type=int, default=8000, help="port to bind (default: 8000)")
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -101,6 +111,21 @@ def main() -> None:
             )
             raise SystemExit(1) from None
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    if args.command == "web":
+        try:
+            import uvicorn
+            from .web import create_app
+            app = create_app(data_dir=args.data_dir)
+            print(f"\nPNL Trader Dashboard running at http://127.0.0.1:{args.port}")
+            uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
+        except KeyboardInterrupt:
+            print("\nDashboard stopped.")
+        except Exception as exc:
+            logging.getLogger(__name__).error(
+                "Failed to start web dashboard (%s): %s", type(exc).__name__, exc
+            )
+            raise SystemExit(1) from None
         return
     if args.command == "run":
         try:
