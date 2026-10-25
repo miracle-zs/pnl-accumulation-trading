@@ -186,7 +186,6 @@ class ReviewRunCoordinator:
                 batch.strategy_version,
                 candidate.priority,
                 candidate.symbol,
-                self._clock_ms(),
             )
 
         return ReviewRunResult(

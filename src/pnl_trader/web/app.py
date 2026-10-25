@@ -43,10 +43,6 @@ def create_app(data_dir: Path | str | None = None) -> FastAPI:
     async def get_fills(limit: int = Query(default=50, ge=1, le=500)) -> list[dict[str, Any]]:
         return service.get_recent_fills(limit=limit)
 
-    @app.get("/api/history")
-    async def get_history(limit: int = Query(default=200, ge=1, le=500)) -> list[dict[str, Any]]:
-        return service.get_equity_history(limit=limit)
-
     @app.get("/", response_class=HTMLResponse)
     async def get_dashboard() -> HTMLResponse:
         # Load the HTML template

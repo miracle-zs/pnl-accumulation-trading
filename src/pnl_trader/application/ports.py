@@ -14,7 +14,6 @@ from .market_models import (
 from .position_models import ExchangePositionSnapshot
 from .order_reconciliation_models import ExchangeOpenOrdersSnapshot
 from .review_batch_models import ReviewSignalSnapshot
-from .universe_models import UniverseSnapshot
 from .review_run_models import ReviewBatch, ReviewPriority
 from .execution_models import (
     ExchangeOrderSnapshot,
@@ -36,10 +35,6 @@ class StateStorePort(Protocol):
         self, account_id: str, symbol: str, *, created_at_ms: int
     ) -> SymbolState: ...
 
-    def save_universe_snapshot(self, snapshot: UniverseSnapshot) -> None: ...
-
-    def load_latest_universe_snapshot(self) -> UniverseSnapshot | None: ...
-
     def load_review_rotation_cursor(
         self,
         account_id: str,
@@ -53,7 +48,6 @@ class StateStorePort(Protocol):
         strategy_version: str,
         priority: ReviewPriority,
         symbol: str,
-        updated_at_ms: int,
     ) -> None: ...
 
     def create_order_intent(

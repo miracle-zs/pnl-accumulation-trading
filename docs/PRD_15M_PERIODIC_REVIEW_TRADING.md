@@ -265,8 +265,6 @@ def on_15m_timer_trigger():
             exchange.market_open(symbol, notional=10.0)
             db.init_symbol_state(symbol, tier=1)
 
-    # 5. 记录账户权益快照
-    db.save_account_snapshot(exchange.get_account_balance())
 ```
 
 ---

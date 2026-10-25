@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from decimal import Decimal
-from hashlib import sha256
-import json
 from pathlib import Path
 import sqlite3
 from threading import RLock
-import time
 from typing import Iterator
 
 from ...application.execution_models import (
@@ -18,18 +15,6 @@ from ...application.execution_models import (
     OrderIntent,
     PersistedOrderAttempt,
     PersistedOrderIntent,
-)
-from ...application.market_models import (
-    ExchangeInstrument,
-    InstrumentRules,
-    MarketQuantityRules,
-)
-from ...application.universe_models import (
-    AssetClassification,
-    ContractDirectiveKind,
-    UniverseEligibility,
-    UniverseInstrument,
-    UniverseSnapshot,
 )
 from ...application.review_run_models import ReviewPriority
 from ...application.store_errors import (
@@ -51,30 +36,9 @@ from ...domain.transitions import apply_confirmed_execution
 from .backup import create_online_backup
 
 
-_SCHEMA_V1 = """
-CREATE TABLE IF NOT EXISTS review_runs (
-    run_id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL,
-    strategy_version TEXT NOT NULL,
-    slot_start_ms INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    snapshot_id TEXT,
-    started_at_ms INTEGER NOT NULL,
-    finished_at_ms INTEGER,
-    UNIQUE (account_id, strategy_version, slot_start_ms)
-);
-
-CREATE TABLE IF NOT EXISTS instruments (
-    symbol TEXT PRIMARY KEY,
-    classification TEXT NOT NULL,
-    eligibility TEXT NOT NULL,
-    exchange_status TEXT NOT NULL,
-    filters_json TEXT NOT NULL,
-    source TEXT NOT NULL,
-    refreshed_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS symbol_states (
+_SCHEMA_VERSION = 1
+_SCHEMA = """
+CREATE TABLE symbol_states (
     account_id TEXT NOT NULL,
     symbol TEXT NOT NULL,
     cycle_id INTEGER NOT NULL,
@@ -91,7 +55,7 @@ CREATE TABLE IF NOT EXISTS symbol_states (
     PRIMARY KEY (account_id, symbol)
 );
 
-CREATE TABLE IF NOT EXISTS order_intents (
+CREATE TABLE order_intents (
     intent_id TEXT PRIMARY KEY,
     account_id TEXT NOT NULL,
     symbol TEXT NOT NULL,
@@ -101,17 +65,16 @@ CREATE TABLE IF NOT EXISTS order_intents (
     expected_state_version INTEGER NOT NULL,
     target_cumulative_sold_qty TEXT,
     buy_notional TEXT,
-    reserved_margin TEXT NOT NULL DEFAULT '0', -- legacy column; no longer used by runtime
     status TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL,
     UNIQUE (account_id, business_key)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS one_active_intent_per_symbol
+CREATE UNIQUE INDEX one_active_intent_per_symbol
 ON order_intents (account_id, symbol)
 WHERE status IN ('PREPARED', 'SUBMITTING', 'UNKNOWN', 'ACKNOWLEDGED', 'PARTIALLY_FILLED');
 
-CREATE TABLE IF NOT EXISTS order_attempts (
+CREATE TABLE order_attempts (
     attempt_id TEXT PRIMARY KEY,
     intent_id TEXT NOT NULL REFERENCES order_intents(intent_id),
     attempt_no INTEGER NOT NULL CHECK (attempt_no > 0),
@@ -125,76 +88,6 @@ CREATE TABLE IF NOT EXISTS order_attempts (
     UNIQUE (intent_id, attempt_no)
 );
 
-CREATE TABLE IF NOT EXISTS trade_fills (
-    account_id TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    exchange_trade_id TEXT NOT NULL,
-    client_order_id TEXT NOT NULL,
-    side TEXT NOT NULL,
-    price TEXT NOT NULL,
-    qty TEXT NOT NULL,
-    realized_pnl TEXT NOT NULL,
-    commission TEXT NOT NULL,
-    commission_asset TEXT NOT NULL,
-    traded_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (account_id, symbol, exchange_trade_id)
-);
-
-CREATE TABLE IF NOT EXISTS income_ledger (
-    account_id TEXT NOT NULL,
-    transaction_id TEXT NOT NULL,
-    income_type TEXT NOT NULL,
-    asset TEXT NOT NULL,
-    amount TEXT NOT NULL,
-    occurred_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (account_id, transaction_id, income_type, asset)
-);
-
-CREATE TABLE IF NOT EXISTS account_snapshots (
-    snapshot_id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL,
-    equity TEXT NOT NULL,
-    wallet_balance TEXT NOT NULL,
-    available_balance TEXT NOT NULL,
-    unrealized_pnl TEXT NOT NULL,
-    initial_margin TEXT NOT NULL,
-    maintenance_margin TEXT NOT NULL,
-    fetched_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS state_events (
-    event_id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    before_version INTEGER,
-    after_version INTEGER,
-    event_type TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    correlation_id TEXT NOT NULL,
-    created_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS notification_outbox (
-    event_id TEXT NOT NULL,
-    channel TEXT NOT NULL,
-    dedupe_key TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    status TEXT NOT NULL,
-    next_attempt_at_ms INTEGER NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (channel, dedupe_key)
-);
-
-CREATE TABLE IF NOT EXISTS sync_cursors (
-    source TEXT NOT NULL,
-    scope TEXT NOT NULL,
-    cursor TEXT NOT NULL,
-    reconciled_until_ms INTEGER NOT NULL,
-    PRIMARY KEY (source, scope)
-);
-"""
-
-_SCHEMA_V2 = """
 CREATE TABLE execution_receipts (
     receipt_id TEXT PRIMARY KEY,
     attempt_id TEXT NOT NULL UNIQUE REFERENCES order_attempts(attempt_id),
@@ -205,92 +98,7 @@ CREATE TABLE execution_receipts (
     final_status TEXT NOT NULL,
     applied_at_ms INTEGER NOT NULL
 );
-ALTER TABLE trade_fills ADD COLUMN receipt_id TEXT REFERENCES execution_receipts(receipt_id);
-CREATE INDEX trade_fills_by_receipt ON trade_fills(receipt_id);
-"""
 
-_SCHEMA_V3 = """
-ALTER TABLE account_snapshots ADD COLUMN multi_assets_mode INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE account_snapshots ADD COLUMN dual_side_position INTEGER NOT NULL DEFAULT 0;
-"""
-
-_SCHEMA_V4 = """
-ALTER TABLE review_runs ADD COLUMN result_counts_json TEXT NOT NULL DEFAULT '{}';
-ALTER TABLE review_runs ADD COLUMN earliest_sampled_at_ms INTEGER;
-ALTER TABLE review_runs ADD COLUMN latest_sampled_at_ms INTEGER;
-"""
-
-_SCHEMA_V5 = """
-CREATE TABLE position_snapshots (
-    snapshot_id TEXT PRIMARY KEY,
-    account_id TEXT NOT NULL,
-    sampled_at_ms INTEGER NOT NULL
-);
-CREATE INDEX position_snapshots_by_account
-ON position_snapshots(account_id, sampled_at_ms);
-CREATE TABLE position_snapshot_rows (
-    snapshot_id TEXT NOT NULL REFERENCES position_snapshots(snapshot_id),
-    symbol TEXT NOT NULL,
-    position_side TEXT NOT NULL,
-    position_amt TEXT NOT NULL,
-    entry_price TEXT NOT NULL,
-    update_time_ms INTEGER NOT NULL,
-    PRIMARY KEY (snapshot_id, symbol, position_side)
-);
-"""
-
-_SCHEMA_V6 = """
-ALTER TABLE instruments ADD COLUMN base_asset TEXT NOT NULL DEFAULT '';
-ALTER TABLE instruments ADD COLUMN quote_asset TEXT NOT NULL DEFAULT '';
-ALTER TABLE instruments ADD COLUMN margin_asset TEXT NOT NULL DEFAULT '';
-ALTER TABLE instruments ADD COLUMN contract_type TEXT NOT NULL DEFAULT '';
-ALTER TABLE instruments ADD COLUMN eligibility_reason TEXT NOT NULL DEFAULT '';
-ALTER TABLE instruments ADD COLUMN classification_version TEXT NOT NULL DEFAULT '';
-ALTER TABLE instruments ADD COLUMN classification_reviewed_at_ms INTEGER;
-ALTER TABLE instruments ADD COLUMN directive TEXT;
-ALTER TABLE instruments ADD COLUMN directive_source TEXT;
-CREATE TABLE universe_snapshots (
-    snapshot_id TEXT PRIMARY KEY,
-    directory_version TEXT NOT NULL,
-    exchange_snapshot_id TEXT NOT NULL,
-    sampled_at_ms INTEGER NOT NULL
-);
-CREATE INDEX universe_snapshots_by_sampled_at
-ON universe_snapshots(sampled_at_ms);
-CREATE TABLE universe_snapshot_instruments (
-    snapshot_id TEXT NOT NULL REFERENCES universe_snapshots(snapshot_id),
-    symbol TEXT NOT NULL,
-    base_asset TEXT NOT NULL,
-    quote_asset TEXT NOT NULL,
-    margin_asset TEXT NOT NULL,
-    contract_type TEXT NOT NULL,
-    exchange_status TEXT NOT NULL,
-    classification TEXT NOT NULL,
-    classification_source TEXT NOT NULL,
-    classification_reviewed_at_ms INTEGER,
-    eligibility TEXT NOT NULL,
-    eligibility_reason TEXT NOT NULL,
-    directive TEXT,
-    directive_source TEXT,
-    filters_json TEXT NOT NULL,
-    PRIMARY KEY (snapshot_id, symbol)
-);
-CREATE INDEX universe_snapshot_instruments_by_symbol
-ON universe_snapshot_instruments(symbol, snapshot_id);
-"""
-
-_SCHEMA_V7 = """
-ALTER TABLE income_ledger ADD COLUMN symbol TEXT;
-ALTER TABLE income_ledger ADD COLUMN info TEXT;
-ALTER TABLE income_ledger ADD COLUMN trade_id TEXT;
-ALTER TABLE sync_cursors ADD COLUMN coverage_from_ms INTEGER;
-CREATE INDEX income_ledger_by_account_time
-ON income_ledger(account_id, occurred_at_ms, income_type, asset);
-"""
-
-_SCHEMA_V8 = """
-DROP INDEX trade_fills_by_receipt;
-ALTER TABLE trade_fills RENAME TO trade_fills_v7;
 CREATE TABLE trade_fills (
     account_id TEXT NOT NULL,
     symbol TEXT NOT NULL,
@@ -309,72 +117,30 @@ CREATE TABLE trade_fills (
     receipt_id TEXT REFERENCES execution_receipts(receipt_id),
     PRIMARY KEY (account_id, symbol, exchange_trade_id)
 );
-INSERT INTO trade_fills (
-    account_id, symbol, exchange_trade_id, client_order_id, exchange_order_id,
-    side, price, qty, realized_pnl, commission, commission_asset,
-    traded_at_ms, position_side, margin_asset, receipt_id
-)
-SELECT account_id, symbol, exchange_trade_id, client_order_id, NULL, side,
-       price, qty, realized_pnl, commission, commission_asset, traded_at_ms,
-       NULL, NULL, receipt_id
-FROM trade_fills_v7;
-DROP TABLE trade_fills_v7;
+
 CREATE INDEX trade_fills_by_receipt ON trade_fills(receipt_id);
 CREATE INDEX trade_fills_by_account_time
 ON trade_fills(account_id, traded_at_ms, symbol);
 CREATE INDEX trade_fills_by_order
 ON trade_fills(account_id, symbol, exchange_order_id);
-"""
 
-_SCHEMA_V9 = """
-CREATE TABLE daily_reports (
+CREATE TABLE review_rotation_cursors (
     account_id TEXT NOT NULL,
     strategy_version TEXT NOT NULL,
-    period_start_ms INTEGER NOT NULL,
-    period_end_ms INTEGER NOT NULL,
-    revision INTEGER NOT NULL CHECK (revision > 0),
-    status TEXT NOT NULL,
-    content_hash TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    generated_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (account_id, strategy_version, period_start_ms, revision)
-);
-CREATE INDEX daily_reports_latest
-ON daily_reports(account_id, strategy_version, period_start_ms, revision DESC);
-"""
-
-_SCHEMA_V10 = """
-ALTER TABLE notification_outbox ADD COLUMN event_type TEXT NOT NULL DEFAULT 'generic';
-ALTER TABLE notification_outbox ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE notification_outbox ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE notification_outbox ADD COLUMN last_attempt_at_ms INTEGER;
-ALTER TABLE notification_outbox ADD COLUMN sent_at_ms INTEGER;
-ALTER TABLE notification_outbox ADD COLUMN last_error TEXT;
-CREATE UNIQUE INDEX notification_outbox_event_id ON notification_outbox(event_id);
-CREATE INDEX notification_outbox_due
-ON notification_outbox(channel, status, next_attempt_at_ms, priority DESC, created_at_ms);
-CREATE TABLE notification_alert_state (
-    account_id TEXT NOT NULL,
-    alert_key TEXT NOT NULL,
-    active INTEGER NOT NULL CHECK (active IN (0, 1)),
-    episode INTEGER NOT NULL CHECK (episode >= 0),
-    updated_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (account_id, alert_key)
+    priority INTEGER NOT NULL CHECK (priority IN (0, 1, 2)),
+    symbol TEXT NOT NULL,
+    PRIMARY KEY (account_id, strategy_version, priority)
 );
 """
 
-_MIGRATIONS = (
-    (1, _SCHEMA_V1),
-    (2, _SCHEMA_V2),
-    (3, _SCHEMA_V3),
-    (4, _SCHEMA_V4),
-    (5, _SCHEMA_V5),
-    (6, _SCHEMA_V6),
-    (7, _SCHEMA_V7),
-    (8, _SCHEMA_V8),
-    (9, _SCHEMA_V9),
-    (10, _SCHEMA_V10),
-)
+_SCHEMA_TABLES = {
+    "symbol_states",
+    "order_intents",
+    "order_attempts",
+    "execution_receipts",
+    "trade_fills",
+    "review_rotation_cursors",
+}
 
 _ALLOWED_TRANSITIONS = {
     "PREPARED": {"CANCELED"},
@@ -418,13 +184,16 @@ class SQLiteStateStore:
         )
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
-        self._connection.execute("PRAGMA synchronous = FULL")
         self._connection.execute(f"PRAGMA busy_timeout = {int(busy_timeout_ms)}")
-        journal_mode = self._connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
-        if str(journal_mode).lower() != "wal":
+        try:
+            self._initialize_schema()
+            journal_mode = self._connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+            if str(journal_mode).lower() != "wal":
+                raise RuntimeError(f"SQLite did not enable WAL mode: {journal_mode}")
+            self._connection.execute("PRAGMA synchronous = FULL")
+        except BaseException:
             self._connection.close()
-            raise RuntimeError(f"SQLite did not enable WAL mode: {journal_mode}")
-        self._initialize_schema()
+            raise
 
     def close(self) -> None:
         with self._lock:
@@ -466,45 +235,32 @@ class SQLiteStateStore:
 
     def _initialize_schema(self) -> None:
         with self._lock:
-            self._connection.execute(
-                """CREATE TABLE IF NOT EXISTS schema_migrations (
-                    version INTEGER PRIMARY KEY,
-                    checksum TEXT NOT NULL,
-                    applied_at_ms INTEGER NOT NULL
-                )"""
-            )
-            latest = self._connection.execute(
-                "SELECT MAX(version) FROM schema_migrations"
-            ).fetchone()[0]
-            if latest is not None and latest > _MIGRATIONS[-1][0]:
-                raise RuntimeError(f"unsupported database schema version: {latest}")
-
-        for version, schema in _MIGRATIONS:
-            checksum = sha256(schema.encode("utf-8")).hexdigest()
-            with self._transaction() as connection:
-                existing = connection.execute(
-                    "SELECT checksum FROM schema_migrations WHERE version = ?", (version,)
-                ).fetchone()
-                if existing is not None:
-                    if existing["checksum"] != checksum:
-                        raise RuntimeError(f"schema version {version} checksum does not match")
-                    continue
-
-                previous = connection.execute(
-                    "SELECT MAX(version) FROM schema_migrations"
-                ).fetchone()[0]
-                expected_previous = version - 1 if version > 1 else None
-                if previous != expected_previous:
-                    raise RuntimeError(
-                        f"cannot apply schema version {version} after version {previous}"
-                    )
-                for statement in schema.split(";"):
-                    if statement.strip():
-                        connection.execute(statement)
-                connection.execute(
-                    "INSERT INTO schema_migrations(version, checksum, applied_at_ms) VALUES (?, ?, ?)",
-                    (version, checksum, time.time_ns() // 1_000_000),
+            schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
+            tables = {
+                row[0]
+                for row in self._connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
                 )
+            }
+
+        if schema_version == _SCHEMA_VERSION:
+            if tables != _SCHEMA_TABLES:
+                raise RuntimeError(
+                    "database schema does not match this version; use an empty data directory"
+                )
+            return
+        if schema_version != 0:
+            raise RuntimeError(f"unsupported database schema version: {schema_version}")
+        if tables:
+            raise RuntimeError(
+                "existing database schemas are not supported; use an empty data directory"
+            )
+
+        with self._transaction() as connection:
+            for statement in _SCHEMA.split(";"):
+                if statement.strip():
+                    connection.execute(statement)
+            connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def load_symbol_state(self, account_id: str, symbol: str) -> SymbolState | None:
         with self._lock:
@@ -555,207 +311,6 @@ class SQLiteStateStore:
             if row is None:
                 raise RuntimeError("symbol state was not created or found")
             return self._symbol_state_from_row(row)
-
-    def save_universe_snapshot(self, snapshot: UniverseSnapshot) -> None:
-        """Persist a versioned listing/classification snapshot and its current projection."""
-
-        with self._transaction() as connection:
-            connection.execute(
-                """INSERT OR IGNORE INTO universe_snapshots (
-                    snapshot_id, directory_version, exchange_snapshot_id, sampled_at_ms
-                ) VALUES (?, ?, ?, ?)""",
-                (
-                    snapshot.snapshot_id,
-                    snapshot.directory_version,
-                    snapshot.exchange_snapshot_id,
-                    snapshot.sampled_at_ms,
-                ),
-            )
-            for entry in snapshot.instruments:
-                instrument = entry.instrument
-                rules = instrument.rules
-                filters_json = json.dumps(
-                    {}
-                    if rules is None
-                    else {
-                        "min_qty": str(rules.market_quantity.min_qty),
-                        "max_qty": str(rules.market_quantity.max_qty),
-                        "step_size": str(rules.market_quantity.step_size),
-                        "step_origin": str(rules.market_quantity.step_origin),
-                        "min_market_notional": (
-                            None
-                            if rules.min_market_notional is None
-                            else str(rules.min_market_notional)
-                        ),
-                        "max_market_notional": (
-                            None
-                            if rules.max_market_notional is None
-                            else str(rules.max_market_notional)
-                        ),
-                    },
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                directive = None if entry.directive is None else entry.directive.value
-                connection.execute(
-                    """INSERT OR IGNORE INTO universe_snapshot_instruments (
-                        snapshot_id, symbol, base_asset, quote_asset, margin_asset,
-                        contract_type, exchange_status, classification, classification_source,
-                        classification_reviewed_at_ms, eligibility, eligibility_reason,
-                        directive, directive_source, filters_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        snapshot.snapshot_id,
-                        instrument.symbol,
-                        instrument.base_asset,
-                        instrument.quote_asset,
-                        instrument.margin_asset,
-                        instrument.contract_type,
-                        instrument.status,
-                        entry.classification.value,
-                        entry.classification_source,
-                        entry.classification_reviewed_at_ms,
-                        entry.eligibility.value,
-                        entry.eligibility_reason,
-                        directive,
-                        entry.directive_source,
-                        filters_json,
-                    ),
-                )
-                connection.execute(
-                    """INSERT INTO instruments (
-                        symbol, classification, eligibility, exchange_status, filters_json,
-                        source, refreshed_at_ms, base_asset, quote_asset, margin_asset,
-                        contract_type, eligibility_reason, classification_version,
-                        classification_reviewed_at_ms, directive, directive_source
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(symbol) DO UPDATE SET
-                        classification = excluded.classification,
-                        eligibility = excluded.eligibility,
-                        exchange_status = excluded.exchange_status,
-                        filters_json = excluded.filters_json,
-                        source = excluded.source,
-                        refreshed_at_ms = excluded.refreshed_at_ms,
-                        base_asset = excluded.base_asset,
-                        quote_asset = excluded.quote_asset,
-                        margin_asset = excluded.margin_asset,
-                        contract_type = excluded.contract_type,
-                        eligibility_reason = excluded.eligibility_reason,
-                        classification_version = excluded.classification_version,
-                        classification_reviewed_at_ms = excluded.classification_reviewed_at_ms,
-                        directive = excluded.directive,
-                        directive_source = excluded.directive_source""",
-                    (
-                        instrument.symbol,
-                        entry.classification.value,
-                        entry.eligibility.value,
-                        instrument.status,
-                        filters_json,
-                        entry.classification_source,
-                        snapshot.sampled_at_ms,
-                        instrument.base_asset,
-                        instrument.quote_asset,
-                        instrument.margin_asset,
-                        instrument.contract_type,
-                        entry.eligibility_reason,
-                        snapshot.directory_version,
-                        entry.classification_reviewed_at_ms,
-                        directive,
-                        entry.directive_source,
-                    ),
-                )
-
-            connection.execute(
-                """UPDATE instruments
-                   SET eligibility = 'INELIGIBLE',
-                       eligibility_reason = 'not present in the latest complete exchangeInfo snapshot',
-                       exchange_status = 'DELISTED',
-                       classification_version = ?,
-                       refreshed_at_ms = ?
-                   WHERE NOT EXISTS (
-                       SELECT 1 FROM universe_snapshot_instruments AS current_rows
-                       WHERE current_rows.snapshot_id = ?
-                         AND current_rows.symbol = instruments.symbol
-                   )""",
-                (snapshot.directory_version, snapshot.sampled_at_ms, snapshot.snapshot_id),
-            )
-
-    def load_latest_universe_snapshot(self) -> UniverseSnapshot | None:
-        """Restore the last complete exchange/classification snapshot for outage fallback."""
-
-        with self._lock:
-            snapshot_row = self._connection.execute(
-                """SELECT snapshot_id, directory_version, exchange_snapshot_id, sampled_at_ms
-                   FROM universe_snapshots ORDER BY sampled_at_ms DESC LIMIT 1"""
-            ).fetchone()
-            if snapshot_row is None:
-                return None
-            rows = self._connection.execute(
-                """SELECT * FROM universe_snapshot_instruments
-                   WHERE snapshot_id = ? ORDER BY symbol""",
-                (snapshot_row["snapshot_id"],),
-            ).fetchall()
-
-        instruments: list[UniverseInstrument] = []
-        for row in rows:
-            filters = json.loads(row["filters_json"])
-            if not isinstance(filters, dict):
-                raise RuntimeError("persisted instrument filters must be a JSON object")
-            rules = None
-            if filters:
-                min_notional = filters.get("min_market_notional")
-                max_notional = filters.get("max_market_notional")
-                rules = InstrumentRules(
-                    symbol=row["symbol"],
-                    contract_type=row["contract_type"],
-                    status=row["exchange_status"],
-                    quote_asset=row["quote_asset"],
-                    margin_asset=row["margin_asset"],
-                    market_quantity=MarketQuantityRules(
-                        min_qty=Decimal(filters["min_qty"]),
-                        max_qty=Decimal(filters["max_qty"]),
-                        step_size=Decimal(filters["step_size"]),
-                        step_origin=Decimal(filters["step_origin"]),
-                    ),
-                    min_market_notional=(
-                        None if min_notional is None else Decimal(min_notional)
-                    ),
-                    max_market_notional=(
-                        None if max_notional is None else Decimal(max_notional)
-                    ),
-                )
-            instruments.append(
-                UniverseInstrument(
-                    instrument=ExchangeInstrument(
-                        symbol=row["symbol"],
-                        base_asset=row["base_asset"],
-                        quote_asset=row["quote_asset"],
-                        margin_asset=row["margin_asset"],
-                        contract_type=row["contract_type"],
-                        status=row["exchange_status"],
-                        rules=rules,
-                    ),
-                    classification=AssetClassification(row["classification"]),
-                    eligibility=UniverseEligibility(row["eligibility"]),
-                    eligibility_reason=row["eligibility_reason"],
-                    classification_source=row["classification_source"],
-                    classification_reviewed_at_ms=row["classification_reviewed_at_ms"],
-                    directive=(
-                        None
-                        if row["directive"] is None
-                        else ContractDirectiveKind(row["directive"])
-                    ),
-                    directive_source=row["directive_source"],
-                )
-            )
-
-        return UniverseSnapshot(
-            snapshot_id=snapshot_row["snapshot_id"],
-            directory_version=snapshot_row["directory_version"],
-            sampled_at_ms=snapshot_row["sampled_at_ms"],
-            exchange_snapshot_id=snapshot_row["exchange_snapshot_id"],
-            instruments=tuple(instruments),
-        )
 
     @staticmethod
     def _symbol_state_from_row(row: sqlite3.Row) -> SymbolState:
@@ -845,29 +400,21 @@ class SQLiteStateStore:
             if cursor.rowcount != 1:
                 raise StateVersionConflict("stored symbol state has changed")
 
-    @staticmethod
-    def _review_rotation_scope(
-        account_id: str,
-        strategy_version: str,
-        priority: ReviewPriority,
-    ) -> str:
-        if not account_id or not strategy_version or not isinstance(priority, ReviewPriority):
-            raise ValueError("account, strategy and review priority are required")
-        return f"{account_id}:{strategy_version}:{int(priority)}"
-
     def load_review_rotation_cursor(
         self,
         account_id: str,
         strategy_version: str,
         priority: ReviewPriority,
     ) -> str | None:
-        scope = self._review_rotation_scope(account_id, strategy_version, priority)
+        if not account_id or not strategy_version or not isinstance(priority, ReviewPriority):
+            raise ValueError("account, strategy and review priority are required")
         with self._lock:
             row = self._connection.execute(
-                "SELECT cursor FROM sync_cursors WHERE source = 'review_rotation' AND scope = ?",
-                (scope,),
+                """SELECT symbol FROM review_rotation_cursors
+                   WHERE account_id = ? AND strategy_version = ? AND priority = ?""",
+                (account_id, strategy_version, int(priority)),
             ).fetchone()
-        return None if row is None else row["cursor"]
+        return None if row is None else row["symbol"]
 
     def save_review_rotation_cursor(
         self,
@@ -875,19 +422,19 @@ class SQLiteStateStore:
         strategy_version: str,
         priority: ReviewPriority,
         symbol: str,
-        updated_at_ms: int,
     ) -> None:
-        scope = self._review_rotation_scope(account_id, strategy_version, priority)
-        if not symbol or updated_at_ms < 0:
-            raise ValueError("symbol must not be empty and timestamp must be non-negative")
+        if not account_id or not strategy_version or not isinstance(priority, ReviewPriority):
+            raise ValueError("account, strategy and review priority are required")
+        if not symbol:
+            raise ValueError("symbol must not be empty")
         with self._transaction() as connection:
             connection.execute(
-                """INSERT INTO sync_cursors (source, scope, cursor, reconciled_until_ms)
-                   VALUES ('review_rotation', ?, ?, ?)
-                   ON CONFLICT(source, scope) DO UPDATE SET
-                       cursor = excluded.cursor,
-                       reconciled_until_ms = excluded.reconciled_until_ms""",
-                (scope, symbol, updated_at_ms),
+                """INSERT INTO review_rotation_cursors (
+                       account_id, strategy_version, priority, symbol
+                   ) VALUES (?, ?, ?, ?)
+                   ON CONFLICT(account_id, strategy_version, priority)
+                   DO UPDATE SET symbol = excluded.symbol""",
+                (account_id, strategy_version, int(priority), symbol),
             )
 
     def create_order_intent(
@@ -945,8 +492,8 @@ class SQLiteStateStore:
                 """INSERT INTO order_intents (
                     intent_id, account_id, symbol, cycle_id, action, business_key,
                     expected_state_version, target_cumulative_sold_qty, buy_notional,
-                    reserved_margin, status, created_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PREPARED', ?)""",
+                    status, created_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PREPARED', ?)""",
                 (
                     intent.intent_id,
                     intent.account_id,
@@ -957,7 +504,6 @@ class SQLiteStateStore:
                     intent.expected_state_version,
                     None if intent.target_cumulative_sold_qty is None else str(intent.target_cumulative_sold_qty),
                     None if intent.buy_notional is None else str(intent.buy_notional),
-                    "0",
                     intent.created_at_ms,
                 ),
             )

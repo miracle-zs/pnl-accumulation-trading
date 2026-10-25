@@ -127,16 +127,6 @@ async def run_application(config: RuntimeConfig) -> None:
     process_lock.acquire()
     try:
         with SQLiteStateStore(config.data_dir / "state.sqlite3") as store:
-            cached_universe = store.load_latest_universe_snapshot()
-            fallback_rules = (
-                {}
-                if cached_universe is None
-                else {
-                    entry.symbol: entry.instrument.rules
-                    for entry in cached_universe.instruments
-                    if entry.instrument.rules is not None
-                }
-            )
             timeout = httpx.Timeout(10.0, connect=5.0)
             limits = httpx.Limits(max_connections=16, max_keepalive_connections=8)
             async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
@@ -146,13 +136,10 @@ async def run_application(config: RuntimeConfig) -> None:
                     api_secret=config.api_secret,
                     base_url=BINANCE_USDM_FUTURES_URL,
                     rules_cache_ttl_ms=86_400_000,
-                    fallback_rules=fallback_rules,
                 )
                 universe = UniverseCatalog(
                     exchange_info=exchange,
-                    store=store,
                     classifications=classifications,
-                    initial_snapshot=cached_universe,
                 )
                 execution = ExecutionCoordinator(
                     store=store,
@@ -180,7 +167,7 @@ async def run_application(config: RuntimeConfig) -> None:
                 recovery = await review_runs.recover_pending_on_startup(config.account_id)
                 logger.info("startup pending-order recovery completed: count=%s", len(recovery))
 
-                snapshot = await universe.refresh(force=True)
+                snapshot = await universe.refresh()
                 logger.info(
                     "initial universe snapshot loaded: version=%s eligible=%s pending_review=%s",
                     snapshot.directory_version,

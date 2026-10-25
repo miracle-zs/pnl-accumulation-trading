@@ -87,7 +87,6 @@ class BinanceFuturesGateway:
         base_url: str = BINANCE_USDM_FUTURES_URL,
         recv_window_ms: int = 5_000,
         rules_cache_ttl_ms: int = 86_400_000,
-        fallback_rules: Mapping[str, InstrumentRules] | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         if not api_key or not api_secret:
@@ -108,29 +107,12 @@ class BinanceFuturesGateway:
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._exchange_info_snapshot: ExchangeInfoSnapshot | None = None
         self._exchange_info_loaded_at_ms: int | None = None
-        self._fallback_rules = dict(fallback_rules or {})
-        if any(symbol != rules.symbol for symbol, rules in self._fallback_rules.items()):
-            raise ValueError("fallback instrument rules must be keyed by their symbol")
-        self._exchange_info_retry_at_ms = 0
         self._exchange_info_lock = asyncio.Lock()
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
         if not symbol:
             raise ValueError("symbol must not be empty")
-        now_ms = self._clock_ms()
-        fallback = self._fallback_rules.get(symbol)
-        if now_ms < self._exchange_info_retry_at_ms:
-            if fallback is None:
-                raise LookupError(
-                    f"exchangeInfo is unavailable and no cached market rules exist for {symbol}"
-                )
-            return fallback
-        try:
-            snapshot = await self.get_exchange_info_snapshot()
-        except Exception:
-            if fallback is None:
-                raise
-            return fallback
+        snapshot = await self.get_exchange_info_snapshot()
         instrument = next((item for item in snapshot.instruments if item.symbol == symbol), None)
         if instrument is None:
             raise LookupError(f"exchangeInfo does not contain {symbol}")
@@ -138,7 +120,7 @@ class BinanceFuturesGateway:
             raise LookupError(f"exchangeInfo does not contain usable market rules for {symbol}")
         return instrument.rules
 
-    async def get_exchange_info_snapshot(self, *, force: bool = False) -> ExchangeInfoSnapshot:
+    async def get_exchange_info_snapshot(self) -> ExchangeInfoSnapshot:
         """Fetch the complete symbol catalog, preserving rows with unusable order filters."""
 
         async with self._exchange_info_lock:
@@ -148,10 +130,9 @@ class BinanceFuturesGateway:
                 and self._exchange_info_loaded_at_ms is not None
                 and now_ms - self._exchange_info_loaded_at_ms < self._rules_cache_ttl_ms
             )
-            if fresh and not force:
+            if fresh:
                 return self._exchange_info_snapshot
 
-            self._exchange_info_retry_at_ms = now_ms + 60_000
             payload = await self._request_json("GET", "/fapi/v1/exchangeInfo")
             if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
                 raise BinanceProtocolError("exchangeInfo response is missing its symbols list")
@@ -216,18 +197,7 @@ class BinanceFuturesGateway:
             )
             self._exchange_info_snapshot = snapshot
             self._exchange_info_loaded_at_ms = sampled_at_ms
-            self._fallback_rules = {
-                item.symbol: item.rules
-                for item in ordered
-                if item.rules is not None
-            }
-            self._exchange_info_retry_at_ms = 0
             return snapshot
-
-    async def refresh_exchange_info_snapshot(self) -> ExchangeInfoSnapshot:
-        """Bypass the catalog cache for a scheduled rule refresh."""
-
-        return await self.get_exchange_info_snapshot(force=True)
 
     async def get_fifteen_minute_close(
         self,

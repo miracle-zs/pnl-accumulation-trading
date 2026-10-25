@@ -24,7 +24,9 @@ python -m pip install -e .
 pnl-trader web
 ```
 
-看板只读取 `PNL_DATA_DIR` 下的 `state.sqlite3`，不会连接交易所或提交订单。账户快照类指标只在数据库已有快照时显示。
+看板只读取 `PNL_DATA_DIR` 下的 `state.sqlite3`，不会连接交易所或提交订单。它展示成交账本和本地策略状态，不展示账户权益或保证金快照。
+
+当前版本只接受空目录创建的新数据库，不迁移旧数据库。已有 `state.sqlite3` 会保留原样；需要重新开始时，将 `PNL_DATA_DIR` 指向一个新的空目录。
 
 运行本地自动化测试：
 

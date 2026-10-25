@@ -106,22 +106,17 @@ def verify_backup(path: str | Path) -> dict[str, object]:
             raise sqlite3.DatabaseError(f"backup integrity check failed: {detail}")
         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
             raise sqlite3.DatabaseError("backup contains a foreign key violation")
-        try:
-            schema_version = connection.execute(
-                "SELECT MAX(version) FROM schema_migrations"
-            ).fetchone()[0]
-        except sqlite3.DatabaseError as exc:
-            raise sqlite3.DatabaseError("backup has no readable schema migration history") from exc
-        if schema_version is None:
-            raise sqlite3.DatabaseError("backup has no applied schema migrations")
+        schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if schema_version == 0:
+            raise sqlite3.DatabaseError("backup has no supported database schema version")
 
         with tempfile.TemporaryDirectory(prefix="pnl-backup-restore-") as directory:
             restored_path = Path(directory) / "state.sqlite3"
             with closing(sqlite3.connect(restored_path)) as restored_connection:
                 connection.backup(restored_connection, pages=256, sleep=0.01)
 
-            # Exercise the same schema checks and migrations used by the live
-            # application, while keeping all writes inside the temporary copy.
+            # Exercise the same schema checks used by the live application,
+            # while keeping all writes inside the temporary copy.
             from .store import SQLiteStateStore
 
             with SQLiteStateStore(restored_path):
@@ -137,11 +132,11 @@ def verify_backup(path: str | Path) -> dict[str, object]:
                         "temporary restored database failed integrity check"
                     )
                 restored_schema_version = restored_connection.execute(
-                    "SELECT MAX(version) FROM schema_migrations"
+                    "PRAGMA user_version"
                 ).fetchone()[0]
-                if restored_schema_version is None or restored_schema_version < schema_version:
+                if restored_schema_version != schema_version:
                     raise sqlite3.DatabaseError(
-                        "temporary restored database lost schema migration history"
+                        "temporary restored database changed its schema version"
                     )
     return {
         "status": "verified",

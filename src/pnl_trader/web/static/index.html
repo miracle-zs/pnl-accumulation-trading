@@ -62,11 +62,6 @@
         <span class="text-slate-400">下次计划巡检倒计时:</span>
         <span id="countdown" class="font-mono text-emerald-400 font-semibold text-sm">--:--</span>
       </div>
-      <div class="bg-[#111726] border border-[#1e293b] rounded-lg px-3 py-1.5 text-xs text-slate-300">
-        <span>维持保证金率 (MMR):</span>
-        <span id="mmr-display" class="font-mono text-blue-400 font-semibold ml-1">--%</span>
-        <span id="account-snapshot-note" class="text-slate-500">无账户快照</span>
-      </div>
       <button onclick="fetchData()" class="bg-[#1e293b] hover:bg-[#334155] text-slate-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
         刷新数据
@@ -101,16 +96,16 @@
       </div>
     </div>
 
-    <!-- Card 3: Floating Unrealized -->
+    <!-- Card 3: Active strategy positions -->
     <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
       <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>未结浮动盈亏</span>
-        <span id="kpi-active-symbols" class="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded text-[11px]">0 个本地策略持仓</span>
+        <span>本地策略持仓</span>
+        <span class="text-slate-400 bg-slate-500/10 px-1.5 py-0.5 rounded text-[11px]">策略状态统计</span>
       </div>
-      <div class="text-2xl font-bold text-amber-400 font-mono tracking-tight" id="kpi-unrealized-pnl">—</div>
+      <div class="text-2xl font-bold text-amber-400 font-mono tracking-tight"><span id="kpi-active-symbols">0</span> 个</div>
       <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
-        <span>仅显示最新已保存快照，非实时</span>
-        <span class="text-slate-300">持仓数来自本地策略状态</span>
+        <span>当前处于 OPEN 状态的标的数</span>
+        <span class="text-slate-300">非交易所实时仓位</span>
       </div>
     </div>
 
@@ -128,57 +123,8 @@
     </div>
   </div>
 
-  <!-- Charts & Tier Overview Row -->
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-    <!-- Chart: saved wallet balance and equity snapshots -->
-    <div class="lg:col-span-2 bg-[#111726] border border-[#1e293b] rounded-xl p-5">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <h2 class="text-sm font-semibold text-white">收益攀升与权益曲线 (Equity & Cash Growth)</h2>
-          <p class="text-xs text-slate-400">仅展示数据库中已有的账户快照</p>
-        </div>
-        <div class="flex items-center gap-3 text-xs">
-          <div class="flex items-center gap-1.5">
-            <span class="w-3 h-1 bg-emerald-400 rounded-full"></span>
-            <span class="text-slate-300">钱包余额 (Wallet)</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="w-3 h-1 bg-blue-400 rounded-full"></span>
-            <span class="text-slate-300">总净权益 (Equity)</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- SVG Chart -->
-      <div class="h-64 w-full relative">
-        <svg viewBox="0 0 700 220" class="w-full h-full overflow-visible" id="equity-svg">
-          <defs>
-            <linearGradient id="cashGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#10b981" stop-opacity="0.25" />
-              <stop offset="100%" stop-color="#10b981" stop-opacity="0.0" />
-            </linearGradient>
-            <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25" />
-              <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0" />
-            </linearGradient>
-          </defs>
-          <line x1="0" y1="40" x2="700" y2="40" stroke="#1e293b" stroke-dasharray="4" />
-          <line x1="0" y1="90" x2="700" y2="90" stroke="#1e293b" stroke-dasharray="4" />
-          <line x1="0" y1="140" x2="700" y2="140" stroke="#1e293b" stroke-dasharray="4" />
-          <line x1="0" y1="190" x2="700" y2="190" stroke="#1e293b" stroke-dasharray="4" />
-
-          <path id="svg-cash-path" d="" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" />
-          <path id="svg-eq-path" d="" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" />
-          <text id="equity-empty-state" x="350" y="115" text-anchor="middle" fill="#64748b" font-size="13">暂无账户快照，未绘制权益曲线</text>
-        </svg>
-      </div>
-
-      <div class="flex items-center justify-between text-xs text-slate-500 mt-2 font-mono px-2">
-        <span>初始</span>
-        <span>最近周期</span>
-      </div>
-    </div>
-
+  <!-- Tier Overview -->
+  <div class="mb-6">
     <!-- Tier Distribution Donut & State Panel (1 col) -->
     <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-5 flex flex-col justify-between">
       <div>
@@ -338,35 +284,27 @@
 
     async function fetchData() {
       try {
-        const [overviewRes, tierRes, posRes, fillsRes, historyRes] = await Promise.all([
+        const [overviewRes, tierRes, posRes, fillsRes] = await Promise.all([
           fetch('/api/overview'),
           fetch('/api/tier-distribution'),
           fetch('/api/positions'),
-          fetch('/api/fills?limit=6'),
-          fetch('/api/history?limit=200')
+          fetch('/api/fills?limit=6')
         ]);
-        const responses = [overviewRes, tierRes, posRes, fillsRes, historyRes];
+        const responses = [overviewRes, tierRes, posRes, fillsRes];
         if (responses.some(response => !response.ok)) throw new Error('dashboard API returned an error');
 
         const ov = await overviewRes.json();
         document.getElementById('kpi-net-profit').textContent = formatMoney(ov.realized_cash);
         document.getElementById('kpi-realized-cash').textContent = formatMoney(ov.realized_gross);
-        document.getElementById('kpi-unrealized-pnl').textContent = formatMoney(ov.unrealized_pnl);
         document.getElementById('kpi-fill-count').textContent = `${ov.fill_count} 笔`;
         document.getElementById('kpi-fees').textContent = formatFee(ov.total_commission);
-        document.getElementById('kpi-active-symbols').textContent = `${ov.active_positions_count} 个本地策略持仓`;
+        document.getElementById('kpi-active-symbols').textContent = ov.active_positions_count;
         document.getElementById('fee-warning').textContent = ov.other_fee_count > 0
           ? '含未折算的非 USDT 费用'
           : '已扣记录中的 USDT 手续费';
         document.getElementById('last-fill-time').textContent = ov.last_fill_at_ms
           ? new Date(ov.last_fill_at_ms).toLocaleString()
           : '暂无成交';
-        document.getElementById('mmr-display').textContent = ov.mmr_ratio == null
-          ? '—'
-          : `${Number(ov.mmr_ratio).toFixed(1)}%`;
-        document.getElementById('account-snapshot-note').textContent = ov.account_snapshot_at_ms
-          ? `快照 ${new Date(ov.account_snapshot_at_ms).toLocaleString()}`
-          : '无账户快照';
         document.getElementById('system-status-badge').textContent = ov.status === 'WAITING_DATA'
           ? '本地数据尚未生成 · 交易服务状态未知'
           : '只读本地数据 · 交易服务状态未知';
@@ -383,37 +321,10 @@
 
         const fills = await fillsRes.json();
         renderFills(fills);
-        renderHistory(await historyRes.json());
       } catch (err) {
         console.error("Failed to load dashboard data:", err);
         document.getElementById('system-status-badge').textContent = '数据读取失败 · 页面数值可能过时';
       }
-    }
-
-    function renderHistory(points) {
-      const cashPath = document.getElementById('svg-cash-path');
-      const equityPath = document.getElementById('svg-eq-path');
-      const emptyState = document.getElementById('equity-empty-state');
-      if (!Array.isArray(points) || points.length === 0) {
-        cashPath.setAttribute('d', '');
-        equityPath.setAttribute('d', '');
-        emptyState.style.display = '';
-        return;
-      }
-
-      const values = points.flatMap(point => [Number(point.wallet_balance), Number(point.equity)]);
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const span = max - min || 1;
-      const makePath = key => points.map((point, index) => {
-        const x = points.length === 1 ? 365 : 50 + index * 630 / (points.length - 1);
-        const y = 190 - (Number(point[key]) - min) / span * 150;
-        return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-      }).join(' ');
-
-      cashPath.setAttribute('d', makePath('wallet_balance'));
-      equityPath.setAttribute('d', makePath('equity'));
-      emptyState.style.display = 'none';
     }
 
     function renderPositions() {

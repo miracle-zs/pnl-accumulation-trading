@@ -57,18 +57,6 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 PRIMARY KEY (account_id, symbol, exchange_trade_id)
             );
 
-            CREATE TABLE account_snapshots (
-                snapshot_id TEXT PRIMARY KEY,
-                account_id TEXT NOT NULL,
-                equity TEXT NOT NULL,
-                wallet_balance TEXT NOT NULL,
-                available_balance TEXT NOT NULL,
-                unrealized_pnl TEXT NOT NULL,
-                initial_margin TEXT NOT NULL,
-                maintenance_margin TEXT NOT NULL,
-                fetched_at_ms INTEGER NOT NULL
-            );
-
             INSERT INTO symbol_states VALUES
             ('test-acct', 'BTCUSDT', 1, 1, 'OPEN', '0.001', '60000.0', '0.001', '60000.0', '0', 0, 1, 1700000000000),
             ('test-acct', 'ETHUSDT', 1, 2, 'OPEN', '0.05', '3000.0', '0.05', '3000.0', '0', 0, 1, 1700000000000),
@@ -77,9 +65,6 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
 
             INSERT INTO trade_fills VALUES
             ('test-acct', 'BTCUSDT', 't-1', 'c-1', 'SELL', '66000.0', '0.001', '6.0', '0.033', 'USDT', 1700000000000);
-
-            INSERT INTO account_snapshots VALUES
-            ('s-1', 'test-acct', '2506.0', '2506.0', '2400.0', '5.0', '106.0', '20.0', 1700000000000);
 
         """)
         conn.commit()
@@ -99,13 +84,11 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             resp = await client.get("/api/overview")
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
-            self.assertEqual(data["status"], "ACCOUNT_SNAPSHOT_RECORDED")
+            self.assertEqual(data["status"], "LOCAL_LEDGER_ONLY")
             self.assertAlmostEqual(data["realized_cash"], 5.967)
             self.assertEqual(data["realized_gross"], 6.0)
             self.assertEqual(data["fill_count"], 1)
             self.assertAlmostEqual(data["total_commission"], 0.033)
-            self.assertEqual(data["equity"], 2506.0)
-            self.assertEqual(data["account_snapshot_at_ms"], 1700000000000)
             self.assertEqual(data["active_positions_count"], 3)
 
             # 3. Test tier distribution API

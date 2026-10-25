@@ -51,65 +51,24 @@ class DashboardQueryService:
                 else int(fill_row["last_fill_at_ms"])
             )
 
-            # The trading loop does not persist account snapshots. If an older
-            # database contains one, expose its timestamp so the UI can label it
-            # as recorded data rather than imply a live account connection.
-            cur.execute("""
-                SELECT equity, wallet_balance, available_balance, unrealized_pnl,
-                       initial_margin, maintenance_margin, fetched_at_ms
-                FROM account_snapshots
-                ORDER BY fetched_at_ms DESC LIMIT 1
-            """)
-            snap = cur.fetchone()
-            if snap:
-                equity = float(snap["equity"])
-                wallet = float(snap["wallet_balance"])
-                available = float(snap["available_balance"])
-                unrealized = float(snap["unrealized_pnl"])
-                maint_margin = float(snap["maintenance_margin"])
-                mmr_ratio = (maint_margin / equity * 100) if equity > 0 else None
-                account_snapshot_at_ms = int(snap["fetched_at_ms"])
-            else:
-                equity = wallet = available = unrealized = maint_margin = mmr_ratio = None
-                account_snapshot_at_ms = None
-
             # Active positions are local strategy state, not a claim about
             # current exchange positions.
-            cur.execute("""
-                SELECT tier, completed_batches, COUNT(*) as cnt
-                FROM symbol_states
-                WHERE lifecycle = 'OPEN'
-                GROUP BY tier, completed_batches
-            """)
-            tier_rows = cur.fetchall()
-            active_count = sum(r["cnt"] for r in tier_rows)
+            cur.execute("SELECT COUNT(*) FROM symbol_states WHERE lifecycle = 'OPEN'")
+            active_count = int(cur.fetchone()[0])
 
             realized_net = (
                 realized_gross - commission_usdt if other_fee_count == 0 else None
             )
-            net_profit = (
-                None
-                if realized_net is None or unrealized is None
-                else realized_net + unrealized
-            )
 
             return {
-                "status": "ACCOUNT_SNAPSHOT_RECORDED" if snap else "LOCAL_LEDGER_ONLY",
-                "net_profit": _round_or_none(net_profit),
+                "status": "LOCAL_LEDGER_ONLY",
                 "realized_cash": _round_or_none(realized_net),
                 "realized_gross": round(realized_gross, 2),
-                "unrealized_pnl": _round_or_none(unrealized),
                 "total_commission": round(commission_usdt, 2),
                 "other_fee_count": other_fee_count,
                 "fill_count": fill_count,
-                "equity": _round_or_none(equity),
-                "wallet_balance": _round_or_none(wallet),
-                "available_balance": _round_or_none(available),
-                "maint_margin": _round_or_none(maint_margin),
-                "mmr_ratio": _round_or_none(mmr_ratio),
                 "active_positions_count": active_count,
                 "last_fill_at_ms": last_fill_at_ms,
-                "account_snapshot_at_ms": account_snapshot_at_ms,
             }
         finally:
             conn.close()
@@ -271,50 +230,16 @@ class DashboardQueryService:
         finally:
             conn.close()
 
-    def get_equity_history(self, limit: int = 200) -> list[dict[str, Any]]:
-        if not self._db_path.is_file():
-            return []
-
-        conn = _get_readonly_connection(self._db_path)
-        try:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT equity, wallet_balance, unrealized_pnl, fetched_at_ms
-                FROM account_snapshots
-                ORDER BY fetched_at_ms DESC
-                LIMIT ?
-            """, (limit,))
-            rows = cur.fetchall()
-            return [
-                {
-                    "equity": float(r["equity"]),
-                    "wallet_balance": float(r["wallet_balance"]),
-                    "unrealized_pnl": float(r["unrealized_pnl"]),
-                    "fetched_at_ms": int(r["fetched_at_ms"]),
-                }
-                for r in reversed(rows)
-            ]
-        finally:
-            conn.close()
-
     def _empty_overview(self) -> dict[str, Any]:
         return {
             "status": "WAITING_DATA",
-            "net_profit": None,
             "realized_cash": 0.0,
             "realized_gross": 0.0,
-            "unrealized_pnl": None,
             "total_commission": 0.0,
             "other_fee_count": 0,
             "fill_count": 0,
-            "equity": None,
-            "wallet_balance": None,
-            "available_balance": None,
-            "maint_margin": None,
-            "mmr_ratio": None,
             "active_positions_count": 0,
             "last_fill_at_ms": None,
-            "account_snapshot_at_ms": None,
         }
 
 
