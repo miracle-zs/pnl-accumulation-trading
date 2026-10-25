@@ -4,26 +4,67 @@
 
 不带子命令运行 `pnl-trader` 只显示帮助。只有显式执行 `pnl-trader run` 才会启动主网交易服务；systemd unit 也使用该命令。
 
-项目和虚拟环境默认安装在 `/opt/pnl-accumulation-trading`。部署时需在 `/etc/pnl-trader/pnl-trader.env` 设置：
+## 安装与预检（不启动）
 
-```ini
-PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml
-```
+目标主机需运行 Linux/systemd，安装 Git 和包含 `venv`、`pip` 的 Python 3.11 或更新版本。以下步骤只安装和验证，不启用或启动服务。
 
-API 凭据分别保存在 root 所有、权限为 `0600` 的文件中：
+1. 创建服务用户（已存在时跳过），克隆项目并安装：
 
-- `/etc/pnl-trader/credentials/binance-api-key`
-- `/etc/pnl-trader/credentials/binance-api-secret`
+   ```sh
+   sudo useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin pnl-trader
+   sudo git clone https://github.com/miracle-zs/pnl-accumulation-trading.git /opt/pnl-accumulation-trading
+   cd /opt/pnl-accumulation-trading
+   sudo python3 -m venv .venv
+   sudo .venv/bin/pip install .
+   ```
 
-启用前先检查 unit 文件和本地配置：
+2. 安装已审核的生产分类文件：
 
-```sh
-systemd-analyze verify /etc/systemd/system/pnl-trader.service
-PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml \
-PNL_DATA_DIR=/var/lib/pnl-trader \
-/opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
-```
+   ```sh
+   sudo install -d -o root -g root -m 0755 /etc/pnl-trader
+   sudo install -o root -g root -m 0644 config/asset_classifications.toml /etc/pnl-trader/asset_classifications.toml
+   ```
+
+3. 创建 `/etc/pnl-trader/pnl-trader.env`，写入分类文件路径：
+
+   ```ini
+   PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml
+   ```
+
+   ```sh
+   sudo install -o root -g root -m 0644 /dev/null /etc/pnl-trader/pnl-trader.env
+   sudoedit /etc/pnl-trader/pnl-trader.env
+   ```
+
+   该环境文件只包含非敏感配置，保持 root 所有、权限 `0644`。
+
+4. 创建 API 凭据文件并用安全编辑器写入密钥。文件须为 root 所有、权限 `0600`：
+
+   - `/etc/pnl-trader/credentials/binance-api-key`
+   - `/etc/pnl-trader/credentials/binance-api-secret`
+
+   ```sh
+   sudo install -d -o root -g root -m 0700 /etc/pnl-trader/credentials
+   sudo install -o root -g root -m 0600 /dev/null /etc/pnl-trader/credentials/binance-api-key
+   sudo install -o root -g root -m 0600 /dev/null /etc/pnl-trader/credentials/binance-api-secret
+   sudoedit /etc/pnl-trader/credentials/binance-api-key
+   sudoedit /etc/pnl-trader/credentials/binance-api-secret
+   ```
+
+   不要把密钥放进环境文件、命令行参数或 Git。
+
+5. 安装 unit 并执行预检：
+
+   ```sh
+   sudo install -o root -g root -m 0644 deploy/systemd/pnl-trader.service /etc/systemd/system/pnl-trader.service
+   sudo systemctl daemon-reload
+   sudo systemd-analyze verify /etc/systemd/system/pnl-trader.service
+   sudo -u pnl-trader env \
+     PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml \
+     PNL_DATA_DIR=/var/lib/pnl-trader \
+     /opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
+   ```
 
 `validate-config` 只检查本地配置和资产分类，不需要 Binance API 凭据。
 
-不要在未确认账户和标的分类时启动服务。
+预检通过后先停在这里，不要执行 `systemctl enable` 或 `systemctl start`。启动服务会连接主网并可能下单，须由项目负责人确认账户、现有持仓和资产分类后另行决定。
