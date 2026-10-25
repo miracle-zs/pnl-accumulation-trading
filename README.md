@@ -38,5 +38,6 @@ python -m unittest discover -s tests -v
 
 - [旧 SPEC](docs/SPEC.md)描述此前的事件驱动、限价挂单和市值缩水循环方案，不是当前系统规范。
 - `docs/adr/` 保存早期架构决策。引用其中任何决策前，先确认它仍符合当前 PRD 和架构设计。
-- `research/` 下的历史回测、模拟和数据处理脚本，以及 `data/` 下的缓存，属于研究材料；运行这些脚本时请从项目根目录启动。它们不属于当前交易服务，也不构成实盘安全或收益保证。
+- `data/` 仅存放本地回测与研究材料，已从 Git 版本控制中排除。当前交易服务使用 `config/` 中的生产配置，运行状态默认写入 `var/`。
+- `research/` 下的历史回测、模拟和数据处理脚本不属于当前交易服务，也不构成实盘安全或收益保证。
 - `docs/ARCHITECTURE_15M_OVERVIEW.html` 是架构图解材料；若与 Markdown 架构文档不一致，以 Markdown 为准。

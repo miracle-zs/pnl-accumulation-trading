@@ -17,12 +17,8 @@ __pycache__/
 *.log
 logs/
 
-# Large local backtest caches; keep these files on disk, out of ordinary Git history
-data/*.npy
-data/*.npz
-data/funding/
-data/klines/
-data/klines_15m/
+# Local research and backtest data; keep it on disk, out of Git history
+data/
 
 # Editor and operating system files
 .DS_Store
