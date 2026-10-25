@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 import signal
@@ -12,6 +13,7 @@ import httpx
 
 from .adapters.binance import BinanceFuturesGateway
 from .adapters.process_lock import ProcessFileLock
+from .adapters.serverchan import ServerChanNotifier
 from .adapters.sqlite import SQLiteStateStore
 from .application.execution import ExecutionCoordinator
 from .application.review_batch import ReconciledReviewBatchSource
@@ -23,7 +25,10 @@ from .application.universe_models import (
     AssetClassification,
     VersionedAssetClassificationDirectory,
 )
-from .credentials import require_secret
+from .credentials import optional_secret, require_secret
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +93,32 @@ async def run_application(config: RuntimeConfig) -> None:
         with SQLiteStateStore(config.data_dir / "state.sqlite3") as store:
             timeout = httpx.Timeout(10.0, connect=5.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
+                try:
+                    serverchan_sendkey = optional_secret("SERVERCHAN_SENDKEY")
+                except ValueError as exc:
+                    logger.warning(
+                        "Server酱通知已停用（凭据不可用：%s）",
+                        type(exc).__name__,
+                    )
+                    serverchan_sendkey = None
+
+                notifier = None
+                if serverchan_sendkey:
+                    try:
+                        notifier = ServerChanNotifier(
+                            client=client,
+                            sendkey=serverchan_sendkey,
+                        )
+                    except ValueError as exc:
+                        logger.warning(
+                            "Server酱通知已停用（SendKey 无效：%s）",
+                            type(exc).__name__,
+                        )
+                else:
+                    logger.warning(
+                        "SERVERCHAN_SENDKEY 未设置，整轮失败通知已停用"
+                    )
+
                 exchange = BinanceFuturesGateway(
                     client=client,
                     api_key=api_key,
@@ -124,6 +155,7 @@ async def run_application(config: RuntimeConfig) -> None:
                     loop.add_signal_handler(shutdown_signal, stop_event.set)
                 scheduler = PeriodicReviewScheduler(
                     review_runs=review_runs,
+                    notifier=notifier,
                 )
                 await scheduler.run_until_stopped(stop_event)
     finally:

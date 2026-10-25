@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Callable
 
@@ -21,6 +22,7 @@ _MANAGED_LIFECYCLES = {
     Lifecycle.OPEN,
     Lifecycle.REOPEN_PENDING,
 }
+logger = logging.getLogger(__name__)
 
 
 class ReconciledReviewBatchSource:
@@ -66,13 +68,35 @@ class ReconciledReviewBatchSource:
         now_ms = self._clock_ms()
 
         positions_by_symbol = self._index_positions(position_snapshot)
+        signals_by_symbol = {signal.symbol: signal for signal in signals}
+        delisted_symbols = {
+            symbol for symbol, signal in signals_by_symbol.items() if signal.delisted
+        }
+        for symbol in delisted_symbols:
+            state = states.get(symbol)
+            position = positions_by_symbol.get(symbol)
+            if (
+                state is not None
+                and state.lifecycle in _MANAGED_LIFECYCLES
+                and symbol not in intents_by_symbol
+                and (position is None or position.position_amt == ZERO)
+            ):
+                states[symbol] = self._store.clear_settled_symbol_state(
+                    symbol,
+                    updated_at_ms=now_ms,
+                )
+                logger.info("cleared settled delisted symbol state: symbol=%s", symbol)
+
         self._reconcile_positions(states, positions_by_symbol, intents_by_symbol)
 
-        signals_by_symbol = {signal.symbol: signal.admitted for signal in signals}
-        candidate_symbols = set(signals_by_symbol)
+        candidate_symbols = {
+            symbol
+            for symbol, signal in signals_by_symbol.items()
+            if not signal.delisted
+        }
         candidate_symbols.update(
             symbol for symbol, position in positions_by_symbol.items()
-            if position.position_amt != ZERO
+            if position.position_amt != ZERO and symbol not in delisted_symbols
         )
 
         candidates: list[ReviewCandidate] = []
@@ -87,7 +111,7 @@ class ReconciledReviewBatchSource:
                     created_at_ms=now_ms,
                 )
 
-            admitted = signals_by_symbol[symbol]
+            admitted = signals_by_symbol[symbol].admitted
             priority = (
                 ReviewPriority.POSITION
                 if states[symbol].lifecycle is Lifecycle.OPEN

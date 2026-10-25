@@ -195,6 +195,44 @@ class SQLiteStateStore:
             ).fetchone()
             return self._symbol_state_from_row(row)
 
+    def clear_settled_symbol_state(
+        self,
+        symbol: str,
+        *,
+        updated_at_ms: int,
+    ) -> SymbolState:
+        """Clear local strategy state after Binance settles a delisted contract."""
+
+        with self._transaction() as connection:
+            active_intent = connection.execute(
+                """SELECT 1 FROM order_intents
+                   WHERE symbol = ?
+                     AND status IN ('PREPARED', 'PENDING', 'UNKNOWN', 'PARTIALLY_FILLED')
+                   LIMIT 1""",
+                (symbol,),
+            ).fetchone()
+            if active_intent is not None:
+                raise RuntimeError(
+                    f"cannot clear settled symbol {symbol} with an active order intent"
+                )
+
+            updated = connection.execute(
+                """UPDATE symbol_states SET
+                    tier = 0, lifecycle = 'IDLE', qty = '0',
+                    avg_entry_price = '0', tier_entry_qty = '0',
+                    tier_anchor_price = '0', completed_batches = 0,
+                    updated_at_ms = ?
+                WHERE symbol = ?""",
+                (updated_at_ms, symbol),
+            )
+            if updated.rowcount != 1:
+                raise LookupError(f"symbol state not found: {symbol}")
+            row = connection.execute(
+                "SELECT * FROM symbol_states WHERE symbol = ?",
+                (symbol,),
+            ).fetchone()
+            return self._symbol_state_from_row(row)
+
     @staticmethod
     def _symbol_state_from_row(row: sqlite3.Row) -> SymbolState:
         return SymbolState(

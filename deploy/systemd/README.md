@@ -53,6 +53,16 @@
 
    不要把密钥放进环境文件、命令行参数或 Git。
 
+   Server酱通知是可选的。需要启用时，将 SendKey 写入 systemd credential store：
+
+   ```sh
+   sudo install -d -o root -g root -m 0700 /etc/credstore
+   sudo install -o root -g root -m 0600 /dev/null /etc/credstore/serverchan_sendkey
+   sudoedit /etc/credstore/serverchan_sendkey
+   ```
+
+   不配置该凭据时，服务仍可运行，但不会发送整轮失败通知。也可在本地运行时通过环境变量 `SERVERCHAN_SENDKEY` 配置。
+
 5. 安装 unit 并执行预检：
 
    ```sh

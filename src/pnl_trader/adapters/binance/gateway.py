@@ -37,7 +37,7 @@ from ...domain.models import TradeFillRecord, ZERO
 
 BINANCE_USDM_FUTURES_URL = "https://fapi.binance.com"
 BINANCE_RECV_WINDOW_MS = 5_000
-EXCHANGE_INFO_CACHE_TTL_MS = 86_400_000
+EXCHANGE_INFO_CACHE_TTL_MS = 15 * 60 * 1_000
 logger = logging.getLogger(__name__)
 
 

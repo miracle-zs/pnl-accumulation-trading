@@ -11,6 +11,16 @@ from .universe_models import (
 )
 
 
+_DELISTING_STATUSES = frozenset({
+    "PRE_DELIVERING",
+    "DELIVERING",
+    "DELIVERED",
+    "PRE_SETTLE",
+    "SETTLING",
+    "CLOSE",
+})
+
+
 class UniverseCatalog:
     """Classify Binance contracts without inferring asset type from symbol text.
 
@@ -34,6 +44,7 @@ class UniverseCatalog:
         managed_symbols: tuple[str, ...],
     ) -> tuple[ReviewSignal, ...]:
         instruments = await self._exchange_info.get_exchange_info_snapshot()
+        instruments_by_symbol = {instrument.symbol: instrument for instrument in instruments}
         eligible_symbols = {
             instrument.symbol
             for instrument in instruments
@@ -46,6 +57,10 @@ class UniverseCatalog:
             ReviewSignal(
                 symbol=symbol,
                 admitted=symbol in eligible_symbols,
+                delisted=(
+                    symbol not in instruments_by_symbol
+                    or instruments_by_symbol[symbol].status in _DELISTING_STATUSES
+                ),
             )
             for symbol in symbols_to_review
         )

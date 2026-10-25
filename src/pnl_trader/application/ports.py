@@ -33,6 +33,10 @@ class StateStorePort(Protocol):
         self, symbol: str, *, created_at_ms: int
     ) -> SymbolState: ...
 
+    def clear_settled_symbol_state(
+        self, symbol: str, *, updated_at_ms: int
+    ) -> SymbolState: ...
+
     def create_order_intent(
         self,
         intent: OrderIntent,
@@ -73,6 +77,10 @@ class StateStorePort(Protocol):
         expected: IntentStatus,
         terminal_status: IntentStatus,
     ) -> None: ...
+
+
+class AlertNotifierPort(Protocol):
+    async def send(self, *, title: str, body: str) -> None: ...
 
 
 class ExchangeGatewayPort(Protocol):

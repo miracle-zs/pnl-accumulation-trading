@@ -9,3 +9,4 @@ from dataclasses import dataclass
 class ReviewSignal:
     symbol: str
     admitted: bool
+    delisted: bool = False

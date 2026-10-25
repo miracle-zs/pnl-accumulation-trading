@@ -38,6 +38,8 @@ python -m unittest discover -s tests -v
 
 交易运行入口连接 Binance USDⓈ-M Futures 主网，启动后可能提交真实市价单。不要在未确认账户、标的分类和风险参数时启动服务，也不要将密钥提交到仓库。
 
+可选配置 `SERVERCHAN_SENDKEY` 接收整轮巡检失败提醒；不配置时只写服务日志，不影响交易服务启动。
+
 ## 历史资料
 
 - [旧版 SPEC](docs/SPEC.md)：记录此前的事件驱动、限价挂单和市值缩水循环方案，仅供追溯。
