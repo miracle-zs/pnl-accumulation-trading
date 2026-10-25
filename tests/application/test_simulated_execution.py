@@ -9,7 +9,6 @@ from pnl_trader.adapters.sqlite import (
     IntentConflict,
     OrderAttempt,
     OrderIntent,
-    ReservationLimitExceeded,
     SQLiteStateStore,
 )
 from pnl_trader.application.execution import ExecutionCoordinator, ExecutionResolution
@@ -68,7 +67,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     action=Action.ADD_T2,
                     business_key="simulated-review-slot-1",
                     expected_state_version=t1.version,
-                    reserved_margin=D("1"),
                     created_at_ms=2_000,
                     buy_notional=D("50"),
                 )
@@ -155,7 +153,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     action=Action.OPEN_T1,
                     business_key="unknown-submit-slot",
                     expected_state_version=state.version,
-                    reserved_margin=D("1"),
                     created_at_ms=2_000,
                     buy_notional=D("10"),
                 )
@@ -246,7 +243,7 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_partial_fill_reservation_survives_restart_until_terminal_reconciliation(self) -> None:
+    def test_partial_fill_intent_survives_restart_until_terminal_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "state.sqlite3"
             store = SQLiteStateStore(database_path)
@@ -262,28 +259,10 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                 action=Action.OPEN_T1,
                 business_key="partial-open-slot",
                 expected_state_version=btc_state.version,
-                reserved_margin=D("1.055"),
                 created_at_ms=2_000,
                 buy_notional=D("10"),
             )
-            competitor = OrderIntent(
-                intent_id="intent-eth-open",
-                account_id="primary",
-                symbol="ETHUSDT",
-                cycle_id=0,
-                action=Action.OPEN_T1,
-                business_key="eth-open-slot",
-                expected_state_version=0,
-                reserved_margin=D("1.055"),
-                created_at_ms=2_001,
-                buy_notional=D("10"),
-            )
-            self.assertTrue(
-                store.create_order_intent(
-                    intent,
-                    max_active_reserved_margin=D("1.5"),
-                )
-            )
+            self.assertTrue(store.create_order_intent(intent))
             attempt = OrderAttempt(
                 attempt_id="attempt-partial-open",
                 intent_id=intent.intent_id,
@@ -361,15 +340,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     recovered_before_terminal[0].status,
                     IntentStatus.PARTIALLY_FILLED,
                 )
-                self.assertEqual(
-                    recovered_before_terminal[0].intent.reserved_margin,
-                    D("1.055"),
-                )
-                with self.assertRaises(ReservationLimitExceeded):
-                    store.create_order_intent(
-                        competitor,
-                        max_active_reserved_margin=D("1.5"),
-                    )
 
                 second_process = ExecutionCoordinator(
                     store=store,
@@ -384,15 +354,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                 still_active = store.list_active_order_intents("primary")
                 self.assertEqual(len(still_active), 1)
                 self.assertEqual(still_active[0].status, IntentStatus.UNKNOWN)
-                self.assertEqual(
-                    still_active[0].intent.reserved_margin,
-                    D("1.055"),
-                )
-                with self.assertRaises(ReservationLimitExceeded):
-                    store.create_order_intent(
-                        competitor,
-                        max_active_reserved_margin=D("1.5"),
-                    )
             finally:
                 store.close()
 
@@ -419,16 +380,10 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     D("0.04"),
                 )
                 self.assertEqual(store.list_active_order_intents("primary"), ())
-                self.assertTrue(
-                    store.create_order_intent(
-                        competitor,
-                        max_active_reserved_margin=D("1.5"),
-                    )
-                )
             finally:
                 store.close()
 
-    def test_terminal_fill_mismatch_keeps_reservation_until_reconciled_after_restart(self) -> None:
+    def test_terminal_fill_mismatch_keeps_intent_until_reconciled_after_restart(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "state.sqlite3"
             store = SQLiteStateStore(database_path)
@@ -444,28 +399,10 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                 action=Action.OPEN_T1,
                 business_key="inconsistent-open-slot",
                 expected_state_version=btc_state.version,
-                reserved_margin=D("1.055"),
                 created_at_ms=2_000,
                 buy_notional=D("10"),
             )
-            competitor = OrderIntent(
-                intent_id="intent-eth-after-mismatch",
-                account_id="primary",
-                symbol="ETHUSDT",
-                cycle_id=0,
-                action=Action.OPEN_T1,
-                business_key="eth-after-mismatch-slot",
-                expected_state_version=0,
-                reserved_margin=D("1.055"),
-                created_at_ms=2_001,
-                buy_notional=D("10"),
-            )
-            self.assertTrue(
-                store.create_order_intent(
-                    intent,
-                    max_active_reserved_margin=D("1.5"),
-                )
-            )
+            self.assertTrue(store.create_order_intent(intent))
             attempt = OrderAttempt(
                 attempt_id="attempt-inconsistent-open",
                 intent_id=intent.intent_id,
@@ -541,11 +478,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     Lifecycle.IDLE,
                 )
                 self.assertEqual(gateway.fill_queries, 1)
-                with self.assertRaises(ReservationLimitExceeded):
-                    store.create_order_intent(
-                        competitor,
-                        max_active_reserved_margin=D("1.5"),
-                    )
             finally:
                 store.close()
 
@@ -554,7 +486,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                 active = store.list_active_order_intents("primary")
                 self.assertEqual(len(active), 1)
                 self.assertEqual(active[0].status, IntentStatus.SUBMITTING)
-                self.assertEqual(active[0].intent.reserved_margin, D("1.055"))
 
                 recovery = ExecutionCoordinator(
                     store=store,
@@ -571,12 +502,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     D("0.04"),
                 )
                 self.assertEqual(store.list_active_order_intents("primary"), ())
-                self.assertTrue(
-                    store.create_order_intent(
-                        competitor,
-                        max_active_reserved_margin=D("1.5"),
-                    )
-                )
             finally:
                 store.close()
 
@@ -593,7 +518,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     action=Action.CLOSE_T1,
                     business_key="partial-close-slot",
                     expected_state_version=state.version,
-                    reserved_margin=D("0"),
                     created_at_ms=2_000,
                     target_cumulative_sold_qty=state.tier_entry_qty,
                 )
@@ -697,7 +621,6 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                     action=Action.CLOSE_T1,
                     business_key="full-close-slot",
                     expected_state_version=state.version,
-                    reserved_margin=D("0"),
                     created_at_ms=2_000,
                     target_cumulative_sold_qty=state.tier_entry_qty,
                 )

@@ -1,6 +1,4 @@
 from pathlib import Path
-from decimal import Decimal
-from dataclasses import replace
 import tempfile
 import unittest
 
@@ -11,7 +9,7 @@ from pnl_trader.runtime import (
 
 
 class RuntimeConfigTests(unittest.TestCase):
-    def test_runtime_validation_checks_reviewed_assets_and_risk_values(self) -> None:
+    def test_runtime_validation_checks_reviewed_assets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             classifications = root / "asset_classifications.toml"
@@ -31,9 +29,6 @@ class RuntimeConfigTests(unittest.TestCase):
                 classification_file=classifications,
                 api_key="test-key",
                 api_secret="test-secret",
-                reserve_buffer=Decimal("100"),
-                slippage_buffer_rate=Decimal("0.005"),
-                max_maintenance_margin_ratio=Decimal("0.50"),
             )
 
             result = validate_runtime_config(config)
@@ -42,8 +37,6 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertEqual(result["native_asset_count"], 1)
             self.assertNotIn("test-secret", str(result))
 
-            with self.assertRaisesRegex(ValueError, "reserve_buffer"):
-                validate_runtime_config(replace(config, reserve_buffer=Decimal("-1")))
 
     def test_runtime_config_repr_does_not_expose_credentials(self) -> None:
         config = RuntimeConfig(
@@ -53,9 +46,6 @@ class RuntimeConfigTests(unittest.TestCase):
             classification_file=Path("/tmp/classes.toml"),
             api_key="exchange-key-secret",
             api_secret="exchange-secret-secret",
-            reserve_buffer=Decimal("0"),
-            slippage_buffer_rate=Decimal("0"),
-            max_maintenance_margin_ratio=Decimal("1"),
         )
         representation = repr(config)
         self.assertNotIn("exchange-key-secret", representation)

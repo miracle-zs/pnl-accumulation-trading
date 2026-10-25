@@ -36,7 +36,6 @@ from ...application.store_errors import (
     ActiveIntentConflict,
     IntentConflict,
     IntentTransitionError,
-    ReservationLimitExceeded,
     StateVersionConflict,
 )
 from ...domain.models import (
@@ -102,7 +101,7 @@ CREATE TABLE IF NOT EXISTS order_intents (
     expected_state_version INTEGER NOT NULL,
     target_cumulative_sold_qty TEXT,
     buy_notional TEXT,
-    reserved_margin TEXT NOT NULL,
+    reserved_margin TEXT NOT NULL DEFAULT '0', -- legacy column; no longer used by runtime
     status TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL,
     UNIQUE (account_id, business_key)
@@ -894,17 +893,8 @@ class SQLiteStateStore:
     def create_order_intent(
         self,
         intent: OrderIntent,
-        *,
-        max_active_reserved_margin: Decimal | None = None,
     ) -> bool:
         """Reserve one symbol's execution slot; exact duplicate calls are harmless."""
-
-        if max_active_reserved_margin is not None and (
-            not isinstance(max_active_reserved_margin, Decimal)
-            or not max_active_reserved_margin.is_finite()
-            or max_active_reserved_margin < ZERO
-        ):
-            raise ValueError("max_active_reserved_margin must be a finite non-negative Decimal")
 
         with self._transaction() as connection:
             by_id = connection.execute(
@@ -913,23 +903,7 @@ class SQLiteStateStore:
             if by_id is not None:
                 if not self._intent_matches(by_id, intent):
                     raise IntentConflict("intent_id was already used for different parameters")
-                if (
-                    max_active_reserved_margin is not None
-                    and by_id["status"] in _ACTIVE_INTENT_STATUSES
-                ):
-                    self._check_reservation_limit(
-                        connection,
-                        intent,
-                        max_active_reserved_margin,
-                    )
                 return False
-
-            if max_active_reserved_margin is not None:
-                self._check_reservation_limit(
-                    connection,
-                    intent,
-                    max_active_reserved_margin,
-                )
 
             state_row = connection.execute(
                 "SELECT * FROM symbol_states WHERE account_id = ? AND symbol = ?",
@@ -983,32 +957,11 @@ class SQLiteStateStore:
                     intent.expected_state_version,
                     None if intent.target_cumulative_sold_qty is None else str(intent.target_cumulative_sold_qty),
                     None if intent.buy_notional is None else str(intent.buy_notional),
-                    str(intent.reserved_margin),
+                    "0",
                     intent.created_at_ms,
                 ),
             )
             return True
-
-    @staticmethod
-    def _check_reservation_limit(
-        connection: sqlite3.Connection,
-        intent: OrderIntent,
-        max_active_reserved_margin: Decimal,
-    ) -> None:
-        rows = connection.execute(
-            """SELECT reserved_margin FROM order_intents
-               WHERE account_id = ?
-                 AND intent_id != ?
-                 AND status IN ('PREPARED', 'SUBMITTING', 'UNKNOWN', 'ACKNOWLEDGED', 'PARTIALLY_FILLED')""",
-            (intent.account_id, intent.intent_id),
-        ).fetchall()
-        already_reserved = sum((Decimal(row["reserved_margin"]) for row in rows), ZERO)
-        total = already_reserved + intent.reserved_margin
-        if total > max_active_reserved_margin:
-            raise ReservationLimitExceeded(
-                f"active margin reservations {total} exceed authorization limit "
-                f"{max_active_reserved_margin}"
-            )
 
     @staticmethod
     def _intent_matches(row: sqlite3.Row, intent: OrderIntent) -> bool:
@@ -1022,7 +975,6 @@ class SQLiteStateStore:
             and row["target_cumulative_sold_qty"]
             == (None if intent.target_cumulative_sold_qty is None else str(intent.target_cumulative_sold_qty))
             and row["buy_notional"] == (None if intent.buy_notional is None else str(intent.buy_notional))
-            and row["reserved_margin"] == str(intent.reserved_margin)
             and row["created_at_ms"] == intent.created_at_ms
         )
 
@@ -1036,7 +988,6 @@ class SQLiteStateStore:
             action=Action(row["action"]),
             business_key=row["business_key"],
             expected_state_version=row["expected_state_version"],
-            reserved_margin=Decimal(row["reserved_margin"]),
             created_at_ms=row["created_at_ms"],
             target_cumulative_sold_qty=(
                 None

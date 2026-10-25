@@ -31,7 +31,6 @@ class OrderIntent:
     action: Action
     business_key: str
     expected_state_version: int
-    reserved_margin: Decimal
     created_at_ms: int
     target_cumulative_sold_qty: Decimal | None = None
     buy_notional: Decimal | None = None
@@ -42,14 +41,12 @@ class OrderIntent:
                 raise ValueError(f"{name} must not be empty")
         if self.cycle_id < 0 or self.expected_state_version < 0 or self.created_at_ms < 0:
             raise ValueError("cycle, version and timestamp values must be non-negative")
-        for name in ("reserved_margin", "target_cumulative_sold_qty", "buy_notional"):
+        for name in ("target_cumulative_sold_qty", "buy_notional"):
             value = getattr(self, name)
             if value is not None and not isinstance(value, Decimal):
                 raise TypeError(f"{name} must be Decimal or None")
             if value is not None and not value.is_finite():
                 raise ValueError(f"{name} must be finite")
-        if self.reserved_margin < ZERO:
-            raise ValueError("reserved_margin must be non-negative")
         if (self.target_cumulative_sold_qty is None) == (self.buy_notional is None):
             raise ValueError("an intent must define exactly one close target or buy notional")
         buy_actions = {Action.OPEN_T1, Action.ADD_T2, Action.ADD_T3}
@@ -116,41 +113,6 @@ class PersistedOrderIntent:
     intent: OrderIntent
     status: IntentStatus
     attempt: PersistedOrderAttempt | None
-
-
-@dataclass(frozen=True, slots=True)
-class RiskAuthorization:
-    """Short-lived permission and account reservation ceiling for one plan."""
-
-    account_id: str
-    symbol: str
-    state_version: int
-    action: Action
-    approved: bool
-    reason: str
-    reserved_margin: Decimal
-    max_active_reserved_margin: Decimal
-    valid_until_ms: int
-
-    def __post_init__(self) -> None:
-        if not self.account_id or not self.symbol:
-            raise ValueError("account_id and symbol must not be empty")
-        if not isinstance(self.action, Action) or self.action is Action.HOLD:
-            raise ValueError("risk authorization must refer to an executable Action")
-        if not self.reason:
-            raise ValueError("risk authorization reason must not be empty")
-        if self.state_version < 0 or self.valid_until_ms < 0:
-            raise ValueError("authorization version and expiry must be non-negative")
-        if not isinstance(self.approved, bool):
-            raise TypeError("approved must be bool")
-        for name in ("reserved_margin", "max_active_reserved_margin"):
-            value = getattr(self, name)
-            if not isinstance(value, Decimal) or not value.is_finite():
-                raise TypeError(f"{name} must be a finite Decimal")
-            if value < ZERO:
-                raise ValueError(f"{name} must be non-negative")
-        if not self.approved and self.reserved_margin != ZERO:
-            raise ValueError("a denied authorization cannot reserve margin")
 
 
 @dataclass(frozen=True, slots=True)

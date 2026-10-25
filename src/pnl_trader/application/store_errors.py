@@ -9,10 +9,6 @@ class ActiveIntentConflict(RuntimeError):
     """A symbol already has an unfinished trading intent."""
 
 
-class ReservationLimitExceeded(RuntimeError):
-    """Active local margin reservations exceed the approved account limit."""
-
-
 class IntentConflict(RuntimeError):
     """An idempotency key was reused for different intent parameters."""
 

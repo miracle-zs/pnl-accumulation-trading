@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
 import logging
 import os
 from pathlib import Path
@@ -23,8 +22,6 @@ from .application.execution import ExecutionCoordinator
 from .application.review_batch import ReconciledReviewBatchSource
 from .application.review_executor import SymbolReviewExecutor
 from .application.review_run import ReviewRunCoordinator
-from .application.risk import AccountRiskGate
-from .application.risk_models import AccountRiskPolicy
 from .application.scheduler import PeriodicReviewScheduler
 from .application.universe import UniverseCatalog
 from .application.universe_models import (
@@ -45,10 +42,6 @@ class RuntimeConfig:
     classification_file: Path
     api_key: str = field(repr=False)
     api_secret: str = field(repr=False)
-    reserve_buffer: Decimal
-    slippage_buffer_rate: Decimal
-    max_maintenance_margin_ratio: Decimal
-    taker_fee_rate: Decimal = Decimal("0.0005")
 
     @classmethod
     def from_environment(cls) -> RuntimeConfig:
@@ -82,14 +75,6 @@ class RuntimeConfig:
             classification_file=classification_file,
             api_key=api_key,
             api_secret=api_secret,
-            reserve_buffer=_required_decimal_environment("PNL_RESERVE_BUFFER_USDT"),
-            slippage_buffer_rate=_required_decimal_environment(
-                "PNL_SLIPPAGE_BUFFER_RATE"
-            ),
-            max_maintenance_margin_ratio=_required_decimal_environment(
-                "PNL_MAX_MAINTENANCE_MARGIN_RATIO"
-            ),
-            taker_fee_rate=_decimal_environment("PNL_TAKER_FEE_RATE", "0.0005"),
         )
 
 
@@ -98,24 +83,6 @@ def _required_environment(name: str) -> str:
     if not value:
         raise ValueError(f"required environment variable {name} is missing")
     return value
-
-
-def _required_decimal_environment(name: str) -> Decimal:
-    return _parse_decimal(name, _required_environment(name))
-
-
-def _decimal_environment(name: str, default: str) -> Decimal:
-    return _parse_decimal(name, os.environ.get(name, default))
-
-
-def _parse_decimal(name: str, value: str) -> Decimal:
-    try:
-        result = Decimal(value.strip())
-    except (InvalidOperation, AttributeError) as exc:
-        raise ValueError(f"{name} must be a decimal number") from exc
-    if not result.is_finite():
-        raise ValueError(f"{name} must be finite")
-    return result
 
 
 def _load_reviewed_classifications(path: Path) -> VersionedAssetClassificationDirectory:
@@ -136,12 +103,6 @@ def validate_runtime_config(config: RuntimeConfig) -> dict[str, object]:
     """Validate settings and classifications without network or database writes."""
 
     classifications = _load_reviewed_classifications(config.classification_file)
-    AccountRiskPolicy(
-        max_maintenance_margin_ratio=config.max_maintenance_margin_ratio,
-        reserve_buffer=config.reserve_buffer,
-        taker_fee_rate=config.taker_fee_rate,
-        slippage_buffer_rate=config.slippage_buffer_rate,
-    )
     native_asset_count = sum(
         entry.classification is AssetClassification.NATIVE_CRYPTO
         for entry in classifications.assets
@@ -197,22 +158,10 @@ async def run_application(config: RuntimeConfig) -> None:
                     store=store,
                     exchange=exchange,
                 )
-                policy = AccountRiskPolicy(
-                    max_maintenance_margin_ratio=config.max_maintenance_margin_ratio,
-                    reserve_buffer=config.reserve_buffer,
-                    taker_fee_rate=config.taker_fee_rate,
-                    slippage_buffer_rate=config.slippage_buffer_rate,
-                )
-                risk_gate = AccountRiskGate(
-                    snapshots=exchange,
-                    brackets=exchange,
-                    policy=policy,
-                )
                 symbol_reviews = SymbolReviewExecutor(
                     store=store,
                     exchange=exchange,
                     execution=execution,
-                    risk_gate=risk_gate,
                 )
                 batch_source = ReconciledReviewBatchSource(
                     store=store,

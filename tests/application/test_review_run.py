@@ -11,7 +11,6 @@ from pnl_trader.application.execution_models import (
     ExchangeOrderSnapshot,
     ExchangeOrderStatus,
     MarketOrderRequest,
-    RiskAuthorization,
     SubmissionCertainty,
     SubmissionResult,
 )
@@ -77,7 +76,6 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     store=store,
                     exchange=exchange,
                     execution=execution,
-                    risk_gate=_ApprovedRiskGate(),
                     clock_ms=lambda: NOW_MS,
                 )
                 review_runs = ReviewRunCoordinator(
@@ -141,22 +139,6 @@ class _HeldProcessLock:
     @property
     def is_held(self) -> bool:
         return True
-
-
-class _ApprovedRiskGate:
-    async def authorize_order(self, *, account_id, state, decision, plan, price, rules):
-        reserved_margin = D("1") if plan.side == "BUY" else D("0")
-        return RiskAuthorization(
-            account_id=account_id,
-            symbol=state.symbol,
-            state_version=state.version,
-            action=plan.action,
-            approved=True,
-            reason="deterministic acceptance-test authorization",
-            reserved_margin=reserved_margin,
-            max_active_reserved_margin=D("100"),
-            valid_until_ms=NOW_MS + 60_000,
-        )
 
 
 class _FilledExchange:

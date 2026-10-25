@@ -1,16 +1,15 @@
-"""Compose one strategy review with risk approval and durable execution."""
+"""Compose one strategy review with durable order execution."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 from enum import Enum
 from hashlib import sha256
 import time
 from typing import Callable
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from ..domain.models import Action, Decision, Lifecycle, Observation, SymbolState, ZERO
+from ..domain.models import Action, Decision, Lifecycle, Observation, SymbolState
 from ..domain.policy import StrategyPolicy
 from .execution import ExecutionCoordinator, ExecutionResolution, ExecutionResult
 from .execution_models import (
@@ -18,16 +17,14 @@ from .execution_models import (
     MarketOrderRequest,
     OrderAttempt,
     OrderIntent,
-    RiskAuthorization,
 )
 from .market_models import FifteenMinuteCloseSnapshot
 from .order_planning import MarketOrderPlan, MarketOrderPlanner, OrderPlanningError
-from .ports import ExchangeGatewayPort, RiskGatePort, StateStorePort
+from .ports import ExchangeGatewayPort, StateStorePort
 from .store_errors import (
     ActiveIntentConflict,
     IntentConflict,
     IntentTransitionError,
-    ReservationLimitExceeded,
     StateVersionConflict,
 )
 
@@ -35,9 +32,6 @@ from .store_errors import (
 class ReviewDisposition(str, Enum):
     NO_ACTION = "NO_ACTION"
     STALE_PRICE = "STALE_PRICE"
-    RISK_REJECTED = "RISK_REJECTED"
-    AUTHORIZATION_EXPIRED = "AUTHORIZATION_EXPIRED"
-    RESERVATION_REJECTED = "RESERVATION_REJECTED"
     STATE_CHANGED = "STATE_CHANGED"
     INTENT_CONFLICT = "INTENT_CONFLICT"
     ORDER_PENDING = "ORDER_PENDING"
@@ -61,13 +55,7 @@ class ReviewExecutorError(RuntimeError):
 
 
 class SymbolReviewExecutor:
-    """Run one symbol through policy, sizing, mandatory risk approval and execution.
-
-    The injected ``RiskGatePort`` has no permissive default. Its implementation
-    must evaluate the current account snapshot and return a short-lived approval
-    with the account-wide reservation ceiling before this workflow can persist
-    and submit a new intent.
-    """
+    """Run one symbol through policy, sizing and durable order execution."""
 
     def __init__(
         self,
@@ -75,23 +63,19 @@ class SymbolReviewExecutor:
         store: StateStorePort,
         exchange: ExchangeGatewayPort,
         execution: ExecutionCoordinator,
-        risk_gate: RiskGatePort,
         policy: StrategyPolicy | None = None,
         planner: MarketOrderPlanner | None = None,
         clock_ms: Callable[[], int] | None = None,
-        max_candle_age_ms: int = 10_000,
         future_clock_skew_ms: int = 1_000,
     ) -> None:
-        if max_candle_age_ms <= 0 or future_clock_skew_ms < 0:
-            raise ValueError("candle age must be positive and clock skew non-negative")
+        if future_clock_skew_ms < 0:
+            raise ValueError("clock skew must be non-negative")
         self._store = store
         self._exchange = exchange
         self._execution = execution
-        self._risk_gate = risk_gate
         self._policy = policy or StrategyPolicy()
         self._planner = planner or MarketOrderPlanner()
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
-        self._max_candle_age_ms = max_candle_age_ms
         self._future_clock_skew_ms = future_clock_skew_ms
 
     async def review_symbol(
@@ -135,7 +119,6 @@ class SymbolReviewExecutor:
         if (
             candle.symbol != symbol
             or candle.slot_start_ms != slot_start_ms
-            or candle_age_ms > self._max_candle_age_ms
             or candle_age_ms < -self._future_clock_skew_ms
         ):
             return SymbolReviewResult(
@@ -143,7 +126,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.STALE_PRICE,
                 price=candle,
                 detail=(
-                    "15-minute close candle is missing, mismatched or outside the allowed window"
+                    "15-minute close candle does not match the requested slot or is not yet closed"
                 ),
             )
 
@@ -178,41 +161,6 @@ class SymbolReviewExecutor:
                 detail=str(exc),
             )
 
-        authorization = await self._risk_gate.authorize_order(
-            account_id=account_id,
-            state=state,
-            decision=decision,
-            plan=plan,
-            price=candle,
-            rules=rules,
-        )
-        self._validate_authorization(
-            authorization,
-            account_id=account_id,
-            state=state,
-            plan=plan,
-        )
-        if not authorization.approved:
-            self._cancel_prepared_intent(account_id, intent_id)
-            return SymbolReviewResult(
-                symbol=symbol,
-                disposition=ReviewDisposition.RISK_REJECTED,
-                decision=decision,
-                plan=plan,
-                price=candle,
-                detail=authorization.reason,
-            )
-        if self._clock_ms() >= authorization.valid_until_ms:
-            self._cancel_prepared_intent(account_id, intent_id)
-            return SymbolReviewResult(
-                symbol=symbol,
-                disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
-                decision=decision,
-                plan=plan,
-                price=candle,
-                detail="risk authorization expired before intent reservation",
-            )
-
         intent = self._make_intent(
             account_id=account_id,
             state=state,
@@ -221,27 +169,9 @@ class SymbolReviewExecutor:
             business_key=business_key,
             intent_id=intent_id,
             slot_start_ms=slot_start_ms,
-            authorization=authorization,
         )
         try:
-            self._store.create_order_intent(
-                intent,
-                max_active_reserved_margin=(
-                    authorization.max_active_reserved_margin
-                    if authorization.reserved_margin > ZERO
-                    else None
-                ),
-            )
-        except ReservationLimitExceeded as exc:
-            self._cancel_prepared_intent(account_id, intent_id)
-            return SymbolReviewResult(
-                symbol=symbol,
-                disposition=ReviewDisposition.RESERVATION_REJECTED,
-                decision=decision,
-                plan=plan,
-                price=candle,
-                detail=str(exc),
-            )
+            self._store.create_order_intent(intent)
         except StateVersionConflict as exc:
             self._cancel_prepared_intent(account_id, intent_id)
             return SymbolReviewResult(
@@ -270,17 +200,6 @@ class SymbolReviewExecutor:
                 plan=plan,
                 price=candle,
                 detail=str(exc),
-            )
-
-        if self._clock_ms() >= authorization.valid_until_ms:
-            self._cancel_prepared_intent(account_id, intent_id)
-            return SymbolReviewResult(
-                symbol=symbol,
-                disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
-                decision=decision,
-                plan=plan,
-                price=candle,
-                detail="risk authorization expired before the submit attempt",
             )
 
         client_order_id = _client_order_id(account_id, business_key)
@@ -368,27 +287,6 @@ class SymbolReviewExecutor:
             return
 
     @staticmethod
-    def _validate_authorization(
-        authorization: RiskAuthorization,
-        *,
-        account_id: str,
-        state: SymbolState,
-        plan: MarketOrderPlan,
-    ) -> None:
-        if (
-            authorization.account_id != account_id
-            or authorization.symbol != state.symbol
-            or authorization.state_version != state.version
-            or authorization.action is not plan.action
-        ):
-            raise ReviewExecutorError("risk authorization does not match the current order plan")
-        is_increase = plan.side == "BUY"
-        if is_increase and authorization.approved and authorization.reserved_margin <= ZERO:
-            raise ReviewExecutorError("an approved increase requires a positive margin reservation")
-        if not is_increase and authorization.reserved_margin != ZERO:
-            raise ReviewExecutorError("a reduce-only order cannot reserve increase margin")
-
-    @staticmethod
     def _make_intent(
         *,
         account_id: str,
@@ -398,7 +296,6 @@ class SymbolReviewExecutor:
         business_key: str,
         intent_id: str,
         slot_start_ms: int,
-        authorization: RiskAuthorization,
     ) -> OrderIntent:
         buy_actions = {Action.OPEN_T1, Action.ADD_T2, Action.ADD_T3}
         return OrderIntent(
@@ -409,7 +306,6 @@ class SymbolReviewExecutor:
             action=plan.action,
             business_key=business_key,
             expected_state_version=state.version,
-            reserved_margin=authorization.reserved_margin,
             created_at_ms=slot_start_ms,
             target_cumulative_sold_qty=(
                 plan.target_cumulative_sold_qty

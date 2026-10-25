@@ -5,17 +5,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Protocol
 
-from ..domain.models import Decision, ExecutionReceipt, SymbolState, TradeFillRecord
-from .execution_models import RiskAuthorization
+from ..domain.models import ExecutionReceipt, SymbolState, TradeFillRecord
 from .market_models import (
     ExchangeInfoSnapshot,
     FifteenMinuteCloseSnapshot,
     InstrumentRules,
 )
-from .order_planning import MarketOrderPlan
 from .position_models import ExchangePositionSnapshot
 from .order_reconciliation_models import ExchangeOpenOrdersSnapshot
-from .risk_models import AccountRiskSnapshot, MaintenanceMarginBracketSnapshot
 from .review_batch_models import ReviewSignalSnapshot
 from .universe_models import UniverseSnapshot
 from .review_run_models import ReviewBatch, ReviewPriority
@@ -62,8 +59,6 @@ class StateStorePort(Protocol):
     def create_order_intent(
         self,
         intent: OrderIntent,
-        *,
-        max_active_reserved_margin: Decimal | None = None,
     ) -> bool: ...
 
     def create_order_attempt(self, attempt: OrderAttempt) -> bool: ...
@@ -137,35 +132,6 @@ class ExchangeGatewayPort(Protocol):
         order_side: str,
     ) -> tuple[TradeFillRecord, ...]: ...
 
-
-
-class RiskGatePort(Protocol):
-    async def authorize_order(
-        self,
-        *,
-        account_id: str,
-        state: SymbolState,
-        decision: Decision,
-        plan: MarketOrderPlan,
-        price: FifteenMinuteCloseSnapshot,
-        rules: InstrumentRules,
-    ) -> RiskAuthorization: ...
-
-
-class AccountRiskSnapshotPort(Protocol):
-    async def get_account_risk_snapshot(
-        self,
-        account_id: str,
-        symbol: str,
-    ) -> AccountRiskSnapshot: ...
-
-
-class MaintenanceMarginBracketPort(Protocol):
-    async def get_maintenance_margin_bracket_snapshot(
-        self,
-        account_id: str,
-        symbol: str,
-    ) -> MaintenanceMarginBracketSnapshot: ...
 
 
 class PositionSnapshotPort(Protocol):

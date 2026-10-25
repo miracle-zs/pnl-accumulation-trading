@@ -37,11 +37,6 @@ from ...application.order_reconciliation_models import (
     ExchangeOpenOrdersSnapshot,
 )
 from ...application.position_models import ExchangePosition, ExchangePositionSnapshot
-from ...application.risk_models import (
-    AccountRiskSnapshot,
-    MaintenanceMarginBracket,
-    MaintenanceMarginBracketSnapshot,
-)
 from ...domain.models import TradeFillRecord, ZERO
 
 
@@ -92,8 +87,6 @@ class BinanceFuturesGateway:
         base_url: str = BINANCE_USDM_FUTURES_URL,
         recv_window_ms: int = 5_000,
         rules_cache_ttl_ms: int = 86_400_000,
-        bracket_cache_ttl_ms: int = 86_400_000,
-        account_config_cache_ttl_ms: int = 60_000,
         fallback_rules: Mapping[str, InstrumentRules] | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
@@ -104,18 +97,14 @@ class BinanceFuturesGateway:
         if (
             recv_window_ms <= 0
             or rules_cache_ttl_ms < 0
-            or bracket_cache_ttl_ms < 0
-            or account_config_cache_ttl_ms < 0
         ):
-            raise ValueError("recv_window_ms must be positive and cache TTLs non-negative")
+            raise ValueError("recv_window_ms must be positive and rules cache TTL non-negative")
         self._client = client
         self._api_key = api_key
         self._api_secret = api_secret.encode("utf-8")
         self._base_url = base_url.rstrip("/")
         self._recv_window_ms = recv_window_ms
         self._rules_cache_ttl_ms = rules_cache_ttl_ms
-        self._bracket_cache_ttl_ms = bracket_cache_ttl_ms
-        self._account_config_cache_ttl_ms = account_config_cache_ttl_ms
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._exchange_info_snapshot: ExchangeInfoSnapshot | None = None
         self._exchange_info_loaded_at_ms: int | None = None
@@ -124,19 +113,6 @@ class BinanceFuturesGateway:
             raise ValueError("fallback instrument rules must be keyed by their symbol")
         self._exchange_info_retry_at_ms = 0
         self._exchange_info_lock = asyncio.Lock()
-        self._symbol_config: dict[str, tuple[Decimal, str]] = {}
-        self._symbol_config_loaded_at_ms: int | None = None
-        self._symbol_config_lock = asyncio.Lock()
-        self._account_modes: tuple[bool, bool] | None = None
-        self._account_modes_loaded_at_ms: int | None = None
-        self._account_modes_lock = asyncio.Lock()
-        self._account_payload: dict[str, Any] | None = None
-        self._account_payload_loaded_at_ms: int | None = None
-        self._account_payload_lock = asyncio.Lock()
-        self._maintenance_brackets: dict[
-            tuple[str, str], MaintenanceMarginBracketSnapshot
-        ] = {}
-        self._maintenance_bracket_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
         if not symbol:
@@ -297,80 +273,6 @@ class BinanceFuturesGateway:
             close_time_ms=close_time_ms,
         )
 
-    async def get_account_risk_snapshot(
-        self,
-        account_id: str,
-        symbol: str,
-    ) -> AccountRiskSnapshot:
-        """Fetch read-only account margin data and the symbol's current leverage."""
-
-        if not account_id or not symbol:
-            raise ValueError("account_id and symbol must not be empty")
-        payload, account_fetched_at_ms = await self._get_account_payload()
-        position_qty, symbol_maintenance_margin = _parse_symbol_account_position(
-            payload,
-            symbol,
-        )
-        leverage, margin_type = await self._get_symbol_configuration(symbol)
-        multi_assets_mode, dual_side_position = await self._get_account_modes()
-        return AccountRiskSnapshot(
-            account_id=account_id,
-            symbol=symbol,
-            wallet_balance=_decimal(payload.get("totalWalletBalance"), "totalWalletBalance"),
-            unrealized_pnl=_decimal(
-                payload.get("totalUnrealizedProfit"), "totalUnrealizedProfit"
-            ),
-            available_balance=_decimal(payload.get("availableBalance"), "availableBalance"),
-            total_initial_margin=_decimal(
-                payload.get("totalInitialMargin"), "totalInitialMargin"
-            ),
-            total_maintenance_margin=_decimal(
-                payload.get("totalMaintMargin"), "totalMaintMargin"
-            ),
-            effective_leverage=leverage,
-            margin_type=margin_type,
-            multi_assets_mode=multi_assets_mode,
-            dual_side_position=dual_side_position,
-            fetched_at_ms=account_fetched_at_ms,
-            symbol_position_qty=position_qty,
-            symbol_maintenance_margin=symbol_maintenance_margin,
-        )
-
-    async def get_maintenance_margin_bracket_snapshot(
-        self,
-        account_id: str,
-        symbol: str,
-    ) -> MaintenanceMarginBracketSnapshot:
-        """Fetch or reuse the signed user-specific maintenance-margin tiers."""
-
-        if not account_id or not symbol:
-            raise ValueError("account_id and symbol must not be empty")
-        cache_key = (account_id, symbol)
-        lock = self._maintenance_bracket_locks.setdefault(cache_key, asyncio.Lock())
-        async with lock:
-            now_ms = self._clock_ms()
-            cached = self._maintenance_brackets.get(cache_key)
-            if (
-                cached is not None
-                and now_ms - cached.fetched_at_ms < self._bracket_cache_ttl_ms
-            ):
-                return cached
-
-            payload = await self._request_json(
-                "GET",
-                "/fapi/v1/leverageBracket",
-                params={"symbol": symbol},
-                signed=True,
-            )
-            snapshot = _parse_maintenance_bracket_snapshot(
-                payload,
-                symbol=symbol,
-                fetched_at_ms=self._clock_ms(),
-            )
-            if self._bracket_cache_ttl_ms > 0:
-                self._maintenance_brackets[cache_key] = snapshot
-            return snapshot
-
     async def get_position_snapshot(self, account_id: str) -> ExchangePositionSnapshot:
         """Fetch and strictly normalize the complete USDⓈ-M position response."""
 
@@ -438,93 +340,6 @@ class BinanceFuturesGateway:
             sampled_at_ms=self._clock_ms(),
             orders=tuple(orders),
         )
-
-    async def _get_symbol_configuration(self, symbol: str) -> tuple[Decimal, str]:
-        async with self._symbol_config_lock:
-            now_ms = self._clock_ms()
-            fresh = (
-                self._symbol_config_loaded_at_ms is not None
-                and now_ms - self._symbol_config_loaded_at_ms
-                < self._account_config_cache_ttl_ms
-            )
-            if not fresh:
-                payload = await self._request_json(
-                    "GET",
-                    "/fapi/v1/symbolConfig",
-                    signed=True,
-                )
-                if not isinstance(payload, list):
-                    raise BinanceProtocolError("symbolConfig response must be a list")
-                parsed: dict[str, tuple[Decimal, str]] = {}
-                for row in payload:
-                    if not isinstance(row, dict) or not isinstance(row.get("symbol"), str):
-                        continue
-                    try:
-                        leverage = _decimal(row.get("leverage"), "leverage")
-                    except BinanceProtocolError:
-                        continue
-                    margin_type = row.get("marginType")
-                    if leverage <= ZERO or not isinstance(margin_type, str) or not margin_type:
-                        continue
-                    parsed[row["symbol"]] = (leverage, margin_type)
-                self._symbol_config = parsed
-                self._symbol_config_loaded_at_ms = now_ms
-            try:
-                return self._symbol_config[symbol]
-            except KeyError as exc:
-                raise LookupError(f"symbolConfig does not contain {symbol}") from exc
-
-    async def _get_account_modes(self) -> tuple[bool, bool]:
-        async with self._account_modes_lock:
-            now_ms = self._clock_ms()
-            fresh = (
-                self._account_modes_loaded_at_ms is not None
-                and now_ms - self._account_modes_loaded_at_ms
-                < self._account_config_cache_ttl_ms
-            )
-            if not fresh:
-                multi_assets_payload = await self._request_json(
-                    "GET",
-                    "/fapi/v1/multiAssetsMargin",
-                    signed=True,
-                )
-                position_mode_payload = await self._request_json(
-                    "GET",
-                    "/fapi/v1/positionSide/dual",
-                    signed=True,
-                )
-                if not isinstance(multi_assets_payload, dict) or not isinstance(
-                    position_mode_payload, dict
-                ):
-                    raise BinanceProtocolError("account mode responses must be objects")
-                self._account_modes = (
-                    _required_bool(
-                        multi_assets_payload.get("multiAssetsMargin"), "multiAssetsMargin"
-                    ),
-                    _required_bool(
-                        position_mode_payload.get("dualSidePosition"), "dualSidePosition"
-                    ),
-                )
-                self._account_modes_loaded_at_ms = now_ms
-            if self._account_modes is None:
-                raise BinanceProtocolError("account modes were not loaded")
-            return self._account_modes
-
-    async def _get_account_payload(self) -> tuple[dict[str, Any], int]:
-        now_ms = self._clock_ms()
-        async with self._account_payload_lock:
-            if (
-                self._account_payload is not None
-                and self._account_payload_loaded_at_ms is not None
-                and now_ms - self._account_payload_loaded_at_ms < 5_000
-            ):
-                return self._account_payload, self._account_payload_loaded_at_ms
-            payload = await self._request_json("GET", "/fapi/v3/account", signed=True)
-            if not isinstance(payload, dict):
-                raise BinanceProtocolError("account information response must be an object")
-            self._account_payload = payload
-            self._account_payload_loaded_at_ms = now_ms
-            return self._account_payload, now_ms
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         params = {
@@ -952,92 +767,6 @@ def _parse_algorithmic_open_order(row: Any, index: int) -> ExchangeOpenOrder:
         )
     except (BinanceProtocolError, TypeError, ValueError) as exc:
         raise BinanceProtocolError(f"openAlgoOrders row {index} is invalid: {exc}") from exc
-
-
-def _parse_symbol_account_position(
-    payload: Mapping[str, Any],
-    symbol: str,
-) -> tuple[Decimal | None, Decimal | None]:
-    raw_positions = payload.get("positions")
-    if raw_positions is None:
-        return None, None
-    if not isinstance(raw_positions, list):
-        raise BinanceProtocolError("account information positions field must be a list")
-
-    matching: Mapping[str, Any] | None = None
-    for index, row in enumerate(raw_positions):
-        if not isinstance(row, dict):
-            raise BinanceProtocolError(f"account position row {index} must be an object")
-        row_symbol = _required_text(row.get("symbol"), "position symbol")
-        if row_symbol != symbol:
-            continue
-        if matching is not None:
-            raise BinanceProtocolError(f"account information has duplicate {symbol} positions")
-        if _required_text(row.get("positionSide"), "positionSide") != "BOTH":
-            raise BinanceProtocolError(f"{symbol} position is not in one-way mode")
-        matching = row
-
-    if matching is None:
-        # Account V3 returns positions that currently have an exposure or open order.
-        return ZERO, ZERO
-    position_qty = _decimal(matching.get("positionAmt"), "positionAmt")
-    maintenance_margin = _decimal(matching.get("maintMargin"), "maintMargin")
-    if maintenance_margin < ZERO:
-        raise BinanceProtocolError("maintMargin must be non-negative")
-    return position_qty, maintenance_margin
-
-
-def _parse_maintenance_bracket_snapshot(
-    payload: Any,
-    *,
-    symbol: str,
-    fetched_at_ms: int,
-) -> MaintenanceMarginBracketSnapshot:
-    if isinstance(payload, list):
-        rows = payload
-    elif isinstance(payload, dict):
-        rows = [payload]
-    else:
-        raise BinanceProtocolError("leverageBracket response must be an object or list")
-
-    matches = [
-        row for row in rows
-        if isinstance(row, dict) and row.get("symbol") == symbol
-    ]
-    if len(matches) != 1:
-        raise BinanceProtocolError("leverageBracket response does not uniquely match the symbol")
-    row = matches[0]
-    raw_brackets = row.get("brackets")
-    if not isinstance(raw_brackets, list) or not raw_brackets:
-        raise BinanceProtocolError("leverageBracket response has no bracket list")
-
-    brackets: list[MaintenanceMarginBracket] = []
-    try:
-        for index, raw_bracket in enumerate(raw_brackets):
-            if not isinstance(raw_bracket, dict):
-                raise BinanceProtocolError(f"leverage bracket {index} must be an object")
-            brackets.append(
-                MaintenanceMarginBracket(
-                    bracket_number=_strict_integer(raw_bracket.get("bracket"), "bracket"),
-                    notional_floor=_decimal(raw_bracket.get("notionalFloor"), "notionalFloor"),
-                    notional_cap=_decimal(raw_bracket.get("notionalCap"), "notionalCap"),
-                    maintenance_margin_rate=_decimal(
-                        raw_bracket.get("maintMarginRatio"),
-                        "maintMarginRatio",
-                    ),
-                    maintenance_amount=_decimal(raw_bracket.get("cum"), "cum"),
-                )
-            )
-        return MaintenanceMarginBracketSnapshot(
-            symbol=symbol,
-            brackets=tuple(brackets),
-            notional_coefficient=_decimal(row.get("notionalCoef", "1"), "notionalCoef"),
-            fetched_at_ms=fetched_at_ms,
-        )
-    except (TypeError, ValueError) as exc:
-        if isinstance(exc, BinanceProtocolError):
-            raise
-        raise BinanceProtocolError(f"leverageBracket response is invalid: {exc}") from exc
 
 
 def _decimal(value: Any, field: str) -> Decimal:

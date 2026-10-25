@@ -9,9 +9,6 @@
 ```ini
 PNL_ACCOUNT_ID=<账户标识>
 PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml
-PNL_MAX_MAINTENANCE_MARGIN_RATIO=<经审核的上限>
-PNL_RESERVE_BUFFER_USDT=<预留 USDT>
-PNL_SLIPPAGE_BUFFER_RATE=<滑点缓冲>
 ```
 
 API 凭据分别保存在 root 所有、权限为 `0600` 的文件中：
@@ -26,4 +23,4 @@ systemd-analyze verify /etc/systemd/system/pnl-trader.service
 pnl-trader validate-config
 ```
 
-不要在未确认账户、标的分类和风险参数时启动服务。
+不要在未确认账户和标的分类时启动服务。

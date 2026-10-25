@@ -35,10 +35,11 @@ class UniverseCatalogError(RuntimeError):
 class UniverseCatalog:
     """Classify Binance contracts without inferring asset type from symbol text.
 
-    The classification directory is versioned source data. Contracts absent
-    from that directory remain pending review; only explicit native-crypto
-    entries can become opening candidates. Contract-level EXIT_ONLY directives
-    keep a managed symbol in reviews while disabling increases and reopens.
+    The reviewed classification file is loaded at startup. Contracts absent
+    from it remain pending review until the file is updated and the process is
+    restarted; only explicit native-crypto entries become opening candidates.
+    Contract-level EXIT_ONLY directives keep a managed symbol in reviews while
+    disabling increases and reopens.
     """
 
     def __init__(
@@ -49,15 +50,19 @@ class UniverseCatalog:
         classifications: VersionedAssetClassificationDirectory,
         initial_snapshot: UniverseSnapshot | None = None,
         refresh_interval_ms: int = 86_400_000,
+        future_clock_skew_ms: int = 1_000,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         if refresh_interval_ms <= 0:
             raise ValueError("universe refresh interval must be positive")
+        if future_clock_skew_ms < 0:
+            raise ValueError("future_clock_skew_ms must be non-negative")
         self._exchange_info = exchange_info
         self._store = store
         self._classifications = classifications
         self._snapshot = initial_snapshot
         self._refresh_interval_ms = refresh_interval_ms
+        self._future_clock_skew_ms = future_clock_skew_ms
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._refresh_failed = initial_snapshot is not None
         self._refresh_lock = asyncio.Lock()
@@ -86,7 +91,10 @@ class UniverseCatalog:
                     exchange_snapshot = await refresh_exchange_info()
                 else:
                     exchange_snapshot = await self._exchange_info.get_exchange_info_snapshot()
-                if exchange_snapshot.sampled_at_ms - now_ms > self._future_clock_skew_ms:
+                if (
+                    exchange_snapshot.sampled_at_ms - self._clock_ms()
+                    > self._future_clock_skew_ms
+                ):
                     raise UniverseCatalogError(
                         "exchangeInfo snapshot timestamp is in the future"
                     )

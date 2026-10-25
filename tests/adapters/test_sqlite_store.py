@@ -15,7 +15,6 @@ from pnl_trader.adapters.sqlite import (
     IntentTransitionError,
     OrderAttempt,
     OrderIntent,
-    ReservationLimitExceeded,
     SQLiteStateStore,
     StateVersionConflict,
 )
@@ -78,7 +77,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
         with self.assertRaises(ActiveIntentConflict):
             self.store.create_order_intent(second)
 
-    def test_account_reservation_limit_is_atomic_across_concurrent_symbols(self) -> None:
+    def test_active_intents_for_different_symbols_do_not_share_a_margin_cap(self) -> None:
         for symbol in ("BTCUSDT", "ETHUSDT"):
             self.store.save_symbol_state(
                 "primary",
@@ -91,13 +90,11 @@ class SQLiteStateStoreTests(unittest.TestCase):
                 "intent-btc",
                 "slot-btc",
                 symbol="BTCUSDT",
-                reserved_margin=D("1.055"),
             ),
             self.buy_intent(
                 "intent-eth",
                 "slot-eth",
                 symbol="ETHUSDT",
-                reserved_margin=D("1.055"),
             ),
         )
         other_connection = SQLiteStateStore(self.db_path)
@@ -105,13 +102,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
 
         def reserve(store: SQLiteStateStore, intent: OrderIntent) -> str:
             barrier.wait(timeout=5)
-            try:
-                store.create_order_intent(
-                    intent,
-                    max_active_reserved_margin=D("1.5"),
-                )
-            except ReservationLimitExceeded:
-                return "rejected"
+            store.create_order_intent(intent)
             return "accepted"
 
         try:
@@ -122,29 +113,26 @@ class SQLiteStateStoreTests(unittest.TestCase):
                 )
                 outcomes = [future.result(timeout=10) for future in futures]
 
-            self.assertCountEqual(("accepted", "rejected"), outcomes)
+            self.assertCountEqual(("accepted", "accepted"), outcomes)
             active = self.store.list_active_order_intents("primary")
-            self.assertEqual(len(active), 1)
-            self.assertLessEqual(active[0].intent.reserved_margin, D("1.5"))
+            self.assertEqual(len(active), 2)
         finally:
             other_connection.close()
 
-    def test_unknown_order_keeps_reservation_until_terminal_no_fill_is_confirmed(self) -> None:
+    def test_unknown_order_blocks_its_symbol_but_not_other_symbols(self) -> None:
         self.seed_idle_symbol("BTCUSDT")
         self.seed_idle_symbol("ETHUSDT")
         first = self.buy_intent(
             "intent-btc",
             "slot-btc",
             symbol="BTCUSDT",
-            reserved_margin=D("1.055"),
         )
         next_symbol = self.buy_intent(
             "intent-eth",
             "slot-eth",
             symbol="ETHUSDT",
-            reserved_margin=D("1.055"),
         )
-        self.store.create_order_intent(first, max_active_reserved_margin=D("1.5"))
+        self.store.create_order_intent(first)
         self.store.create_order_attempt(
             OrderAttempt(
                 attempt_id="attempt-btc",
@@ -169,11 +157,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
         self.assertIsNotNone(recovered[0].attempt)
         self.assertEqual(recovered[0].attempt.status, IntentStatus.UNKNOWN)
 
-        with self.assertRaises(ReservationLimitExceeded):
-            self.store.create_order_intent(
-                next_symbol,
-                max_active_reserved_margin=D("1.5"),
-            )
+        self.assertTrue(self.store.create_order_intent(next_symbol))
 
         self.store.resolve_no_fill(
             first.intent_id,
@@ -185,30 +169,23 @@ class SQLiteStateStoreTests(unittest.TestCase):
             confirmed_quote_qty=D("0"),
         )
 
-        self.assertEqual(self.store.list_active_order_intents("primary"), ())
-        self.assertTrue(
-            self.store.create_order_intent(
-                next_symbol,
-                max_active_reserved_margin=D("1.5"),
-            )
-        )
+        active = self.store.list_active_order_intents("primary")
+        self.assertEqual([record.intent.symbol for record in active], ["ETHUSDT"])
 
-    def test_partial_fill_keeps_reservation_until_terminal_execution_is_applied(self) -> None:
+    def test_partial_fill_keeps_its_symbol_active_until_terminal_execution_is_applied(self) -> None:
         self.seed_idle_symbol("BTCUSDT")
         self.seed_idle_symbol("ETHUSDT")
         first = self.buy_intent(
             "intent-btc",
             "slot-btc",
             symbol="BTCUSDT",
-            reserved_margin=D("1.055"),
         )
         next_symbol = self.buy_intent(
             "intent-eth",
             "slot-eth",
             symbol="ETHUSDT",
-            reserved_margin=D("1.055"),
         )
-        self.store.create_order_intent(first, max_active_reserved_margin=D("1.5"))
+        self.store.create_order_intent(first)
         self.store.create_order_attempt(
             OrderAttempt(
                 attempt_id="attempt-btc",
@@ -225,11 +202,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
             target=IntentStatus.PARTIALLY_FILLED,
         )
 
-        with self.assertRaises(ReservationLimitExceeded):
-            self.store.create_order_intent(
-                next_symbol,
-                max_active_reserved_margin=D("1.5"),
-            )
+        self.assertTrue(self.store.create_order_intent(next_symbol))
 
         receipt = ExecutionReceipt(Action.OPEN_T1, D("0.04"), D("4"))
         fill = TradeFillRecord(
@@ -259,12 +232,8 @@ class SQLiteStateStoreTests(unittest.TestCase):
             self.store.load_symbol_state("primary", "BTCUSDT").qty,
             D("0.04"),
         )
-        self.assertTrue(
-            self.store.create_order_intent(
-                next_symbol,
-                max_active_reserved_margin=D("1.5"),
-            )
-        )
+        active = self.store.list_active_order_intents("primary")
+        self.assertEqual([record.intent.symbol for record in active], ["ETHUSDT"])
 
     def test_business_key_cannot_be_reused_for_a_different_intent(self) -> None:
         first = self.buy_intent("intent-1", "slot-1")
@@ -340,7 +309,6 @@ class SQLiteStateStoreTests(unittest.TestCase):
         business_key: str,
         *,
         symbol: str = "BTCUSDT",
-        reserved_margin: Decimal = D("1"),
     ) -> OrderIntent:
         return OrderIntent(
             intent_id=intent_id,
@@ -350,7 +318,6 @@ class SQLiteStateStoreTests(unittest.TestCase):
             action=Action.OPEN_T1,
             business_key=business_key,
             expected_state_version=0,
-            reserved_margin=reserved_margin,
             created_at_ms=1_000,
             buy_notional=D("10"),
         )

@@ -10,6 +10,7 @@ from typing import Callable
 
 from ..domain.models import Action, Lifecycle
 from .execution import ExecutionCoordinator, ExecutionResult
+from .execution_models import IntentStatus
 from .ports import ProcessLockPort, ReviewBatchSourcePort, StateStorePort
 from .review_executor import SymbolReviewExecutor
 from .review_run_models import ReviewBatch, ReviewCandidate, ReviewPriority
@@ -21,6 +22,26 @@ _FULL_CLOSE_ACTIONS = {
     Action.CLOSE_T2_FULL,
     Action.CLOSE_T3_FULL,
 }
+_EXECUTION_ISSUE_STATUSES = {
+    IntentStatus.UNKNOWN,
+    IntentStatus.REJECTED,
+    IntentStatus.CANCELED,
+    IntentStatus.EXPIRED,
+}
+
+
+def _log_execution_issue(symbol: str, result: ExecutionResult | None) -> None:
+    if result is None or result.status not in _EXECUTION_ISSUE_STATUSES:
+        return
+    logger.warning(
+        "market order did not complete normally: symbol=%s intent_id=%s "
+        "status=%s resolution=%s detail=%s",
+        symbol,
+        result.intent_id,
+        result.status.value,
+        result.resolution.value,
+        result.detail or "no exchange detail",
+    )
 
 
 class ReviewRunError(RuntimeError):
@@ -133,6 +154,7 @@ class ReviewRunCoordinator:
                     signals=candidate.signals,
                 )
                 counts[result.disposition.value] += 1
+                _log_execution_issue(candidate.symbol, result.execution)
                 if (
                     result.plan is not None
                     and result.plan.action in _FULL_CLOSE_ACTIONS
@@ -153,6 +175,7 @@ class ReviewRunCoordinator:
                             signals=candidate.signals,
                         )
                         counts[reopen_result.disposition.value] += 1
+                        _log_execution_issue(candidate.symbol, reopen_result.execution)
             except Exception as exc:
                 logger.exception("symbol review failed: symbol=%s", candidate.symbol)
                 counts["ERROR"] += 1
