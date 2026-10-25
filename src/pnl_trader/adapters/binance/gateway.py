@@ -30,8 +30,6 @@ from ...application.market_models import (
     ExchangeInstrument,
     FifteenMinuteCloseSnapshot,
     InstrumentRules,
-    MarkPriceSnapshot,
-    MarkPriceUniverseSnapshot,
     MarketQuantityRules,
 )
 from ...application.order_reconciliation_models import (
@@ -252,22 +250,6 @@ class BinanceFuturesGateway:
 
         return await self.get_exchange_info_snapshot(force=True)
 
-    async def get_mark_price(self, symbol: str) -> MarkPriceSnapshot:
-        if not symbol:
-            raise ValueError("symbol must not be empty")
-        payload = await self._request_json(
-            "GET",
-            "/fapi/v1/premiumIndex",
-            params={"symbol": symbol},
-        )
-        if not isinstance(payload, dict) or payload.get("symbol") != symbol:
-            raise BinanceProtocolError("premiumIndex response does not match the requested symbol")
-        return MarkPriceSnapshot(
-            symbol=symbol,
-            mark_price=_decimal(payload.get("markPrice"), "markPrice"),
-            observed_at_ms=_integer(payload.get("time"), "time"),
-        )
-
     async def get_fifteen_minute_close(
         self,
         symbol: str,
@@ -310,38 +292,6 @@ class BinanceFuturesGateway:
             slot_start_ms=slot_start_ms,
             close_price=_decimal(candle[4], "close"),
             close_time_ms=close_time_ms,
-        )
-
-    async def get_all_mark_prices(self) -> MarkPriceUniverseSnapshot:
-        """Fetch one complete bulk mark-price response for the review batch."""
-
-        payload = await self._request_json("GET", "/fapi/v1/premiumIndex")
-        if not isinstance(payload, list) or not payload:
-            raise BinanceProtocolError("bulk premiumIndex response must be a non-empty list")
-        prices: list[MarkPriceSnapshot] = []
-        for index, row in enumerate(payload):
-            if not isinstance(row, dict):
-                raise BinanceProtocolError(f"premiumIndex row {index} must be an object")
-            symbol = row.get("symbol")
-            if not isinstance(symbol, str) or not symbol:
-                raise BinanceProtocolError(f"premiumIndex row {index} has no symbol")
-            prices.append(
-                MarkPriceSnapshot(
-                    symbol=symbol,
-                    mark_price=_decimal(row.get("markPrice"), "markPrice"),
-                    observed_at_ms=_integer(row.get("time"), "time"),
-                )
-            )
-        sampled_at_ms = self._clock_ms()
-        digest_parts = [str(sampled_at_ms)]
-        for price in sorted(prices, key=lambda item: item.symbol):
-            digest_parts.extend(
-                (price.symbol, str(price.mark_price), str(price.observed_at_ms))
-            )
-        return MarkPriceUniverseSnapshot(
-            snapshot_id=hashlib.sha256("\0".join(digest_parts).encode("utf-8")).hexdigest(),
-            sampled_at_ms=sampled_at_ms,
-            prices=tuple(prices),
         )
 
     async def get_account_risk_snapshot(

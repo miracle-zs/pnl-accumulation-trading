@@ -5,10 +5,10 @@ from pnl_trader.application import (
     AccountRiskGate,
     AccountRiskPolicy,
     AccountRiskSnapshot,
+    FifteenMinuteCloseSnapshot,
     InstrumentRules,
     MaintenanceMarginBracket,
     MaintenanceMarginBracketSnapshot,
-    MarkPriceSnapshot,
     MarketOrderPlanner,
     MarketQuantityRules,
 )
@@ -51,7 +51,9 @@ class _BracketSource:
 class AccountRiskGateTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.state = SymbolState(symbol="TESTUSDT")
-        self.price = MarkPriceSnapshot("TESTUSDT", D("100"), 1_000)
+        self.price = FifteenMinuteCloseSnapshot(
+            "TESTUSDT", 0, D("100"), 899_999
+        )
         self.rules = InstrumentRules(
             symbol="TESTUSDT",
             contract_type="PERPETUAL",

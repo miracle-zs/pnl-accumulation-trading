@@ -138,23 +138,6 @@ class ExchangeInfoSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
-class MarkPriceSnapshot:
-    symbol: str
-    mark_price: Decimal
-    observed_at_ms: int
-
-    def __post_init__(self) -> None:
-        if not self.symbol:
-            raise ValueError("symbol must not be empty")
-        if not isinstance(self.mark_price, Decimal) or not self.mark_price.is_finite():
-            raise TypeError("mark_price must be a finite Decimal")
-        if self.mark_price <= ZERO:
-            raise ValueError("mark_price must be positive")
-        if self.observed_at_ms < 0:
-            raise ValueError("observed_at_ms must be non-negative")
-
-
-@dataclass(frozen=True, slots=True)
 class FifteenMinuteCloseSnapshot:
     symbol: str
     slot_start_ms: int
@@ -181,24 +164,3 @@ class FifteenMinuteCloseSnapshot:
             or self.close_time_ms != self.slot_start_ms + 899_999
         ):
             raise ValueError("close_time_ms must match the requested 15-minute slot")
-
-
-@dataclass(frozen=True, slots=True)
-class MarkPriceUniverseSnapshot:
-    """One bulk mark-price response used to order a review candidate batch."""
-
-    snapshot_id: str
-    sampled_at_ms: int
-    prices: tuple[MarkPriceSnapshot, ...]
-
-    def __post_init__(self) -> None:
-        if not self.snapshot_id:
-            raise ValueError("snapshot_id must not be empty")
-        if self.sampled_at_ms < 0:
-            raise ValueError("sampled_at_ms must be non-negative")
-        if not isinstance(self.prices, tuple) or any(
-            not isinstance(price, MarkPriceSnapshot) for price in self.prices
-        ):
-            raise TypeError("prices must be a tuple of MarkPriceSnapshot")
-        if len({price.symbol for price in self.prices}) != len(self.prices):
-            raise ValueError("a mark-price snapshot cannot contain duplicate symbols")

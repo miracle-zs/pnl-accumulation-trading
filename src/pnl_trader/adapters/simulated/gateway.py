@@ -16,7 +16,6 @@ from ...application.execution_models import (
 from ...application.market_models import (
     FifteenMinuteCloseSnapshot,
     InstrumentRules,
-    MarkPriceSnapshot,
 )
 from ...domain.models import TradeFillRecord, ZERO
 
@@ -64,11 +63,11 @@ class ScriptedExchangeGateway:
         scenarios: Mapping[str, SimulatedOrderScenario],
         *,
         instrument_rules: Mapping[str, InstrumentRules] | None = None,
-        mark_prices: Mapping[str, MarkPriceSnapshot] | None = None,
+        close_prices: Mapping[str, Decimal] | None = None,
     ) -> None:
         self._scenarios = dict(scenarios)
         self._instrument_rules = dict(instrument_rules or {})
-        self._mark_prices = dict(mark_prices or {})
+        self._close_prices = dict(close_prices or {})
         self._submitted: dict[str, tuple[MarketOrderRequest, SimulatedOrderScenario]] = {}
         self._lock = asyncio.Lock()
 
@@ -78,22 +77,19 @@ class ScriptedExchangeGateway:
         except KeyError as exc:
             raise LookupError(f"no scripted instrument rules for {symbol}") from exc
 
-    async def get_mark_price(self, symbol: str) -> MarkPriceSnapshot:
-        try:
-            return self._mark_prices[symbol]
-        except KeyError as exc:
-            raise LookupError(f"no scripted mark price for {symbol}") from exc
-
     async def get_fifteen_minute_close(
         self,
         symbol: str,
         slot_start_ms: int,
     ) -> FifteenMinuteCloseSnapshot:
-        price = await self.get_mark_price(symbol)
+        try:
+            close_price = self._close_prices[symbol]
+        except KeyError as exc:
+            raise LookupError(f"no scripted close price for {symbol}") from exc
         return FifteenMinuteCloseSnapshot(
             symbol=symbol,
             slot_start_ms=slot_start_ms,
-            close_price=price.mark_price,
+            close_price=close_price,
             close_time_ms=slot_start_ms + 899_999,
         )
 

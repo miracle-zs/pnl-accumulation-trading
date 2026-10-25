@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
@@ -21,7 +20,7 @@ from .execution_models import (
     OrderIntent,
     RiskAuthorization,
 )
-from .market_models import MarkPriceSnapshot
+from .market_models import FifteenMinuteCloseSnapshot
 from .order_planning import MarketOrderPlan, MarketOrderPlanner, OrderPlanningError
 from .ports import ExchangeGatewayPort, RiskGatePort, StateStorePort
 from .store_errors import (
@@ -52,7 +51,7 @@ class SymbolReviewResult:
     disposition: ReviewDisposition
     decision: Decision | None = None
     plan: MarketOrderPlan | None = None
-    price: MarkPriceSnapshot | None = None
+    price: FifteenMinuteCloseSnapshot | None = None
     execution: ExecutionResult | None = None
     detail: str | None = None
 
@@ -80,11 +79,11 @@ class SymbolReviewExecutor:
         policy: StrategyPolicy | None = None,
         planner: MarketOrderPlanner | None = None,
         clock_ms: Callable[[], int] | None = None,
-        max_mark_price_age_ms: int = 10_000,
+        max_candle_age_ms: int = 10_000,
         future_clock_skew_ms: int = 1_000,
     ) -> None:
-        if max_mark_price_age_ms <= 0 or future_clock_skew_ms < 0:
-            raise ValueError("price age must be positive and clock skew non-negative")
+        if max_candle_age_ms <= 0 or future_clock_skew_ms < 0:
+            raise ValueError("candle age must be positive and clock skew non-negative")
         self._store = store
         self._exchange = exchange
         self._execution = execution
@@ -92,7 +91,7 @@ class SymbolReviewExecutor:
         self._policy = policy or StrategyPolicy()
         self._planner = planner or MarketOrderPlanner()
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
-        self._max_mark_price_age_ms = max_mark_price_age_ms
+        self._max_candle_age_ms = max_candle_age_ms
         self._future_clock_skew_ms = future_clock_skew_ms
 
     async def review_symbol(
@@ -130,37 +129,25 @@ class SymbolReviewExecutor:
         if existing is not None:
             return existing
 
-        price, candle = await asyncio.gather(
-            self._exchange.get_mark_price(symbol),
-            self._exchange.get_fifteen_minute_close(symbol, slot_start_ms),
-        )
+        candle = await self._exchange.get_fifteen_minute_close(symbol, slot_start_ms)
         now_ms = self._clock_ms()
-        age_ms = now_ms - price.observed_at_ms
-        if age_ms > self._max_mark_price_age_ms or age_ms < -self._future_clock_skew_ms:
-            return SymbolReviewResult(
-                symbol=symbol,
-                disposition=ReviewDisposition.STALE_PRICE,
-                price=price,
-                detail=f"mark price age {age_ms}ms is outside the allowed window",
-            )
         candle_age_ms = now_ms - candle.close_time_ms
         if (
             candle.symbol != symbol
             or candle.slot_start_ms != slot_start_ms
-            or candle_age_ms > self._max_mark_price_age_ms
+            or candle_age_ms > self._max_candle_age_ms
             or candle_age_ms < -self._future_clock_skew_ms
         ):
             return SymbolReviewResult(
                 symbol=symbol,
                 disposition=ReviewDisposition.STALE_PRICE,
-                price=price,
+                price=candle,
                 detail=(
                     "15-minute close candle is missing, mismatched or outside the allowed window"
                 ),
             )
 
         observation = Observation(
-            mark_price=price.mark_price,
             admitted=signals.admitted,
             reopen_authorized=signals.reopen_authorized,
             valid=signals.valid,
@@ -174,20 +161,20 @@ class SymbolReviewExecutor:
                 symbol=symbol,
                 disposition=ReviewDisposition.NO_ACTION,
                 decision=decision,
-                price=price,
+                price=candle,
                 detail=decision.reason,
             )
 
         rules = await self._exchange.get_instrument_rules(symbol)
         try:
-            plan = self._planner.plan(decision, state, rules, price)
+            plan = self._planner.plan(decision, state, rules, candle)
         except OrderPlanningError as exc:
             self._cancel_prepared_intent(account_id, intent_id)
             return SymbolReviewResult(
                 symbol=symbol,
                 disposition=ReviewDisposition.NO_ACTION,
                 decision=decision,
-                price=price,
+                price=candle,
                 detail=str(exc),
             )
 
@@ -196,7 +183,7 @@ class SymbolReviewExecutor:
             state=state,
             decision=decision,
             plan=plan,
-            price=price,
+            price=candle,
             rules=rules,
         )
         self._validate_authorization(
@@ -212,7 +199,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.RISK_REJECTED,
                 decision=decision,
                 plan=plan,
-                price=price,
+                price=candle,
                 detail=authorization.reason,
             )
         if self._clock_ms() >= authorization.valid_until_ms:
@@ -222,7 +209,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
                 decision=decision,
                 plan=plan,
-                price=price,
+                price=candle,
                 detail="risk authorization expired before intent reservation",
             )
 
@@ -252,7 +239,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.RESERVATION_REJECTED,
                 decision=decision,
                 plan=plan,
-                price=price,
+                price=candle,
                 detail=str(exc),
             )
         except StateVersionConflict as exc:
@@ -262,7 +249,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.STATE_CHANGED,
                 decision=decision,
                 plan=plan,
-                price=price,
+                price=candle,
                 detail=str(exc),
             )
         except IntentConflict as exc:
@@ -272,7 +259,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.INTENT_CONFLICT,
                 decision=decision,
                 plan=plan,
-                price=price,
+                price=candle,
                 detail=str(exc),
             )
         except ActiveIntentConflict as exc:
@@ -281,7 +268,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.ORDER_PENDING,
                 decision=decision,
                 plan=plan,
-                price=price,
+                price=candle,
                 detail=str(exc),
             )
 
@@ -292,7 +279,7 @@ class SymbolReviewExecutor:
                 disposition=ReviewDisposition.AUTHORIZATION_EXPIRED,
                 decision=decision,
                 plan=plan,
-                price=price,
+                price=candle,
                 detail="risk authorization expired before the submit attempt",
             )
 
@@ -318,7 +305,7 @@ class SymbolReviewExecutor:
             disposition=ReviewDisposition.EXECUTION,
             decision=decision,
             plan=plan,
-            price=price,
+            price=candle,
             execution=execution_result,
             detail=execution_result.detail,
         )

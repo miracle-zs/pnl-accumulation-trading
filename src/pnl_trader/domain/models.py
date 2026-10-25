@@ -109,14 +109,14 @@ class SymbolState:
 
 @dataclass(frozen=True, slots=True)
 class Observation:
-    """One validated market observation and its explicit entry authorizations.
+    """One 15-minute close and its explicit entry authorizations.
 
     ``admitted`` allows an idle symbol to open, ``scale_in_authorized`` allows
     DCA increases, and ``reopen_authorized`` approves returning to Tier 1 after
-    a confirmed full close. Account risk and exchange rules remain mandatory.
+    a confirmed full close. ``close_price`` is the strategy's only price
+    reference. Account risk and exchange rules remain mandatory.
     """
 
-    mark_price: Decimal | None
     admitted: bool = False
     reopen_authorized: bool = False
     valid: bool = True
@@ -127,11 +127,6 @@ class Observation:
         for name in ("admitted", "reopen_authorized", "valid", "scale_in_authorized"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} must be bool")
-        if self.mark_price is not None:
-            if not isinstance(self.mark_price, Decimal):
-                raise TypeError("mark_price must be Decimal or None")
-            if not self.mark_price.is_finite():
-                raise ValueError("mark_price must be finite")
         if self.close_price is not None:
             if not isinstance(self.close_price, Decimal):
                 raise TypeError("close_price must be Decimal or None")

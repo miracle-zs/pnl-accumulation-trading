@@ -161,7 +161,6 @@ class ReconciledReviewBatchSource:
             observation = signals_by_symbol.get(
                 symbol,
                 Observation(
-                    mark_price=None,
                     admitted=False,
                     reopen_authorized=False,
                     valid=False,

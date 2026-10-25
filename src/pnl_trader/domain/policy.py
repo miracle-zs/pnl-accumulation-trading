@@ -59,11 +59,7 @@ class StrategyPolicy:
     def decide(self, state: SymbolState, observation: Observation) -> Decision:
         if not observation.valid:
             return Decision(Action.HOLD, "observation is not valid")
-        price = (
-            observation.close_price
-            if observation.close_price is not None
-            else observation.mark_price
-        )
+        price = observation.close_price
         if price is None or price <= ZERO:
             return Decision(Action.HOLD, "15-minute close price is missing or non-positive")
 

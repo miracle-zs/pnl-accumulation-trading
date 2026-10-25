@@ -9,9 +9,8 @@ import time
 from typing import Callable
 
 from ..domain.models import Observation
-from .market_models import ExchangeInfoSnapshot, ExchangeInstrument, MarkPriceUniverseSnapshot
+from .market_models import ExchangeInfoSnapshot, ExchangeInstrument
 from .ports import (
-    BulkMarkPricePort,
     ExchangeInstrumentCatalogPort,
     StateStorePort,
 )
@@ -46,27 +45,19 @@ class UniverseCatalog:
         self,
         *,
         exchange_info: ExchangeInstrumentCatalogPort,
-        mark_prices: BulkMarkPricePort,
         store: StateStorePort,
         classifications: VersionedAssetClassificationDirectory,
         initial_snapshot: UniverseSnapshot | None = None,
         refresh_interval_ms: int = 86_400_000,
-        max_mark_price_age_ms: int = 10_000,
-        future_clock_skew_ms: int = 1_000,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
-        if refresh_interval_ms <= 0 or max_mark_price_age_ms <= 0:
-            raise ValueError("universe refresh and mark-price ages must be positive")
-        if future_clock_skew_ms < 0:
-            raise ValueError("future_clock_skew_ms must be non-negative")
+        if refresh_interval_ms <= 0:
+            raise ValueError("universe refresh interval must be positive")
         self._exchange_info = exchange_info
-        self._mark_prices = mark_prices
         self._store = store
         self._classifications = classifications
         self._snapshot = initial_snapshot
         self._refresh_interval_ms = refresh_interval_ms
-        self._max_mark_price_age_ms = max_mark_price_age_ms
-        self._future_clock_skew_ms = future_clock_skew_ms
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._refresh_failed = initial_snapshot is not None
         self._refresh_lock = asyncio.Lock()
@@ -145,13 +136,9 @@ class UniverseCatalog:
                 "universe refresh failed; using the in-memory snapshot with increases disabled"
             )
         stale_universe = stale_universe or self._refresh_failed
-        mark_snapshot = await self._mark_prices.get_all_mark_prices()
         now_ms = self._clock_ms()
-        if mark_snapshot.sampled_at_ms - now_ms > self._future_clock_skew_ms:
-            raise UniverseCatalogError("bulk mark-price snapshot timestamp is in the future")
 
         instruments_by_symbol = {item.symbol: item for item in universe.instruments}
-        prices_by_symbol = {price.symbol: price for price in mark_snapshot.prices}
         symbols_to_review = set(managed_symbols)
         if not stale_universe:
             symbols_to_review.update(universe.eligible_symbols)
@@ -167,25 +154,13 @@ class UniverseCatalog:
                 and entry is not None
                 and entry.eligibility is UniverseEligibility.ELIGIBLE
             )
-            price = prices_by_symbol.get(symbol)
-            price_age_ms = None if price is None else now_ms - price.observed_at_ms
-            valid_price = (
-                price is not None
-                and price_age_ms is not None
-                and price_age_ms <= self._max_mark_price_age_ms
-                and price_age_ms >= -self._future_clock_skew_ms
-            )
             signals.append(
                 ReviewSignal(
                     symbol=symbol,
                     observation=Observation(
-                        mark_price=price.mark_price if valid_price and price is not None else None,
                         admitted=admitted,
                         reopen_authorized=admitted,
                         scale_in_authorized=admitted,
-                        # The symbol executor obtains and validates a fresh mark
-                        # immediately before policy evaluation. Missing bulk
-                        # marks affect ordering, not whether that fresh check runs.
                         valid=True,
                     ),
                 )
@@ -196,7 +171,6 @@ class UniverseCatalog:
             strategy_version,
             str(slot_start_ms),
             universe.snapshot_id,
-            mark_snapshot.snapshot_id,
         ]
         signal_identity.extend(symbols)
         snapshot_id = sha256("\0".join(signal_identity).encode("utf-8")).hexdigest()
@@ -205,7 +179,7 @@ class UniverseCatalog:
             strategy_version=strategy_version,
             slot_start_ms=slot_start_ms,
             snapshot_id=snapshot_id,
-            sampled_at_ms=mark_snapshot.sampled_at_ms,
+            sampled_at_ms=now_ms,
             signals=tuple(signals),
         )
 

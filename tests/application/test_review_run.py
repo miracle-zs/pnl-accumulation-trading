@@ -18,7 +18,6 @@ from pnl_trader.application.execution_models import (
 from pnl_trader.application.market_models import (
     FifteenMinuteCloseSnapshot,
     InstrumentRules,
-    MarkPriceSnapshot,
     MarketQuantityRules,
 )
 from pnl_trader.application.review_executor import SymbolReviewExecutor
@@ -127,7 +126,7 @@ class _OneSymbolBatchSource:
                 ReviewCandidate(
                     symbol="BTCUSDT",
                     signals=Observation(
-                        mark_price=D("90"),
+                        close_price=D("90"),
                         admitted=True,
                         reopen_authorized=True,
                         scale_in_authorized=True,
@@ -180,9 +179,6 @@ class _FilledExchange:
             ),
             min_market_notional=D("5"),
         )
-
-    async def get_mark_price(self, symbol: str) -> MarkPriceSnapshot:
-        return MarkPriceSnapshot(symbol, D("90"), NOW_MS)
 
     async def get_fifteen_minute_close(
         self,

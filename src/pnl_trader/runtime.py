@@ -189,7 +189,6 @@ async def run_application(config: RuntimeConfig) -> None:
                 )
                 universe = UniverseCatalog(
                     exchange_info=exchange,
-                    mark_prices=exchange,
                     store=store,
                     classifications=classifications,
                     initial_snapshot=cached_universe,

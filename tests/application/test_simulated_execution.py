@@ -836,7 +836,7 @@ class SimulatedExecutionAcceptanceTests(unittest.TestCase):
                                 ReviewSignal(
                                     symbol="BTCUSDT",
                                     observation=Observation(
-                                        mark_price=D("10"),
+                                        close_price=D("10"),
                                         admitted=True,
                                         reopen_authorized=True,
                                     ),

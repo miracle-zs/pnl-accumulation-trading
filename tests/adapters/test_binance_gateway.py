@@ -107,6 +107,8 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(requests), 1)
 
     async def test_read_retries_transport_server_and_rate_limit_failures(self) -> None:
+        slot_start_ms = 0
+        close_time_ms = slot_start_ms + 899_999
         requests: list[httpx.Request] = []
 
         async def respond(request: httpx.Request) -> httpx.Response:
@@ -123,7 +125,7 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 )
             return httpx.Response(
                 200,
-                json={"symbol": "BTCUSDT", "markPrice": "60000", "time": 1234},
+                json=[[slot_start_ms, "59000", "61000", "58000", "60000", "10", close_time_ms]],
             )
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
@@ -137,9 +139,9 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 "pnl_trader.adapters.binance.gateway.asyncio.sleep",
                 new_callable=AsyncMock,
             ) as sleep:
-                snapshot = await gateway.get_mark_price("BTCUSDT")
+                snapshot = await gateway.get_fifteen_minute_close("BTCUSDT", slot_start_ms)
 
-        self.assertEqual(snapshot.mark_price, Decimal("60000"))
+        self.assertEqual(snapshot.close_price, Decimal("60000"))
         self.assertEqual(len(requests), 4)
         self.assertEqual(
             sleep.await_args_list,

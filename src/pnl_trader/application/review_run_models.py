@@ -18,9 +18,9 @@ class ReviewPriority(IntEnum):
 class ReviewCandidate:
     """One symbol's entry signals and batch-level execution priority.
 
-    The batch producer assigns priority from its aligned position and market
-    snapshot; the symbol executor re-evaluates the executable action using a
-    fresh mark price before any order is authorized.
+    The batch producer assigns priority from its aligned position and entry
+    authorization; the symbol executor evaluates the executable action using
+    the 15-minute close before any order is authorized.
     """
 
     symbol: str

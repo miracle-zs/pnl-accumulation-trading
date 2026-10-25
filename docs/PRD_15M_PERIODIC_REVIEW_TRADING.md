@@ -35,7 +35,7 @@
        |             ReviewExecutor (15m 巡检执行核心)                |
        | 1. GET /fapi/v2/positionRisk (一次性拉取全部多头持仓)        |
        | 2. 与本地 SQLite 对账并识别当前 Tier 层级与分批状态           |
-       | 3. 计算收益率 ret = (markPrice - avgPrice) / avgPrice       |
+       | 3. 计算收益率 ret = (15mClose - avgPrice) / avgPrice        |
        +------------------------------+------------------------------+
                                       |
                +----------------------+----------------------+

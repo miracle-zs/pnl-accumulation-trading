@@ -11,8 +11,6 @@ from .market_models import (
     ExchangeInfoSnapshot,
     FifteenMinuteCloseSnapshot,
     InstrumentRules,
-    MarkPriceSnapshot,
-    MarkPriceUniverseSnapshot,
 )
 from .order_planning import MarketOrderPlan
 from .position_models import ExchangePositionSnapshot
@@ -117,8 +115,6 @@ class StateStorePort(Protocol):
 class ExchangeGatewayPort(Protocol):
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules: ...
 
-    async def get_mark_price(self, symbol: str) -> MarkPriceSnapshot: ...
-
     async def get_fifteen_minute_close(
         self,
         symbol: str,
@@ -151,7 +147,7 @@ class RiskGatePort(Protocol):
         state: SymbolState,
         decision: Decision,
         plan: MarketOrderPlan,
-        price: MarkPriceSnapshot,
+        price: FifteenMinuteCloseSnapshot,
         rules: InstrumentRules,
     ) -> RiskAuthorization: ...
 
@@ -182,10 +178,6 @@ class OpenOrdersSnapshotPort(Protocol):
 
 class ExchangeInstrumentCatalogPort(Protocol):
     async def get_exchange_info_snapshot(self) -> ExchangeInfoSnapshot: ...
-
-
-class BulkMarkPricePort(Protocol):
-    async def get_all_mark_prices(self) -> MarkPriceUniverseSnapshot: ...
 
 
 class ReviewSignalSourcePort(Protocol):

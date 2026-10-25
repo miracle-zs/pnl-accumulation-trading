@@ -8,7 +8,7 @@ from typing import Callable
 
 from ..domain.models import Action, Decision, SymbolState, ZERO
 from .execution_models import RiskAuthorization
-from .market_models import InstrumentRules, MarkPriceSnapshot
+from .market_models import FifteenMinuteCloseSnapshot, InstrumentRules
 from .order_planning import MarketOrderPlan
 from .ports import AccountRiskSnapshotPort, MaintenanceMarginBracketPort
 from .risk_models import AccountRiskPolicy, AccountRiskSnapshot
@@ -54,7 +54,7 @@ class AccountRiskGate:
         state: SymbolState,
         decision: Decision,
         plan: MarketOrderPlan,
-        price: MarkPriceSnapshot,
+        price: FifteenMinuteCloseSnapshot,
         rules: InstrumentRules,
     ) -> RiskAuthorization:
         now_ms = self._clock_ms()
@@ -220,7 +220,7 @@ class AccountRiskGate:
         account_id: str,
         state: SymbolState,
         plan: MarketOrderPlan,
-        price: MarkPriceSnapshot,
+        price: FifteenMinuteCloseSnapshot,
         now_ms: int,
     ) -> tuple[Decimal | None, str | None]:
         if self._brackets is None:
@@ -261,7 +261,7 @@ class AccountRiskGate:
         if projected_equity <= ZERO:
             return None, "projected equity is not positive after the execution cost buffer"
         projected_symbol_notional = (
-            snapshot.symbol_position_qty * price.mark_price
+            snapshot.symbol_position_qty * price.close_price
             + plan.estimated_notional * (Decimal("1") + self._policy.slippage_buffer_rate)
         )
         projected_symbol_maintenance = bracket_snapshot.maintenance_margin_for(
@@ -284,7 +284,7 @@ class AccountRiskGate:
         account_id: str,
         symbol: str,
         now_ms: int,
-        price: MarkPriceSnapshot,
+        price: FifteenMinuteCloseSnapshot,
         rules: InstrumentRules,
         decision: Decision,
         plan: MarketOrderPlan,

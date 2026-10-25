@@ -2,8 +2,8 @@ from decimal import Decimal
 import unittest
 
 from pnl_trader.application import (
+    FifteenMinuteCloseSnapshot,
     InstrumentRules,
-    MarkPriceSnapshot,
     MarketOrderPlanner,
     MarketQuantityRules,
     OrderPlanningError,
@@ -13,6 +13,15 @@ from pnl_trader.domain import Action, Decision, Lifecycle, SymbolState, Tier
 
 
 D = Decimal
+
+
+def candle(price: str) -> FifteenMinuteCloseSnapshot:
+    return FifteenMinuteCloseSnapshot(
+        symbol="TESTUSDT",
+        slot_start_ms=0,
+        close_price=D(price),
+        close_time_ms=899_999,
+    )
 
 
 def market_rules(*, max_qty: str = "1000") -> InstrumentRules:
@@ -44,7 +53,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
             Decision(Action.OPEN_T1, "open initial position", buy_notional=D("10")),
             state,
             self.rules,
-            MarkPriceSnapshot("TESTUSDT", D("3"), 1),
+            candle("3"),
         )
 
         self.assertEqual(plan.quantity, D("3.33"))
@@ -67,7 +76,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
             Decision(Action.CLOSE_T2_BATCH1, "first batch", close_qty=D("0.25")),
             state,
             self.rules,
-            MarkPriceSnapshot("TESTUSDT", D("10"), 1),
+            candle("10"),
         )
 
         self.assertEqual(plan.source_action, Action.CLOSE_T2_BATCH1)
@@ -94,7 +103,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
                 Decision(Action.CLOSE_T2_BATCH1, "first batch", close_qty=D("0.25")),
                 state,
                 self.rules,
-                MarkPriceSnapshot("TESTUSDT", D("9"), 1),
+                candle("9"),
             )
 
         self.assertEqual(raised.exception.reason, OrderPlanRejection.BELOW_MIN_NOTIONAL)

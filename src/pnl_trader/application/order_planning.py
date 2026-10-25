@@ -7,7 +7,7 @@ from decimal import Decimal
 from enum import Enum
 
 from ..domain.models import Action, Decision, Lifecycle, SymbolState, Tier, ZERO
-from .market_models import InstrumentRules, MarkPriceSnapshot
+from .market_models import FifteenMinuteCloseSnapshot, InstrumentRules
 
 
 class OrderPlanRejection(str, Enum):
@@ -74,7 +74,7 @@ class MarketOrderPlanner:
         decision: Decision,
         state: SymbolState,
         rules: InstrumentRules,
-        price: MarkPriceSnapshot,
+        price: FifteenMinuteCloseSnapshot,
     ) -> MarketOrderPlan:
         if decision.action not in _BUY_ACTIONS | _CLOSE_ACTIONS:
             raise OrderPlanningError(
@@ -84,7 +84,7 @@ class MarketOrderPlanner:
         if rules.symbol != state.symbol or price.symbol != state.symbol:
             raise OrderPlanningError(
                 OrderPlanRejection.MARKET_DATA_MISMATCH,
-                "state, instrument rules and mark price must refer to the same symbol",
+                "state, instrument rules and candle must refer to the same symbol",
             )
         if rules.status != "TRADING":
             raise OrderPlanningError(
@@ -113,15 +113,15 @@ class MarketOrderPlanner:
                     OrderPlanRejection.INVALID_QUANTITY,
                     "buy decision is missing its notional budget",
                 )
-            requested_qty = decision.buy_notional / price.mark_price
+            requested_qty = decision.buy_notional / price.close_price
             quantity = rules.market_quantity.align_down(requested_qty)
-            self._validate_quantity(quantity, rules, price.mark_price)
+            self._validate_quantity(quantity, rules, price.close_price)
             return MarketOrderPlan(
                 source_action=decision.action,
                 action=decision.action,
                 quantity=quantity,
                 requested_quantity=requested_qty,
-                estimated_notional=quantity * price.mark_price,
+                estimated_notional=quantity * price.close_price,
                 target_cumulative_sold_qty=None,
                 merged_to_full_close=False,
                 reason=decision.reason,
@@ -158,32 +158,32 @@ class MarketOrderPlanner:
         action = decision.action
         if quantity <= ZERO:
             if decision.action not in _BATCH_CLOSE_ACTIONS:
-                self._validate_quantity(quantity, rules, price.mark_price)
+                self._validate_quantity(quantity, rules, price.close_price)
             else:
                 action, quantity = self._merge_batch_to_full_close(
-                    state, rules, price.mark_price
+                    state, rules, price.close_price
                 )
                 merged = True
         else:
             self._validate_quantity(
                 quantity,
                 rules,
-                price.mark_price,
+                price.close_price,
                 check_min_notional=False,
             )
-        planned_notional = quantity * price.mark_price
+        planned_notional = quantity * price.close_price
         if not merged and self._below_min_notional(planned_notional, rules):
             if decision.action in _BATCH_CLOSE_ACTIONS:
                 action, quantity = self._merge_batch_to_full_close(
-                    state, rules, price.mark_price
+                    state, rules, price.close_price
                 )
                 merged = True
-                planned_notional = quantity * price.mark_price
+                planned_notional = quantity * price.close_price
             else:
-                self._validate_quantity(quantity, rules, price.mark_price)
+                self._validate_quantity(quantity, rules, price.close_price)
 
         if merged:
-            planned_notional = quantity * price.mark_price
+            planned_notional = quantity * price.close_price
         target = state.tier_sold_qty + quantity
         return MarketOrderPlan(
             source_action=decision.action,
@@ -205,11 +205,11 @@ class MarketOrderPlanner:
         cls,
         state: SymbolState,
         rules: InstrumentRules,
-        mark_price: Decimal,
+        reference_price: Decimal,
     ) -> tuple[Action, Decimal]:
         action = _FULL_CLOSE_BY_TIER[state.tier]
         quantity = rules.market_quantity.align_down(state.qty)
-        cls._validate_quantity(quantity, rules, mark_price)
+        cls._validate_quantity(quantity, rules, reference_price)
         if quantity != state.qty:
             raise OrderPlanningError(
                 OrderPlanRejection.INVALID_QUANTITY,
@@ -227,7 +227,7 @@ class MarketOrderPlanner:
         cls,
         quantity: Decimal,
         rules: InstrumentRules,
-        mark_price: Decimal,
+        reference_price: Decimal,
         *,
         check_min_notional: bool = True,
     ) -> None:
@@ -250,7 +250,7 @@ class MarketOrderPlanner:
                 else OrderPlanRejection.INVALID_QUANTITY
             )
             raise OrderPlanningError(reason, "quantity is outside the market quantity grid")
-        notional = quantity * mark_price
+        notional = quantity * reference_price
         if check_min_notional and cls._below_min_notional(notional, rules):
             raise OrderPlanningError(
                 OrderPlanRejection.BELOW_MIN_NOTIONAL,
