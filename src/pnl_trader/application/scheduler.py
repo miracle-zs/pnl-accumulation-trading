@@ -49,19 +49,25 @@ class PeriodicReviewScheduler:
     async def _run_review_slot(self) -> None:
         now_ms = time.time_ns() // 1_000_000
         slot_start_ms = now_ms - now_ms % 900_000 - 900_000
+        started_ns = time.monotonic_ns()
         try:
             result = await self._review_runs.run_slot(
                 slot_start_ms=slot_start_ms,
             )
             logger.info(
-                "review finished: slot=%s candidates=%s counts=%s",
+                "review finished: slot=%s duration_ms=%.0f candidates=%s counts=%s",
                 slot_start_ms,
+                (time.monotonic_ns() - started_ns) / 1_000_000,
                 result.candidate_count,
                 dict(result.result_counts),
             )
             self._failure_alert_sent = False
         except Exception as exc:
-            logger.exception("review failed: slot=%s", slot_start_ms)
+            logger.exception(
+                "review failed: slot=%s duration_ms=%.0f",
+                slot_start_ms,
+                (time.monotonic_ns() - started_ns) / 1_000_000,
+            )
             if self._notifier is None or self._failure_alert_sent:
                 return
 
