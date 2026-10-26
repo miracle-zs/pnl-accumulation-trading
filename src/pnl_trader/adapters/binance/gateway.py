@@ -50,7 +50,11 @@ class BinanceApiError(RuntimeError):
 
     @property
     def execution_unknown(self) -> bool:
-        if self.code in {-1000, -1001, -1003, -1006, -1007, -1008, -1016}:
+        if self.status_code in {418, 429}:
+            return False
+        if self.code in {-1003, -1008}:
+            return False
+        if self.code in {-1000, -1001, -1006, -1007, -1016}:
             return True
         if self.status_code == 503:
             message = self.message.lower()
@@ -60,7 +64,6 @@ class BinanceApiError(RuntimeError):
         return (
             self.status_code == 408
             or self.status_code >= 500
-            or self.status_code in {418, 429}
         )
 
 
