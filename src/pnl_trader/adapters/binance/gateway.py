@@ -46,6 +46,7 @@ ORDER_SUBMISSION_LIMIT_1M = 1_199
 ORDER_SUBMISSION_WINDOW_10S_SECONDS = 10.0
 ORDER_SUBMISSION_WINDOW_1M_SECONDS = 60.0
 ORDER_WINDOW_WAKE_MARGIN_SECONDS = 0.01
+ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS = (0.25, 0.5, 1.0)
 logger = logging.getLogger(__name__)
 
 
@@ -397,26 +398,36 @@ class BinanceFuturesGateway:
         order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
         order_id = order_snapshot.exchange_order_id
-        payload = await self._request_json(
-            "GET",
-            "/fapi/v1/userTrades",
-            params={"symbol": symbol, "orderId": order_id, "limit": "1000"},
-            signed=True,
-        )
-        if not isinstance(payload, list):
-            raise BinanceProtocolError("userTrades response must be a list")
-        fills = tuple(
-            _parse_trade_fill(row, symbol, order_side, order_id)
-            for row in payload
-        )
-        total_qty = sum((fill.qty for fill in fills), ZERO)
-        total_quote = sum((fill.price * fill.qty for fill in fills), ZERO)
-        if total_qty != order_snapshot.executed_qty or (
-            order_snapshot.cumulative_quote is not None
-            and total_quote != order_snapshot.cumulative_quote
-        ):
-            raise BinanceProtocolError("userTrades do not reconcile with the order totals")
-        return fills
+        params = {"symbol": symbol, "orderId": order_id, "limit": "1000"}
+        for attempt in range(len(ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS) + 1):
+            payload = await self._request_json(
+                "GET",
+                "/fapi/v1/userTrades",
+                params=params,
+                signed=True,
+            )
+            if not isinstance(payload, list):
+                raise BinanceProtocolError("userTrades response must be a list")
+            fills = tuple(
+                _parse_trade_fill(row, symbol, order_side, order_id)
+                for row in payload
+            )
+            total_qty = sum((fill.qty for fill in fills), ZERO)
+            total_quote = sum((fill.price * fill.qty for fill in fills), ZERO)
+            reconciles = total_qty == order_snapshot.executed_qty and (
+                order_snapshot.cumulative_quote is None
+                or total_quote == order_snapshot.cumulative_quote
+            )
+            if reconciles:
+                return fills
+            if attempt == len(ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS):
+                raise BinanceProtocolError(
+                    "userTrades do not reconcile with the order totals"
+                )
+            await asyncio.sleep(
+                ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS[attempt]
+            )
+        raise AssertionError("unreachable order fill reconciliation state")
 
     async def _request_json(
         self,
