@@ -40,7 +40,7 @@
 ## 3. 一轮巡检
 
 1. 校验 15 分钟时段，然后先恢复未完成订单；不确定的订单先查询，不重复提交。
-2. 并行读取交易所仓位、标的资格和全市场最新价快照；标的资格由 Binance `exchangeInfo` 的 `quoteAsset`、`marginAsset`、`contractType`、`status`、`underlyingType` 和 `underlyingSubType` 字段筛选，合约目录由网关缓存。
+2. 并行读取交易所仓位、标的资格和全市场最新价快照；标的资格由 Binance `exchangeInfo` 的 `quoteAsset`、`marginAsset`、`contractType`、`status` 和 `underlyingType` 字段筛选，合约目录由网关缓存。
 3. 将仓位与本地状态及活动订单的预期成交范围核对；无法解释的仓位状态使本轮停止。
 4. 按已有持仓优先、新开仓或全平后重开其次处理候选标的；同一优先级内按标的代码排序。每个标的使用全市场快照中对应的最新价。行情只调用一次不带 `symbol` 的 `/fapi/v2/ticker/price`（权重 2）；各标的更新时间可能不同，不读取 K 线或单独请求标记价格。
 5. 按交易所数量步长和最小名义价值生成订单；账户余额和保证金是否足够由 Binance 在提交时判断。
@@ -83,7 +83,7 @@ SQLite 保留执行闭环所需的记录：
 
 ## 6. 标的池与下单结果
 
-标的资格由 Binance `exchangeInfo` 实时定义：仅纳入 USDT 报价和保证金、`PERPETUAL`、`TRADING`、`underlyingType=COIN` 且 `underlyingSubType` 不含 `RWA` 的合约。新符合条件的合约在下一次成功刷新目录后自动纳入；失去资格的合约不再新开、补仓或重开，但已有仓位仍继续巡检和退出。
+标的资格由 Binance `exchangeInfo` 实时定义：仅纳入 USDT 报价和保证金、`PERPETUAL`、`TRADING`，且 `underlyingType` 为 `COIN` 或 `INDEX` 的合约。RWA 子类型纳入。新符合条件的合约在下一次成功刷新目录后自动纳入；失去资格的合约不再新开、补仓或重开，但已有仓位仍继续巡检和退出。
 
 本系统不做账户余额、维持保证金率或账户模式的开仓前审批。程序先持久化订单意图，再提交 Binance；交易所拒单时保留终态并记录拒绝原因，结果未知时保留订单状态并通过客户端订单 ID 查询，不能直接重复下单。
 

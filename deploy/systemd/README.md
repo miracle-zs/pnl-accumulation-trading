@@ -45,7 +45,7 @@
      /opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
    ```
 
-标的池从 Binance `exchangeInfo` 动态筛选：USDT 报价和保证金、`PERPETUAL`、`TRADING`、`underlyingType=COIN` 且 `underlyingSubType` 不包含 `RWA`。`validate-config` 只检查本地配置，不需要 Binance API 凭据。
+标的池从 Binance `exchangeInfo` 动态筛选：USDT 报价和保证金、`PERPETUAL`、`TRADING`，且 `underlyingType=COIN` 或 `INDEX`。`validate-config` 只检查本地配置，不需要 Binance API 凭据。
 
 预检通过后先停在这里，不要执行 `systemctl enable` 或 `systemctl start`。启动服务会连接主网并可能下单，须由项目负责人确认账户、现有持仓和自动筛选的标的范围后另行决定。
 

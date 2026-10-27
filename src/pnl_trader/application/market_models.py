@@ -61,7 +61,6 @@ class ExchangeInstrument:
     contract_type: str
     status: str
     underlying_type: str
-    underlying_sub_type: tuple[str, ...]
     rules: InstrumentRules | None
 
 

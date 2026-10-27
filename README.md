@@ -36,7 +36,7 @@ PNL_DATA_DIR=./var pnl-trader web
 python -m unittest discover -s tests -v
 ```
 
-交易运行入口连接 Binance USDⓈ-M Futures 主网，启动后可能提交真实市价单。标的池由 Binance `exchangeInfo` 自动筛选为活跃的 USDT 永续 `COIN` 合约并排除 `RWA` 子类型；符合条件的新合约会自动纳入。不要在未确认账户和风险参数时启动服务，也不要将密钥提交到仓库。
+交易运行入口连接 Binance USDⓈ-M Futures 主网，启动后可能提交真实市价单。标的池由 Binance `exchangeInfo` 自动筛选活跃的 USDT 永续 `COIN` 和 `INDEX` 合约；符合条件的新合约会自动纳入。不要在未确认账户和风险参数时启动服务，也不要将密钥提交到仓库。
 
 可选配置 `SERVERCHAN_SENDKEY` 接收整轮巡检失败提醒；不配置时只写服务日志，不影响交易服务启动。
 

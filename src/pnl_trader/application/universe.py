@@ -18,7 +18,7 @@ _DELISTING_STATUSES = frozenset({
 
 
 class UniverseCatalog:
-    """Select active crypto perpetuals from Binance's exchange metadata."""
+    """Select active COIN and INDEX perpetuals from Binance metadata."""
 
     def __init__(
         self,
@@ -61,8 +61,6 @@ class UniverseCatalog:
             return False
         if instrument.status != "TRADING":
             return False
-        if instrument.underlying_type != "COIN":
-            return False
-        if "RWA" in instrument.underlying_sub_type:
+        if instrument.underlying_type not in {"COIN", "INDEX"}:
             return False
         return True
