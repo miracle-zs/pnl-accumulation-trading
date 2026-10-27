@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse
@@ -25,6 +25,12 @@ def create_app(data_dir: Path | str) -> FastAPI:
     @app.get("/api/overview")
     def get_overview() -> dict[str, Any]:
         return service.get_overview()
+
+    @app.get("/api/equity")
+    def get_equity(
+        period: Literal["24h", "7d", "30d"] = "7d",
+    ) -> dict[str, Any]:
+        return service.get_equity_history(period)
 
     @app.get("/api/tier-distribution")
     def get_tier_distribution() -> dict[str, Any]:

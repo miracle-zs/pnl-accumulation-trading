@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import logging
 import time
+from collections import deque
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Mapping
 from urllib.parse import urlencode
@@ -39,7 +40,11 @@ from ...domain.models import TradeFillRecord, ZERO
 BINANCE_USDM_FUTURES_URL = "https://fapi.binance.com"
 BINANCE_RECV_WINDOW_MS = 5_000
 EXCHANGE_INFO_CACHE_TTL_MS = 15 * 60 * 1_000
-ORDER_SUBMISSION_INTERVAL_SECONDS = 0.2
+ORDER_SUBMISSION_LIMIT_10S = 299
+ORDER_SUBMISSION_LIMIT_1M = 1_199
+ORDER_SUBMISSION_WINDOW_10S_SECONDS = 10.0
+ORDER_SUBMISSION_WINDOW_1M_SECONDS = 60.0
+ORDER_WINDOW_WAKE_MARGIN_SECONDS = 0.01
 logger = logging.getLogger(__name__)
 
 
@@ -91,7 +96,8 @@ class BinanceFuturesGateway:
         self._api_secret = api_secret.encode("utf-8")
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._exchange_info_cache: tuple[int, tuple[ExchangeInstrument, ...]] | None = None
-        self._last_order_started_monotonic: float | None = None
+        self._orders_in_last_10_seconds: deque[float] = deque()
+        self._orders_in_last_minute: deque[float] = deque()
 
     async def set_leverage(self, symbol: str, leverage: int) -> int:
         """Set initial leverage and return Binance's confirmed setting."""
@@ -241,13 +247,20 @@ class BinanceFuturesGateway:
             )
         return tuple(positions)
 
+    async def get_account_equity(self) -> Decimal:
+        """Fetch Binance's total USDⓈ-M margin balance for dashboard history."""
+
+        payload = await self._request_json(
+            "GET",
+            "/fapi/v3/account",
+            signed=True,
+        )
+        if not isinstance(payload, dict):
+            raise BinanceProtocolError("account response must be an object")
+        return _decimal(payload.get("totalMarginBalance"), "totalMarginBalance")
+
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
-        if self._last_order_started_monotonic is not None:
-            elapsed = time.monotonic() - self._last_order_started_monotonic
-            delay = ORDER_SUBMISSION_INTERVAL_SECONDS - elapsed
-            if delay > 0:
-                await asyncio.sleep(delay)
-        self._last_order_started_monotonic = time.monotonic()
+        await self._reserve_order_submission()
 
         params = {
             "symbol": request.symbol,
@@ -293,6 +306,53 @@ class BinanceFuturesGateway:
                 detail="exchange returned a REJECTED order status",
             )
         return SubmissionResult(SubmissionCertainty.ACCEPTED, order=order)
+
+    async def _reserve_order_submission(self) -> None:
+        """Keep this account below both Binance new-order rate limits."""
+
+        while True:
+            now = time.monotonic()
+            while (
+                self._orders_in_last_10_seconds
+                and now - self._orders_in_last_10_seconds[0]
+                >= ORDER_SUBMISSION_WINDOW_10S_SECONDS
+            ):
+                self._orders_in_last_10_seconds.popleft()
+            while (
+                self._orders_in_last_minute
+                and now - self._orders_in_last_minute[0]
+                >= ORDER_SUBMISSION_WINDOW_1M_SECONDS
+            ):
+                self._orders_in_last_minute.popleft()
+
+            wait_seconds: list[float] = []
+            if len(self._orders_in_last_10_seconds) >= ORDER_SUBMISSION_LIMIT_10S:
+                wait_seconds.append(
+                    self._orders_in_last_10_seconds[0]
+                    + ORDER_SUBMISSION_WINDOW_10S_SECONDS
+                    - now
+                )
+            if len(self._orders_in_last_minute) >= ORDER_SUBMISSION_LIMIT_1M:
+                wait_seconds.append(
+                    self._orders_in_last_minute[0]
+                    + ORDER_SUBMISSION_WINDOW_1M_SECONDS
+                    - now
+                )
+
+            if not wait_seconds:
+                self._orders_in_last_10_seconds.append(now)
+                self._orders_in_last_minute.append(now)
+                return
+
+            delay = max(wait_seconds) + ORDER_WINDOW_WAKE_MARGIN_SECONDS
+            logger.info(
+                "Binance order rate limit reached; waiting %.2f seconds "
+                "(last_10s=%d, last_1m=%d)",
+                delay,
+                len(self._orders_in_last_10_seconds),
+                len(self._orders_in_last_minute),
+            )
+            await asyncio.sleep(delay)
 
     async def lookup_order(
         self,

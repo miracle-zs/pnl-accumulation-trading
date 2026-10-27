@@ -37,6 +37,13 @@ class StateStorePort(Protocol):
         self, symbol: str, *, updated_at_ms: int
     ) -> SymbolState: ...
 
+    def record_account_equity_snapshot(
+        self,
+        *,
+        captured_at_ms: int,
+        total_margin_balance: Decimal,
+    ) -> None: ...
+
     def create_order_intent(
         self,
         intent: OrderIntent,
@@ -48,6 +55,16 @@ class StateStorePort(Protocol):
         self,
         symbol: str | None = None,
     ) -> tuple[PersistedOrderIntent, ...]: ...
+
+    def list_full_closes_missing_fills(self) -> tuple[PersistedOrderIntent, ...]: ...
+
+    def confirm_full_close(
+        self, intent_id: str, *, expected: IntentStatus, filled_qty: Decimal, updated_at_ms: int
+    ) -> None: ...
+
+    def record_full_close_fills(
+        self, intent_id: str, fills: tuple[TradeFillRecord, ...]
+    ) -> None: ...
 
     def get_intent_status(self, intent_id: str) -> IntentStatus | None: ...
 
@@ -112,6 +129,10 @@ class ExchangeGatewayPort(Protocol):
 
 class PositionSnapshotPort(Protocol):
     async def get_position_snapshot(self) -> tuple[ExchangePosition, ...]: ...
+
+
+class AccountEquitySnapshotPort(Protocol):
+    async def get_account_equity(self) -> Decimal: ...
 
 
 class ExchangeInstrumentCatalogPort(Protocol):

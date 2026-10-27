@@ -35,7 +35,7 @@ class PeriodicReviewScheduler:
             self._run_review_slot,
             trigger="cron",
             minute="0,15,30,45",
-            second=5,
+            second=0,
             misfire_grace_time=60,
         )
         scheduler.start()

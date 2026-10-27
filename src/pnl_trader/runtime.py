@@ -141,12 +141,14 @@ async def run_application(config: RuntimeConfig) -> None:
                     store=store,
                     positions=exchange,
                     signals=universe,
+                    account_equity=exchange,
                 )
                 review_runs = ReviewRunCoordinator(
                     store=store,
                     execution=execution,
                     symbol_reviews=symbol_reviews,
                     batch_source=batch_source,
+                    account_equity=exchange,
                 )
 
                 stop_event = asyncio.Event()

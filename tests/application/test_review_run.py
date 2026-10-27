@@ -32,6 +32,7 @@ from pnl_trader.domain import (
     Tier,
     TradeFillRecord,
 )
+from pnl_trader.web.service import DashboardQueryService
 from tests.helpers import seed_buy_execution
 
 
@@ -94,6 +95,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result.candidate_count, 1)
                 self.assertEqual(counts.get("ERROR", 0), 0)
                 self.assertEqual(exchange.submitted_sides, ["SELL", "BUY"])
+                self.assertLess(exchange.events.index("submit BUY"), exchange.events.index("fills SELL"))
                 self.assertEqual(final_state.lifecycle, Lifecycle.OPEN)
                 self.assertEqual(final_state.tier, Tier.T1)
                 self.assertEqual(final_state.avg_entry_price, D("90"))
@@ -101,6 +103,81 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 store.close()
 
+    async def test_unavailable_close_fills_are_recovered_after_reopening_and_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "state.sqlite3"
+            store = SQLiteStateStore(database_path)
+            try:
+                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                t1 = seed_buy_execution(
+                    store, idle, action=Action.OPEN_T1, quantity=D("0.1"),
+                    price=D("10"), intent_id="seed-t1", timestamp_ms=200,
+                )
+                seed_buy_execution(
+                    store, t1, action=Action.ADD_T2, quantity=D("0.4"),
+                    price=D("50"), intent_id="seed-t2", timestamp_ms=300,
+                )
+                exchange = _FilledExchange()
+                exchange.close_fills_available = False
+                execution = ExecutionCoordinator(store=store, exchange=exchange)
+                reviews = ReviewRunCoordinator(
+                    store=store,
+                    execution=execution,
+                    symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
+                    batch_source=_OneSymbolBatchSource(),
+                )
+                with self.assertLogs("pnl_trader.application.execution", level="WARNING"):
+                    await reviews.run_slot(slot_start_ms=SLOT_START_MS)
+                self.assertEqual(exchange.submitted_sides, ["SELL", "BUY"])
+                self.assertEqual(store.load_symbol_state("BTCUSDT").tier, Tier.T1)
+                self.assertEqual(len(store.list_full_closes_missing_fills()), 1)
+                self.assertEqual(DashboardQueryService(database_path).get_overview()["pending_close_fill_count"], 1)
+            finally:
+                store.close()
+
+            store = SQLiteStateStore(database_path)
+            try:
+                exchange.close_fills_available = True
+                recovery = ExecutionCoordinator(store=store, exchange=exchange)
+                await recovery.recover_full_close_fills()
+                await recovery.recover_full_close_fills()
+                self.assertEqual(store.list_full_closes_missing_fills(), ())
+                self.assertEqual(store.load_symbol_state("BTCUSDT").tier, Tier.T1)
+                self.assertEqual(DashboardQueryService(database_path).get_overview()["pending_close_fill_count"], 0)
+            finally:
+                store.close()
+
+    async def test_unconfirmed_close_does_not_reopen(self) -> None:
+        for exchange_type, expected_status in (
+            (_PartialCloseExchange, "PARTIALLY_FILLED"),
+            (_UnknownCloseExchange, "UNKNOWN"),
+        ):
+            with self.subTest(status=expected_status), tempfile.TemporaryDirectory() as directory:
+                store = SQLiteStateStore(Path(directory) / "state.sqlite3")
+                try:
+                    idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                    t1 = seed_buy_execution(
+                        store, idle, action=Action.OPEN_T1, quantity=D("0.1"),
+                        price=D("10"), intent_id="seed-t1", timestamp_ms=200,
+                    )
+                    seed_buy_execution(
+                        store, t1, action=Action.ADD_T2, quantity=D("0.4"),
+                        price=D("50"), intent_id="seed-t2", timestamp_ms=300,
+                    )
+                    exchange = exchange_type()
+                    execution = ExecutionCoordinator(store=store, exchange=exchange)
+                    reviews = ReviewRunCoordinator(
+                        store=store,
+                        execution=execution,
+                        symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
+                        batch_source=_OneSymbolBatchSource(),
+                    )
+                    await reviews.run_slot(slot_start_ms=SLOT_START_MS)
+                    self.assertEqual(exchange.submitted_sides, ["SELL"])
+                    self.assertEqual(store.load_symbol_state("BTCUSDT").tier, Tier.T2)
+                    self.assertEqual(store.list_active_order_intents()[0].status.value, expected_status)
+                finally:
+                    store.close()
 
 class _OneSymbolBatchSource:
     async def load_review_batch(
@@ -122,6 +199,8 @@ class _OneSymbolBatchSource:
 class _FilledExchange:
     def __init__(self) -> None:
         self.submitted_sides: list[str] = []
+        self.events: list[str] = []
+        self.close_fills_available = True
         self._fills_by_exchange_order_id: dict[str, tuple[TradeFillRecord, ...]] = {}
         self._order_snapshots: dict[str, ExchangeOrderSnapshot] = {}
         self._rules = InstrumentRules(
@@ -156,6 +235,7 @@ class _FilledExchange:
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         self.submitted_sides.append(request.side)
+        self.events.append(f"submit {request.side}")
         index = len(self.submitted_sides)
         order_id = f"sim-order-{index}"
         fill = TradeFillRecord(
@@ -192,7 +272,31 @@ class _FilledExchange:
         order_snapshot: ExchangeOrderSnapshot,
         order_side: str,
     ) -> tuple[TradeFillRecord, ...]:
+        self.events.append(f"fills {order_side}")
+        if order_side == "SELL" and not self.close_fills_available:
+            raise RuntimeError("close fills are not available yet")
         return self._fills_by_exchange_order_id[order_snapshot.exchange_order_id]
+
+
+class _PartialCloseExchange(_FilledExchange):
+    async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
+        self.submitted_sides.append(request.side)
+        quantity = request.quantity / 2
+        return SubmissionResult(
+            SubmissionCertainty.ACCEPTED,
+            order=ExchangeOrderSnapshot(
+                status=ExchangeOrderStatus.PARTIALLY_FILLED,
+                executed_qty=quantity,
+                cumulative_quote=quantity * D("90"),
+                exchange_order_id="partial-close",
+            ),
+        )
+
+
+class _UnknownCloseExchange(_FilledExchange):
+    async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
+        self.submitted_sides.append(request.side)
+        return SubmissionResult(SubmissionCertainty.UNKNOWN, detail="submission timed out")
 
 
 if __name__ == "__main__":

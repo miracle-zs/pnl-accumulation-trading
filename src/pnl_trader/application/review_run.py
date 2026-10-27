@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import logging
+import time
+from typing import Callable
 
 from ..domain.models import FULL_CLOSE_ACTIONS, Lifecycle
 from .execution import ExecutionCoordinator, ExecutionResult
 from .execution_models import IntentStatus
-from .ports import ReviewBatchSourcePort, StateStorePort
+from .ports import AccountEquitySnapshotPort, ReviewBatchSourcePort, StateStorePort
 from .review_executor import SymbolReviewExecutor
 from .review_run_models import ReviewBatch
 
@@ -51,11 +53,15 @@ class ReviewRunCoordinator:
         execution: ExecutionCoordinator,
         symbol_reviews: SymbolReviewExecutor,
         batch_source: ReviewBatchSourcePort,
+        account_equity: AccountEquitySnapshotPort | None = None,
+        clock_ms: Callable[[], int] | None = None,
     ) -> None:
         self._store = store
         self._execution = execution
         self._symbol_reviews = symbol_reviews
         self._batch_source = batch_source
+        self._account_equity = account_equity
+        self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
 
     async def run_slot(
         self,
@@ -66,7 +72,25 @@ class ReviewRunCoordinator:
         batch = await self._batch_source.load_review_batch(
             slot_start_ms,
         )
-        return await self._run_batch(batch)
+        result = await self._run_batch(batch)
+        await self._execution.recover_full_close_fills()
+        await self._record_account_equity_snapshot()
+        return result
+
+    async def _record_account_equity_snapshot(self) -> None:
+        if self._account_equity is None:
+            return
+        try:
+            total_margin_balance = await self._account_equity.get_account_equity()
+            self._store.record_account_equity_snapshot(
+                captured_at_ms=self._clock_ms(),
+                total_margin_balance=total_margin_balance,
+            )
+        except Exception as exc:
+            logger.warning(
+                "account equity snapshot unavailable; review finished: %s",
+                type(exc).__name__,
+            )
 
     async def _run_batch(self, batch: ReviewBatch) -> ReviewRunResult:
         counts: Counter[str] = Counter()

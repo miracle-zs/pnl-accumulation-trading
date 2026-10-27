@@ -5,8 +5,10 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+import time
 from typing import Any
 
+from ..domain.models import FULL_CLOSE_ACTIONS
 from ..domain.policy import (
     DCA_DROP,
     T1_TAKE_PROFIT,
@@ -26,6 +28,13 @@ def _get_readonly_connection(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+_EQUITY_PERIOD_MS = {
+    "24h": 24 * 60 * 60 * 1_000,
+    "7d": 7 * 24 * 60 * 60 * 1_000,
+    "30d": 30 * 24 * 60 * 60 * 1_000,
+}
+
+
 class DashboardQueryService:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
@@ -38,6 +47,7 @@ class DashboardQueryService:
                 "realized_gross": 0.0,
                 "total_commission": 0.0,
                 "other_fee_count": 0,
+                "pending_close_fill_count": 0,
                 "fill_count": 0,
                 "active_positions_count": 0,
                 "last_fill_at_ms": None,
@@ -71,6 +81,16 @@ class DashboardQueryService:
             cur.execute("SELECT COUNT(*) FROM symbol_states WHERE lifecycle = 'OPEN'")
             active_count = cur.fetchone()[0]
 
+            actions = tuple(action.value for action in FULL_CLOSE_ACTIONS)
+            placeholders = ", ".join("?" for _ in actions)
+            cur.execute(
+                f"""SELECT COUNT(*) FROM order_intents
+                    WHERE status = 'FILLED' AND action IN ({placeholders})
+                      AND intent_id NOT IN (SELECT intent_id FROM trade_fills)""",
+                actions,
+            )
+            pending_close_fill_count = cur.fetchone()[0]
+
             realized_net = (
                 realized_gross - commission_usdt if other_fee_count == 0 else None
             )
@@ -83,10 +103,72 @@ class DashboardQueryService:
                 "realized_gross": round(realized_gross, 2),
                 "total_commission": round(commission_usdt, 2),
                 "other_fee_count": other_fee_count,
+                "pending_close_fill_count": pending_close_fill_count,
                 "fill_count": fill_count,
                 "active_positions_count": active_count,
                 "last_fill_at_ms": last_fill_at_ms,
             }
+
+    def get_equity_history(self, period: str) -> dict[str, Any]:
+        period_ms = _EQUITY_PERIOD_MS[period]
+        if not self._db_path.is_file():
+            return {
+                "period": period,
+                "points": [],
+                "latest": None,
+                "change": None,
+                "change_pct": None,
+            }
+
+        now_ms = time.time_ns() // 1_000_000
+        with closing(_get_readonly_connection(self._db_path)) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT captured_at_ms, total_margin_balance
+                   FROM account_equity_snapshots
+                   WHERE captured_at_ms >= ?
+                   ORDER BY captured_at_ms""",
+                (now_ms - period_ms,),
+            )
+            rows = cur.fetchall()
+            cur.execute(
+                """SELECT captured_at_ms, total_margin_balance
+                   FROM account_equity_snapshots
+                   ORDER BY captured_at_ms DESC
+                   LIMIT 1"""
+            )
+            latest_row = cur.fetchone()
+
+        points = [
+            {
+                "captured_at_ms": row["captured_at_ms"],
+                "equity": float(row["total_margin_balance"]),
+            }
+            for row in rows
+        ]
+        change = None
+        change_pct = None
+        if len(points) >= 2:
+            start_equity = points[0]["equity"]
+            end_equity = points[-1]["equity"]
+            change = round(end_equity - start_equity, 2)
+            if start_equity != 0:
+                change_pct = round(change / start_equity * 100, 2)
+
+        return {
+            "period": period,
+            "points": points,
+            "latest": (
+                {
+                    "captured_at_ms": latest_row["captured_at_ms"],
+                    "equity": float(latest_row["total_margin_balance"]),
+                }
+                if latest_row is not None
+                else None
+            ),
+            "change": change,
+            "change_pct": change_pct,
+        }
 
     def get_tier_distribution(self) -> dict[str, Any]:
         if not self._db_path.is_file():

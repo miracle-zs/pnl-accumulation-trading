@@ -52,6 +52,12 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 PRIMARY KEY (symbol, exchange_trade_id)
             );
 
+            CREATE TABLE order_intents (
+                intent_id TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL
+            );
+
             INSERT INTO symbol_states VALUES
             ('BTCUSDT', 1, 'OPEN', '0.001', '60000.0', '0.001', '60000.0', 0, 1700000000000),
             ('ETHUSDT', 2, 'OPEN', '0.05', '3000.0', '0.05', '3000.0', 0, 1700000000000),
@@ -85,6 +91,7 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data["fill_count"], 1)
             self.assertAlmostEqual(data["total_commission"], 0.03)
             self.assertEqual(data["active_positions_count"], 3)
+            self.assertEqual(data["pending_close_fill_count"], 0)
 
             # 3. Test tier distribution API
             resp = await client.get("/api/tier-distribution")

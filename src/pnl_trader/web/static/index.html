@@ -18,6 +18,8 @@
       background-color: var(--bg);
       color: var(--text-main);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      caret-color: #60a5fa;
     }
     .custom-scrollbar::-webkit-scrollbar {
       width: 6px;
@@ -35,6 +37,45 @@
     .badge-t21 { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
     .badge-t3 { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
     .badge-t31 { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
+    ::selection { background: #2563eb; color: #fff; }
+    button:focus-visible, input:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+    .equity-panel {
+      background: #111726;
+      border: 1px solid #263247;
+      border-radius: 16px;
+      padding: 20px;
+    }
+    header h1, .equity-panel h2 { font-size: 1.25rem; line-height: 1.25; }
+    .equity-number { font-size: 3rem; line-height: 1.1; }
+    .equity-range-button {
+      min-width: 58px;
+      color: #aab7ca;
+      border: 1px solid transparent;
+      transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+    }
+    .equity-range-button:disabled { cursor: not-allowed; color: #64748b; }
+    .equity-range-button:hover { color: #fff; background: #1e293b; }
+    .equity-range-button[aria-pressed="true"] {
+      color: #f8fafc;
+      background: #1e293b;
+      border-color: #3b4b63;
+    }
+    .filter-button {
+      color: #94a3b8;
+      border-bottom: 2px solid transparent;
+      transition: color 140ms ease, border-color 140ms ease;
+    }
+    .filter-button:hover { color: #fff; }
+    .filter-button[aria-pressed="true"] { color: #f8fafc; border-color: #60a5fa; }
+    .equity-chart-shell { height: 270px; }
+    #equity-chart { display: block; width: 100%; height: 100%; overflow: visible; }
+    .chart-grid { stroke: #253147; stroke-width: 1; }
+    .chart-axis-label { fill: #94a3b8; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .chart-empty-label { fill: #aab7ca; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    @media (max-width: 640px) {
+      .equity-chart-shell { height: 220px; }
+      .equity-number { font-size: clamp(2.35rem, 11vw, 3.4rem); }
+    }
   </style>
 </head>
 <body class="antialiased min-h-screen p-4 md:p-6 lg:p-8">
@@ -43,11 +84,11 @@
   <header class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 mb-6 border-b border-[#1e293b] gap-4">
     <div class="flex items-center gap-3">
       <div class="h-10 w-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold text-lg">
-        ⚡
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13.2 2.8 5.5 13h5.3l-.8 8.2L18.5 11h-5.4l.1-8.2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
       </div>
       <div>
         <div class="flex items-center gap-2">
-          <h1 class="text-xl font-bold tracking-tight text-white">PNL Periodic Review Trader</h1>
+      <h1 class="font-bold tracking-tight text-white">PNL Periodic Review Trader</h1>
           <span id="system-status-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30">
             只读本地数据 · 交易服务状态未知
           </span>
@@ -68,6 +109,45 @@
       </button>
     </div>
   </header>
+
+  <section class="equity-panel mb-6" aria-labelledby="equity-heading">
+    <div class="flex flex-col gap-5">
+      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h2 id="equity-heading" class="font-semibold tracking-tight text-white">账户权益走势</h2>
+          <p class="text-xs sm:text-sm text-slate-400 mt-1">Binance totalMarginBalance · 每轮 15 分钟采样 · 单资产模式以 USDT 计，多资产模式以 USD 计</p>
+        </div>
+        <div class="inline-flex w-fit gap-1" role="group" aria-label="权益曲线时间范围">
+          <button class="equity-range-button rounded-md px-3 py-1.5 text-xs font-medium" type="button" data-period="24h" aria-pressed="false" onclick="selectEquityPeriod('24h')">24 小时</button>
+          <button class="equity-range-button rounded-md px-3 py-1.5 text-xs font-medium" type="button" data-period="7d" aria-pressed="true" onclick="selectEquityPeriod('7d')">7 天</button>
+          <button class="equity-range-button rounded-md px-3 py-1.5 text-xs font-medium" type="button" data-period="30d" aria-pressed="false" onclick="selectEquityPeriod('30d')">30 天</button>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <div id="equity-value" class="equity-number text-5xl font-semibold tracking-tight text-white tabular-nums" aria-live="polite">—</div>
+          <div class="text-xs text-slate-400 mt-1">最近一次账户权益快照</div>
+        </div>
+        <div class="sm:text-right">
+          <div class="text-[11px] uppercase tracking-[0.12em] text-slate-400">区间变化</div>
+          <div id="equity-change" class="text-lg font-semibold text-slate-200 tabular-nums mt-1">等待数据</div>
+          <div id="equity-sampled-at" class="text-xs text-slate-400 mt-1">等待首次采样</div>
+        </div>
+      </div>
+
+      <div class="equity-chart-shell border-t border-[#263247] pt-4">
+        <svg id="equity-chart" viewBox="0 0 920 280" preserveAspectRatio="none" role="img" aria-label="账户权益历史曲线">
+          <text x="50%" y="50%" text-anchor="middle" class="chart-empty-label">正在读取本地权益记录…</text>
+        </svg>
+      </div>
+
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-t border-[#263247] pt-3 text-[11px] text-slate-400">
+        <span id="equity-range-caption">7 天 · 从首个采样点计算区间变化</span>
+        <span>账户整体变化，包含未实现盈亏与资金转入转出 · 仅显示采样值，不是实时查询</span>
+      </div>
+    </div>
+  </section>
 
   <!-- Key Metrics Row (4 Cards) -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -132,28 +212,28 @@
         <p class="text-xs text-slate-400 mb-4">本地标的状态在各 Tier 的分布</p>
 
         <div class="space-y-2 mt-2 text-xs">
-          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+          <div class="flex items-center justify-between py-2 border-b border-[#263247]">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
               <span class="text-slate-300">T1 底仓</span>
             </div>
             <div class="font-mono text-slate-200" id="tier-cnt-t1">0 币</div>
           </div>
-          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+          <div class="flex items-center justify-between py-2 border-b border-[#263247]">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
               <span class="text-slate-300">T2 普通/已分批</span>
             </div>
             <div class="font-mono text-slate-200" id="tier-cnt-t2">0 币</div>
           </div>
-          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+          <div class="flex items-center justify-between py-2 border-b border-[#263247]">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
               <span class="text-slate-300">T3 深度承压</span>
             </div>
             <div class="font-mono text-slate-200" id="tier-cnt-t3">0 币</div>
           </div>
-          <div class="flex items-center justify-between p-2 rounded bg-[#161f33]">
+          <div class="flex items-center justify-between py-2">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
               <span class="text-slate-300">T3.1 / T3.2 已分批提利</span>
@@ -180,11 +260,11 @@
 
       <!-- Filters & Search -->
       <div class="flex items-center gap-2.5 flex-wrap">
-        <div class="inline-flex rounded-lg bg-[#090d16] p-0.5 border border-[#1e293b] text-xs">
-          <button onclick="filterTier('ALL')" id="filter-all" class="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium">全部</button>
-          <button onclick="filterTier('T1')" id="filter-t1" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T1</button>
-          <button onclick="filterTier('T2')" id="filter-t2" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T2</button>
-          <button onclick="filterTier('T3')" id="filter-t3" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T3</button>
+        <div class="inline-flex items-center gap-3 text-xs">
+          <button onclick="filterTier('ALL')" id="filter-all" aria-pressed="true" class="filter-button px-1 py-1 font-medium">全部</button>
+          <button onclick="filterTier('T1')" id="filter-t1" aria-pressed="false" class="filter-button px-1 py-1 font-medium">T1</button>
+          <button onclick="filterTier('T2')" id="filter-t2" aria-pressed="false" class="filter-button px-1 py-1 font-medium">T2</button>
+          <button onclick="filterTier('T3')" id="filter-t3" aria-pressed="false" class="filter-button px-1 py-1 font-medium">T3</button>
         </div>
 
         <div class="relative">
@@ -230,8 +310,8 @@
       <span class="text-xs text-slate-500 font-mono">本地成交记录</span>
     </div>
 
-    <div id="fills-feed-container" class="grid grid-cols-1 md:grid-cols-3 gap-3">
-      <div class="p-3 rounded-lg bg-[#090d16] border border-[#1e293b] text-slate-500 text-xs">暂无成交流水记录</div>
+    <div id="fills-feed-container" class="grid grid-cols-1 md:grid-cols-2 gap-x-8">
+      <div class="py-3 text-slate-400 text-xs">暂无成交流水记录</div>
     </div>
   </div>
 
@@ -240,8 +320,7 @@
     function updateCountdown() {
       const nowMs = Date.now();
       const intervalMs = 15 * 60 * 1000;
-      let nextReviewMs = Math.ceil(nowMs / intervalMs) * intervalMs + 5000;
-      if (nextReviewMs <= nowMs) nextReviewMs += intervalMs;
+      const nextReviewMs = (Math.floor(nowMs / intervalMs) + 1) * intervalMs;
       const remainingSeconds = Math.ceil((nextReviewMs - nowMs) / 1000);
       const remainingMins = Math.floor(remainingSeconds / 60);
       const remainingSecs = remainingSeconds % 60;
@@ -253,6 +332,7 @@
 
     let allPositions = [];
     let currentTierFilter = 'ALL';
+    let currentEquityPeriod = '7d';
 
     function formatMoney(value) {
       if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
@@ -282,8 +362,127 @@
       })[char]);
     }
 
+    function formatEquity(value) {
+      if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+      const amount = Number(value);
+      return `${amount < 0 ? '-$' : '$'}${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    function formatChartTime(timestamp, period) {
+      const date = new Date(timestamp);
+      return period === '24h'
+        ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+
+    function renderEquityChart(points, period) {
+      const svg = document.getElementById('equity-chart');
+      const left = 84;
+      const right = 908;
+      const top = 22;
+      const bottom = 238;
+      if (!points.length) {
+        svg.innerHTML = `
+          <line x1="${left}" y1="${top}" x2="${right}" y2="${top}" class="chart-grid" />
+          <line x1="${left}" y1="${(top + bottom) / 2}" x2="${right}" y2="${(top + bottom) / 2}" class="chart-grid" />
+          <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" class="chart-grid" />
+          <text x="${(left + right) / 2}" y="132" text-anchor="middle" class="chart-empty-label">当前区间暂无权益记录</text>
+          <text x="${(left + right) / 2}" y="154" text-anchor="middle" class="chart-axis-label">数据会从本版本首次成功采样后开始积累</text>
+        `;
+        return;
+      }
+
+      const values = points.map(point => Number(point.equity));
+      const low = Math.min(...values);
+      const high = Math.max(...values);
+      const spread = high - low;
+      const padding = spread === 0 ? Math.max(1, Math.abs(high) * 0.005) : spread * 0.14;
+      const min = low - padding;
+      const max = high + padding;
+      const xAt = index => points.length === 1
+        ? (left + right) / 2
+        : left + (right - left) * index / (points.length - 1);
+      const yAt = value => bottom - (value - min) / (max - min) * (bottom - top);
+      const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xAt(index).toFixed(2)} ${yAt(Number(point.equity)).toFixed(2)}`).join(' ');
+      const area = `${path} L ${xAt(points.length - 1).toFixed(2)} ${bottom} L ${xAt(0).toFixed(2)} ${bottom} Z`;
+      const lastIndex = points.length - 1;
+      const lastX = xAt(lastIndex);
+      const lastY = yAt(Number(points[lastIndex].equity));
+      const ticks = [0, 0.5, 1].map(fraction => {
+        const value = max - (max - min) * fraction;
+        const y = top + (bottom - top) * fraction;
+        return `<line x1="${left}" y1="${y}" x2="${right}" y2="${y}" class="chart-grid" />
+          <text x="${left - 12}" y="${y + 4}" text-anchor="end" class="chart-axis-label">${formatEquity(value)}</text>`;
+      }).join('');
+      const firstTime = formatChartTime(points[0].captured_at_ms, period);
+      const lastTime = formatChartTime(points[lastIndex].captured_at_ms, period);
+      svg.innerHTML = `
+        <defs>
+          <linearGradient id="equity-area-fill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="#34d399" stop-opacity="0.22" />
+            <stop offset="100%" stop-color="#34d399" stop-opacity="0.01" />
+          </linearGradient>
+        </defs>
+        ${ticks}
+        <path d="${area}" fill="url(#equity-area-fill)" />
+        <path d="${path}" fill="none" stroke="#34d399" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />
+        <line x1="${lastX}" y1="${top}" x2="${lastX}" y2="${bottom}" stroke="#34d399" stroke-opacity="0.35" stroke-dasharray="3 5" vector-effect="non-scaling-stroke" />
+        <circle cx="${lastX}" cy="${lastY}" r="4.5" fill="#090d16" stroke="#6ee7b7" stroke-width="2.5" vector-effect="non-scaling-stroke" />
+        <text x="${left}" y="266" class="chart-axis-label">${firstTime}</text>
+        <text x="${right}" y="266" text-anchor="end" class="chart-axis-label">${lastTime}</text>
+      `;
+    }
+
+    async function fetchEquityHistory(period = currentEquityPeriod) {
+      const value = document.getElementById('equity-value');
+      const change = document.getElementById('equity-change');
+      const sampledAt = document.getElementById('equity-sampled-at');
+      const labels = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
+      currentEquityPeriod = period;
+      document.querySelectorAll('.equity-range-button').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.period === period));
+      });
+      document.getElementById('equity-range-caption').textContent = `${labels[period]} · 从首个采样点计算区间变化`;
+      document.getElementById('equity-chart').innerHTML = '<text x="50%" y="50%" text-anchor="middle" class="chart-empty-label">正在读取本地权益记录…</text>';
+
+      try {
+        const response = await fetch(`api/equity?period=${period}`);
+        if (!response.ok) throw new Error('equity history API returned an error');
+        const history = await response.json();
+        const latest = history.latest;
+        value.textContent = latest ? formatEquity(latest.equity) : '—';
+        sampledAt.textContent = latest
+          ? `采样于 ${new Date(latest.captured_at_ms).toLocaleString()}`
+          : '尚无账户权益采样';
+        if (history.change === null) {
+          change.textContent = '样本不足，暂不可计算';
+          change.className = 'text-sm font-medium text-slate-300 mt-1';
+        } else {
+          const direction = history.change > 0 ? 'text-emerald-300' : history.change < 0 ? 'text-rose-300' : 'text-slate-200';
+          const sign = history.change > 0 ? '+' : '';
+          const percentSign = history.change_pct > 0 ? '+' : '';
+          const percentage = history.change_pct === null ? '' : ` (${percentSign}${history.change_pct.toFixed(2)}%)`;
+          change.textContent = `${sign}${formatEquity(history.change)}${percentage}`;
+          change.className = `text-lg font-semibold ${direction} tabular-nums mt-1`;
+        }
+        renderEquityChart(history.points, period);
+      } catch (err) {
+        console.error('Failed to load account equity history:', err);
+        value.textContent = '—';
+        change.textContent = '权益曲线读取失败';
+        change.className = 'text-sm font-medium text-rose-300 mt-1';
+        sampledAt.textContent = '请刷新页面重试';
+        document.getElementById('equity-chart').innerHTML = '<text x="50%" y="50%" text-anchor="middle" class="chart-empty-label">本地权益历史读取失败，请刷新重试</text>';
+      }
+    }
+
+    function selectEquityPeriod(period) {
+      fetchEquityHistory(period);
+    }
+
     async function fetchData() {
       try {
+        const equityRequest = fetchEquityHistory(currentEquityPeriod);
         const [overviewRes, tierRes, posRes, fillsRes] = await Promise.all([
           fetch('api/overview'),
           fetch('api/tier-distribution'),
@@ -299,9 +498,9 @@
         document.getElementById('kpi-fill-count').textContent = `${ov.fill_count} 笔`;
         document.getElementById('kpi-fees').textContent = formatFee(ov.total_commission);
         document.getElementById('kpi-active-symbols').textContent = ov.active_positions_count;
-        document.getElementById('fee-warning').textContent = ov.other_fee_count > 0
-          ? '含未折算的非 USDT 费用'
-          : '已扣记录中的 USDT 手续费';
+        document.getElementById('fee-warning').textContent = ov.pending_close_fill_count > 0
+          ? `${ov.pending_close_fill_count} 笔平仓明细待补录`
+          : ov.other_fee_count > 0 ? '含未折算的非 USDT 费用' : '已扣记录中的 USDT 手续费';
         document.getElementById('last-fill-time').textContent = ov.last_fill_at_ms
           ? new Date(ov.last_fill_at_ms).toLocaleString()
           : '暂无成交';
@@ -321,6 +520,7 @@
 
         const fills = await fillsRes.json();
         renderFills(fills);
+        await equityRequest;
       } catch (err) {
         console.error("Failed to load dashboard data:", err);
         document.getElementById('system-status-badge').textContent = '数据读取失败 · 页面数值可能过时';
@@ -377,7 +577,7 @@
     function renderFills(fills) {
       const container = document.getElementById('fills-feed-container');
       if (!fills || fills.length === 0) {
-        container.innerHTML = '<div class="p-3 rounded-lg bg-[#090d16] border border-[#1e293b] text-slate-500 text-xs">暂无成交流水记录</div>';
+        container.innerHTML = '<div class="py-3 text-slate-400 text-xs">暂无成交流水记录</div>';
         return;
       }
 
@@ -386,8 +586,8 @@
         const colorClass = isPositive ? 'text-emerald-400' : 'text-purple-400';
         const sideClass = f.side === 'BUY' ? 'text-blue-300 bg-blue-500/10' : 'text-amber-300 bg-amber-500/10';
         return `
-          <div class="p-3 rounded-lg bg-[#090d16] border border-[#1e293b] flex items-start gap-3">
-            <div class="p-1.5 rounded ${sideClass} text-xs font-bold font-mono">${escapeHtml(f.side)}</div>
+          <div class="py-3 border-b border-[#263247] flex items-start gap-3">
+            <div class="p-1.5 rounded ${sideClass} text-xs font-bold font-mono shrink-0">${escapeHtml(f.side)}</div>
             <div class="text-xs">
               <div class="flex items-center gap-2">
                 <span class="font-bold text-white font-sans">${escapeHtml(f.symbol)}</span>
@@ -406,11 +606,8 @@
       ['all', 't1', 't2', 't3'].forEach(k => {
         const btn = document.getElementById('filter-' + k);
         if (btn) {
-          if (k.toUpperCase() === tier || (k === 'all' && tier === 'ALL')) {
-            btn.className = 'px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium';
-          } else {
-            btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white';
-          }
+          const selected = k.toUpperCase() === tier || (k === 'all' && tier === 'ALL');
+          btn.setAttribute('aria-pressed', String(selected));
         }
       });
       renderPositions();

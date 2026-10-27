@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Callable, cast
 
-from ..domain.models import BUY_ACTIONS, ExecutionReceipt, TradeFillRecord, ZERO
+from ..domain.models import BUY_ACTIONS, FULL_CLOSE_ACTIONS, ExecutionReceipt, TradeFillRecord, ZERO
 from .execution_models import (
     ExchangeOrderSnapshot,
     ExchangeOrderStatus,
@@ -19,6 +19,7 @@ from .execution_models import (
     SubmissionCertainty,
 )
 from .ports import ExchangeGatewayPort, StateStorePort
+from .store_errors import IntentConflict
 
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,33 @@ class ExecutionCoordinator:
         for record in self._store.list_active_order_intents():
             await self._recover_record(record)
 
+    async def recover_full_close_fills(self) -> None:
+        """Backfill trade details after confirmed full closes and reopening."""
+
+        for record in self._store.list_full_closes_missing_fills():
+            try:
+                order = await self._exchange.lookup_order(
+                    record.intent.symbol, record.intent.intent_id
+                )
+                if (
+                    order is None
+                    or order.status is not ExchangeOrderStatus.FILLED
+                    or order.executed_qty != record.requested_qty
+                ):
+                    raise RuntimeError("confirmed close order could not be verified")
+                fills = await self._exchange.list_order_fills(
+                    record.intent.symbol, order, "SELL"
+                )
+                _validate_order_fills(order, fills)
+                self._store.record_full_close_fills(record.intent.intent_id, fills)
+            except Exception as exc:
+                logger.warning(
+                    "full-close fills still unavailable: symbol=%s intent_id=%s error=%s",
+                    record.intent.symbol,
+                    record.intent.intent_id,
+                    type(exc).__name__,
+                )
+
     async def _recover_record(self, record: PersistedOrderIntent) -> None:
         if record.status is IntentStatus.PREPARED:
             return
@@ -200,6 +228,20 @@ class ExecutionCoordinator:
                 terminal_status=terminal_status,
             )
 
+        if (
+            intent.action in FULL_CLOSE_ACTIONS
+            and order.status is ExchangeOrderStatus.FILLED
+            and order.executed_qty == requested_qty
+            and self._store.load_symbol_state(intent.symbol).qty == order.executed_qty
+        ):
+            self._store.confirm_full_close(
+                intent.intent_id,
+                expected=expected_status,
+                filled_qty=order.executed_qty,
+                updated_at_ms=self._clock_ms(),
+            )
+            return ExecutionResult(intent_id=intent.intent_id, status=IntentStatus.FILLED)
+
         try:
             fills = await self._exchange.list_order_fills(
                 intent.symbol,
@@ -214,6 +256,7 @@ class ExecutionCoordinator:
                 detail=f"terminal order fills are not yet available ({type(exc).__name__})",
             )
 
+        _validate_order_fills(order, fills)
         receipt = ExecutionReceipt(
             action=intent.action,
             filled_qty=order.executed_qty,
@@ -277,6 +320,18 @@ class ExecutionCoordinator:
             expected=expected,
             target=IntentStatus.UNKNOWN,
         )
+
+
+def _validate_order_fills(
+    order: ExchangeOrderSnapshot, fills: tuple[TradeFillRecord, ...]
+) -> None:
+    quantity = sum((fill.qty for fill in fills), ZERO)
+    quote = sum((fill.price * fill.qty for fill in fills), ZERO)
+    if quantity != order.executed_qty or (
+        order.cumulative_quote is not None and quote != order.cumulative_quote
+    ):
+        raise IntentConflict("trade records do not match the exchange order")
+
 
 _TERMINAL_STATUS_BY_EXCHANGE = {
     ExchangeOrderStatus.FILLED: IntentStatus.FILLED,

@@ -21,6 +21,7 @@ from ...domain.models import (
     Action,
     BUY_ACTIONS,
     ExecutionReceipt,
+    FULL_CLOSE_ACTIONS,
     InvalidExecution,
     Lifecycle,
     SymbolState,
@@ -31,7 +32,13 @@ from ...domain.models import (
 from ...domain.transitions import apply_confirmed_execution, validate_execution_intent
 
 
-_SCHEMA_VERSION = 19
+_SCHEMA_VERSION = 20
+_ACCOUNT_EQUITY_SCHEMA = """
+CREATE TABLE account_equity_snapshots (
+    captured_at_ms INTEGER PRIMARY KEY,
+    total_margin_balance TEXT NOT NULL
+)
+"""
 _SCHEMA = """
 CREATE TABLE symbol_states (
     symbol TEXT NOT NULL,
@@ -75,6 +82,11 @@ CREATE TABLE trade_fills (
 );
 
 CREATE INDEX trade_fills_by_time ON trade_fills(traded_at_ms);
+
+CREATE TABLE account_equity_snapshots (
+    captured_at_ms INTEGER PRIMARY KEY,
+    total_margin_balance TEXT NOT NULL
+);
 
 """
 
@@ -141,6 +153,11 @@ class SQLiteStateStore:
         schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
         if schema_version == _SCHEMA_VERSION:
             return
+        if schema_version == 19:
+            with self._transaction() as connection:
+                connection.execute(_ACCOUNT_EQUITY_SCHEMA)
+                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+            return
         if schema_version != 0:
             raise RuntimeError(f"unsupported database schema version: {schema_version}")
         has_tables = self._connection.execute(
@@ -171,6 +188,20 @@ class SQLiteStateStore:
             "SELECT * FROM symbol_states ORDER BY symbol"
         ).fetchall()
         return tuple(self._symbol_state_from_row(row) for row in rows)
+
+    def record_account_equity_snapshot(
+        self,
+        *,
+        captured_at_ms: int,
+        total_margin_balance: Decimal,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO account_equity_snapshots (
+                       captured_at_ms, total_margin_balance
+                   ) VALUES (?, ?)""",
+                (captured_at_ms, str(total_margin_balance)),
+            )
 
     def ensure_idle_symbol_state(
         self,
@@ -347,6 +378,93 @@ class SQLiteStateStore:
                 )
             )
         return tuple(result)
+
+    def list_full_closes_missing_fills(self) -> tuple[PersistedOrderIntent, ...]:
+        actions = tuple(action.value for action in FULL_CLOSE_ACTIONS)
+        placeholders = ", ".join("?" for _ in actions)
+        rows = self._connection.execute(
+            f"""SELECT * FROM order_intents AS i
+                WHERE status = 'FILLED' AND action IN ({placeholders})
+                  AND i.intent_id NOT IN (SELECT intent_id FROM trade_fills)
+                ORDER BY created_at_ms, intent_id""",
+            actions,
+        ).fetchall()
+        return tuple(
+            PersistedOrderIntent(
+                intent=self._intent_from_row(row),
+                status=IntentStatus.FILLED,
+                requested_qty=Decimal(row["requested_qty"]),
+            )
+            for row in rows
+        )
+
+    def confirm_full_close(
+        self, intent_id: str, *, expected: IntentStatus, filled_qty: Decimal, updated_at_ms: int
+    ) -> None:
+        """Record a confirmed flat position before the trade ledger is available."""
+
+        with self._transaction() as connection:
+            intent = connection.execute(
+                "SELECT * FROM order_intents WHERE intent_id = ?", (intent_id,)
+            ).fetchone()
+            if intent is None or intent["status"] != expected.value:
+                raise IntentConflict("intent is missing or has changed status")
+            parsed = self._intent_from_row(intent)
+            if parsed.action not in FULL_CLOSE_ACTIONS or intent["requested_qty"] is None:
+                raise IntentConflict("confirmed close requires a full-close order attempt")
+            state_row = connection.execute(
+                "SELECT * FROM symbol_states WHERE symbol = ?", (parsed.symbol,)
+            ).fetchone()
+            if state_row is None:
+                raise IntentConflict("symbol state is missing for the execution")
+            state = self._symbol_state_from_row(state_row)
+            if filled_qty != Decimal(intent["requested_qty"]) or filled_qty != state.qty:
+                raise IntentConflict("confirmed close does not match the entire position")
+            try:
+                validate_execution_intent(state, parsed.action, parsed.target_cumulative_sold_qty)
+            except InvalidExecution as exc:
+                raise IntentConflict(str(exc)) from exc
+            connection.execute(
+                """UPDATE symbol_states SET tier = 0, lifecycle = 'REOPEN_PENDING',
+                       qty = '0', avg_entry_price = '0', tier_entry_qty = '0',
+                       tier_anchor_price = '0', completed_batches = 0, updated_at_ms = ?
+                   WHERE symbol = ?""",
+                (updated_at_ms, parsed.symbol),
+            )
+            connection.execute(
+                "UPDATE order_intents SET status = 'FILLED' WHERE intent_id = ?",
+                (intent_id,),
+            )
+
+    def record_full_close_fills(
+        self, intent_id: str, fills: tuple[TradeFillRecord, ...]
+    ) -> None:
+        """Add the actual fills for an already-confirmed full close."""
+
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM order_intents WHERE intent_id = ?", (intent_id,)
+            ).fetchone()
+            if row is None or row["status"] != "FILLED" or Action(row["action"]) not in FULL_CLOSE_ACTIONS:
+                raise IntentConflict("fill record requires a confirmed full close")
+            if not fills or any(fill.symbol != row["symbol"] or fill.side != "SELL" for fill in fills):
+                raise IntentConflict("full-close fills do not match the order")
+            if sum((fill.qty for fill in fills), ZERO) != Decimal(row["requested_qty"]):
+                raise IntentConflict("full-close fills do not match the requested quantity")
+            if connection.execute(
+                "SELECT 1 FROM trade_fills WHERE intent_id = ? LIMIT 1", (intent_id,)
+            ).fetchone() is not None:
+                raise IntentConflict("full-close fills have already been recorded")
+            for fill in fills:
+                connection.execute(
+                    """INSERT INTO trade_fills (
+                           symbol, exchange_trade_id, side, price, qty, realized_pnl,
+                           commission, commission_asset, traded_at_ms, intent_id
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (fill.symbol, fill.exchange_trade_id, fill.side, str(fill.price),
+                     str(fill.qty), str(fill.realized_pnl), str(fill.commission),
+                     fill.commission_asset, fill.traded_at_ms, intent_id),
+                )
 
     def create_order_attempt(self, intent_id: str, *, requested_qty: Decimal) -> None:
         """Persist the attempt before submitting the order."""
