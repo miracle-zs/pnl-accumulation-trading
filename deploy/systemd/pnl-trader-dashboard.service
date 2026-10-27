@@ -1,0 +1,20 @@
+[Unit]
+Description=Read-only PNL trading dashboard
+After=network.target
+
+[Service]
+Type=exec
+User=pnl-trader
+Group=pnl-trader
+WorkingDirectory=/opt/pnl-accumulation-trading
+ExecStart=/opt/pnl-accumulation-trading/.venv/bin/pnl-trader web --data-dir /var/lib/pnl-trader --port 8001
+Restart=on-failure
+RestartSec=10s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

@@ -57,3 +57,44 @@
 `validate-config` 只检查本地配置和资产分类，不需要 Binance API 凭据。
 
 预检通过后先停在这里，不要执行 `systemctl enable` 或 `systemctl start`。启动服务会连接主网并可能下单，须由项目负责人确认账户、现有持仓和资产分类后另行决定。
+
+## 公网只读看板
+
+看板独立于交易服务运行，仅读取 `/var/lib/pnl-trader/state.sqlite3`，监听服务器本机 `127.0.0.1:8001`。公网入口由 Nginx 代理到该端口；按当前部署选择直接通过 IP 访问，不设置登录密码。
+
+服务器的 80 端口由另一项目使用，保留其现有路由。为签发和续期 IP 证书，只在该默认 HTTP server 中增加以下 ACME challenge location：
+
+```nginx
+location ^~ /.well-known/acme-challenge/ {
+    root /var/www/pnl-acme;
+    default_type text/plain;
+    try_files $uri =404;
+}
+```
+
+安装 Certbot 5.4 或更新版本；IP 证书须采用 Let's Encrypt `shortlived` profile，证书有效期约 160 小时，因此必须保留 Certbot 自动续期 timer。首次签发和续期配置参考：
+
+```sh
+sudo snap install certbot --classic
+sudo install -d -o root -g root -m 0755 /var/www/pnl-acme/.well-known/acme-challenge
+sudo certbot certonly --webroot --webroot-path /var/www/pnl-acme \
+  --preferred-profile shortlived --ip-address 43.167.191.253 \
+  --agree-tos --register-unsafely-without-email --non-interactive
+sudo certbot reconfigure --cert-name 43.167.191.253 \
+  --preferred-profile shortlived --webroot --webroot-path /var/www/pnl-acme \
+  --ip-address 43.167.191.253 --deploy-hook 'systemctl reload nginx'
+```
+
+签发成功后安装并启用两个 unit：
+
+```sh
+sudo install -o root -g root -m 0644 deploy/systemd/pnl-trader-dashboard.service /etc/systemd/system/pnl-trader-dashboard.service
+sudo install -o root -g root -m 0644 deploy/nginx/pnl-trader-dashboard.conf /etc/nginx/sites-available/pnl-trader-dashboard
+sudo ln -s /etc/nginx/sites-available/pnl-trader-dashboard /etc/nginx/sites-enabled/pnl-trader-dashboard
+sudo nginx -t
+sudo systemctl daemon-reload
+sudo systemctl enable --now pnl-trader-dashboard.service
+sudo systemctl reload nginx
+```
+
+需确保云防火墙放行 TCP 443。IP 证书和 Nginx TLS 配置依据 [Let's Encrypt 的 Certbot IP 证书说明](https://letsencrypt.org/2026/03/11/shorter-certs-certbot.html)。
