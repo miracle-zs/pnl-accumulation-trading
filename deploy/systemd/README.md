@@ -60,7 +60,7 @@
 
 ## 公网只读看板
 
-看板独立于交易服务运行，仅读取 `/var/lib/pnl-trader/state.sqlite3`，监听服务器本机 `127.0.0.1:8001`。公网入口由 Nginx 代理到该端口；按当前部署选择直接通过 IP 访问，不设置登录密码。
+看板独立于交易服务运行，仅读取 `/var/lib/pnl-trader/state.sqlite3`，监听服务器本机 `127.0.0.1:8001`。公网地址为 `https://43.167.191.253/pnl-trader/`，无需密码。HTTPS 根路径会跳转到项目路径。
 
 服务器的 80 端口由另一项目使用，保留其现有路由。为签发和续期 IP 证书，只在该默认 HTTP server 中增加以下 ACME challenge location：
 

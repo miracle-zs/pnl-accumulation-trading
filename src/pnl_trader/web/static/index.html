@@ -285,10 +285,10 @@
     async function fetchData() {
       try {
         const [overviewRes, tierRes, posRes, fillsRes] = await Promise.all([
-          fetch('/api/overview'),
-          fetch('/api/tier-distribution'),
-          fetch('/api/positions'),
-          fetch('/api/fills?limit=6')
+          fetch('api/overview'),
+          fetch('api/tier-distribution'),
+          fetch('api/positions'),
+          fetch('api/fills?limit=6')
         ]);
         const responses = [overviewRes, tierRes, posRes, fillsRes];
         if (responses.some(response => !response.ok)) throw new Error('dashboard API returned an error');
