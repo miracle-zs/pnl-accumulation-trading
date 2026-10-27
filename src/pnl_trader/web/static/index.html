@@ -300,8 +300,25 @@
 
     <!-- View 2: Fills Feed -->
     <div id="view-fills" class="hidden p-5">
-      <div id="fills-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        <div class="text-slate-500 text-xs py-8 text-center col-span-3">正在拉取成交流水...</div>
+      <div id="fills-container" class="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
+        <section aria-labelledby="buy-fills-heading">
+          <div class="flex items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <h3 id="buy-fills-heading" class="text-sm font-semibold text-blue-400">买入</h3>
+            <span id="buy-fills-count" class="text-xs text-blue-300 font-mono tabular-nums">0 笔</span>
+          </div>
+          <div id="buy-fills-list" class="divide-y divide-slate-800/80">
+            <div class="text-slate-400 text-xs py-6 text-center">正在拉取买入成交...</div>
+          </div>
+        </section>
+        <section aria-labelledby="sell-fills-heading">
+          <div class="flex items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <h3 id="sell-fills-heading" class="text-sm font-semibold text-rose-400">卖出</h3>
+            <span id="sell-fills-count" class="text-xs text-rose-300 font-mono tabular-nums">0 笔</span>
+          </div>
+          <div id="sell-fills-list" class="divide-y divide-slate-800/80">
+            <div class="text-slate-400 text-xs py-6 text-center">正在拉取卖出成交...</div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -313,7 +330,7 @@
     </div>
 
     <!-- Footer Counter -->
-    <div class="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 px-4 font-mono">
+    <div id="position-footer" class="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 px-4 font-mono">
       <div id="position-summary-text">等待同步...</div>
       <div class="flex items-center gap-3">
         <span>Binance 活跃 COIN / INDEX 永续池</span>
@@ -346,6 +363,12 @@
       const amount = Number(value);
       const sign = amount > 0 ? '+' : amount < 0 ? '-' : '';
       return `${sign}$${Math.abs(amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    }
+
+    function formatUsd(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) return '—';
+      return `$${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     }
 
     function formatPrice(value) {
@@ -704,27 +727,57 @@
     }
 
     function renderFills(fills) {
-      const container = document.getElementById('fills-container');
-      if (!fills || fills.length === 0) {
-        container.innerHTML = '<div class="text-slate-500 text-xs py-8 text-center col-span-3">暂无已记录的成交流水</div>';
+      const recentFills = Array.isArray(fills) ? fills : [];
+      renderFillGroup(
+        'buy-fills-list',
+        'buy-fills-count',
+        recentFills.filter(fill => fill.side === 'BUY'),
+        'BUY',
+      );
+      renderFillGroup(
+        'sell-fills-list',
+        'sell-fills-count',
+        recentFills.filter(fill => fill.side === 'SELL'),
+        'SELL',
+      );
+    }
+
+    function renderFillGroup(listId, countId, fills, side) {
+      const list = document.getElementById(listId);
+      document.getElementById(countId).textContent = `${fills.length} 笔`;
+      if (fills.length === 0) {
+        const emptyText = side === 'BUY' ? '暂无买入成交' : '暂无卖出成交';
+        list.innerHTML = `<div class="text-slate-400 text-xs py-6 text-center">${emptyText}</div>`;
         return;
       }
-      container.innerHTML = fills.map(f => {
-        const isWin = f.realized_pnl >= 0;
+
+      list.innerHTML = fills.map(fill => {
+        const tradedAt = new Date(fill.traded_at_ms);
+        const time = tradedAt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+        const isBuy = side === 'BUY';
+        const amount = isBuy
+          ? formatUsd(Number(fill.price) * Number(fill.qty))
+          : formatSignedUsd(fill.realized_pnl);
+        const amountLabel = isBuy ? '成交额' : '已实现盈亏';
+        const pnl = Number(fill.realized_pnl);
+        const amountClass = isBuy
+          ? 'text-slate-200'
+          : !Number.isFinite(pnl)
+            ? 'text-slate-400'
+            : pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+
         return `
-          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800 flex items-start justify-between text-xs">
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="font-bold text-white font-sans">${f.symbol}</span>
-                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${f.side === 'BUY' ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400'}">${f.side}</span>
-              </div>
-              <p class="text-slate-400 text-[11px] mt-1 font-mono">$${f.price} · 数量 ${f.qty}</p>
+          <article class="py-3 flex items-center justify-between gap-4 text-xs">
+            <div class="min-w-0">
+              <p class="font-semibold text-white truncate">${fill.symbol}</p>
+              <p class="text-slate-400 text-[11px] mt-1 font-mono tabular-nums">$${formatPrice(fill.price)} · 数量 ${formatPrice(fill.qty)}</p>
             </div>
-            <div class="text-right">
-                <span class="font-mono font-bold ${isWin ? 'text-emerald-400' : 'text-purple-400'}">${formatSignedUsd(f.realized_pnl)}</span>
-              <span class="text-[10px] text-slate-500 block mt-1 font-mono">${new Date(f.traded_at_ms).toLocaleTimeString()}</span>
+            <div class="shrink-0 text-right">
+              <span class="block text-[10px] text-slate-400">${amountLabel}</span>
+              <span class="block mt-0.5 font-mono font-semibold tabular-nums ${amountClass}">${amount}</span>
+              <time class="block mt-1 text-[10px] text-slate-500 font-mono tabular-nums" datetime="${tradedAt.toISOString()}">${time}</time>
             </div>
-          </div>
+          </article>
         `;
       }).join('');
     }
@@ -761,6 +814,7 @@
         }
       });
       document.getElementById('positions-toolbar').style.display = (view === 'positions') ? 'flex' : 'none';
+      document.getElementById('position-footer').classList.toggle('hidden', view !== 'positions');
     }
 
     function selectPeriod(p) {
