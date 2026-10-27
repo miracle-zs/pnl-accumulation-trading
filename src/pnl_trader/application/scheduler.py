@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class PeriodicReviewScheduler:
-    """Run one review after each 15-minute candle closes."""
+    """Run one latest-price review at each 15-minute boundary."""
 
     def __init__(
         self,

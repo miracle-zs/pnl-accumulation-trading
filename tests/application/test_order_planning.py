@@ -1,23 +1,12 @@
 from decimal import Decimal
 import unittest
 
-from pnl_trader.application.market_models import (
-    FifteenMinuteCloseSnapshot,
-    InstrumentRules,
-    MarketQuantityRules,
-)
+from pnl_trader.application.market_models import InstrumentRules, MarketQuantityRules
 from pnl_trader.application.order_planning import MarketOrderPlanner
 from pnl_trader.domain import Action, Decision, Lifecycle, SymbolState, Tier
 
 
 D = Decimal
-
-
-def candle(price: str) -> FifteenMinuteCloseSnapshot:
-    return FifteenMinuteCloseSnapshot(
-        symbol="TESTUSDT",
-        close_price=D(price),
-    )
 
 
 def market_rules(*, max_qty: str = "1000") -> InstrumentRules:
@@ -48,7 +37,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
             Decision(Action.OPEN_T1, buy_notional=D("10")),
             state,
             self.rules,
-            candle("3"),
+            D("3"),
         )
 
         self.assertEqual(plan.quantity, D("3.33"))
@@ -70,7 +59,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
             Decision(Action.CLOSE_T2_BATCH1, close_qty=D("0.25")),
             state,
             self.rules,
-            candle("10"),
+            D("10"),
         )
 
         self.assertEqual(plan.action, Action.CLOSE_T2_FULL)
@@ -94,7 +83,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
                 Decision(Action.CLOSE_T2_BATCH1, close_qty=D("0.25")),
                 state,
                 self.rules,
-                candle("9"),
+                D("9"),
             )
 
 

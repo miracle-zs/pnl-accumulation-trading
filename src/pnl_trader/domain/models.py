@@ -129,18 +129,18 @@ class SymbolState:
 
 @dataclass(frozen=True, slots=True)
 class Observation:
-    """One positive 15-minute close and the symbol's universe admission decision.
+    """One positive market price and the symbol's universe admission decision.
 
     Admission authorizes opening, DCA increases, and reopening after a full
-    close. ``close_price`` is the strategy's only price reference.
+    close. ``price`` is the strategy's only market-price reference.
     """
 
     admitted: bool
-    close_price: Decimal
+    price: Decimal
 
     def __post_init__(self) -> None:
-        if self.close_price <= ZERO:
-            raise ValueError("close_price must be positive")
+        if self.price <= ZERO:
+            raise ValueError("price must be positive")
 
 
 @dataclass(frozen=True, slots=True)

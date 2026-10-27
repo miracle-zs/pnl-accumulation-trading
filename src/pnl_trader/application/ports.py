@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Protocol
+from typing import Mapping, Protocol
 
 from ..domain.models import ExecutionReceipt, SymbolState, TradeFillRecord
 from .account_models import AccountSnapshot
 from .market_models import (
     ExchangeInstrument,
-    FifteenMinuteCloseSnapshot,
     InstrumentRules,
 )
 from .position_models import ExchangePosition
@@ -106,12 +105,6 @@ class ExchangeGatewayPort(Protocol):
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules: ...
 
-    async def get_fifteen_minute_close(
-        self,
-        symbol: str,
-        slot_start_ms: int,
-    ) -> FifteenMinuteCloseSnapshot: ...
-
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult: ...
 
     async def lookup_order(
@@ -134,6 +127,10 @@ class PositionSnapshotPort(Protocol):
 
 class AccountEquitySnapshotPort(Protocol):
     async def get_account_snapshot(self) -> AccountSnapshot: ...
+
+
+class MarketPriceSnapshotPort(Protocol):
+    async def get_latest_prices(self) -> Mapping[str, Decimal]: ...
 
 
 class ExchangeInstrumentCatalogPort(Protocol):

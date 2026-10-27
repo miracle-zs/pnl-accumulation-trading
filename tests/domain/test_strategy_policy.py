@@ -45,7 +45,7 @@ class StrategyPolicyTests(unittest.TestCase):
     def decide(self, state: SymbolState, price: str, *, admitted: bool = False):
         return self.policy.decide(
             state,
-            Observation(admitted=admitted, close_price=D(price)),
+            Observation(admitted=admitted, price=D(price)),
         )
 
     def test_t1_takes_profit_at_exact_threshold(self) -> None:

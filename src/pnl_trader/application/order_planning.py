@@ -14,7 +14,7 @@ from ..domain.models import (
     Tier,
     ZERO,
 )
-from .market_models import FifteenMinuteCloseSnapshot, InstrumentRules
+from .market_models import InstrumentRules
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,15 +32,15 @@ class MarketOrderPlanner:
         decision: Decision,
         state: SymbolState,
         rules: InstrumentRules,
-        price: FifteenMinuteCloseSnapshot,
+        price: Decimal,
     ) -> MarketOrderPlan:
         if decision.action is Action.HOLD:
             raise ValueError(
                 "HOLD has no market order",
             )
-        if rules.symbol != state.symbol or price.symbol != state.symbol:
+        if rules.symbol != state.symbol:
             raise ValueError(
-                "state, instrument rules and candle must refer to the same symbol",
+                "state and instrument rules must refer to the same symbol",
             )
         if rules.status != "TRADING":
             raise ValueError(
@@ -60,9 +60,9 @@ class MarketOrderPlanner:
                 raise ValueError(
                     "buy decision is missing its notional budget",
                 )
-            requested_qty = decision.buy_notional / price.close_price
+            requested_qty = decision.buy_notional / price
             quantity = rules.market_quantity.align_down(requested_qty)
-            self._validate_quantity(quantity, rules, price.close_price)
+            self._validate_quantity(quantity, rules, price)
             return MarketOrderPlan(
                 action=decision.action,
                 quantity=quantity,
@@ -92,21 +92,21 @@ class MarketOrderPlanner:
         if batch_close:
             if quantity <= ZERO:
                 action, quantity = self._merge_batch_to_full_close(
-                    state, rules, price.close_price
+                    state, rules, price
                 )
             else:
                 self._validate_quantity(
                     quantity,
                     rules,
-                    price.close_price,
+                    price,
                     check_min_notional=False,
                 )
-                if self._below_min_notional(quantity * price.close_price, rules):
+                if self._below_min_notional(quantity * price, rules):
                     action, quantity = self._merge_batch_to_full_close(
-                        state, rules, price.close_price
+                        state, rules, price
                     )
         else:
-            self._validate_quantity(quantity, rules, price.close_price)
+            self._validate_quantity(quantity, rules, price)
         target = state.tier_sold_qty + quantity
         return MarketOrderPlan(
             action=action,

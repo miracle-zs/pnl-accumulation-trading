@@ -16,7 +16,7 @@ class ReviewCandidate:
     """One symbol's entry signal and batch-level review priority.
 
     Symbols with an open position are reviewed before new or reopened entries.
-    The symbol executor determines the actual action from the 15-minute close.
+    The symbol executor determines the action from the batch's latest price.
     """
 
     symbol: str

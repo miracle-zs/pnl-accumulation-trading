@@ -30,7 +30,6 @@ from ...application.execution_models import (
 from ...application.exchange_errors import UnsupportedLeverageError
 from ...application.market_models import (
     ExchangeInstrument,
-    FifteenMinuteCloseSnapshot,
     InstrumentRules,
     MarketQuantityRules,
 )
@@ -188,37 +187,29 @@ class BinanceFuturesGateway:
         self._exchange_info_cache = (loaded_at_ms, result)
         return result
 
-    async def get_fifteen_minute_close(
-        self,
-        symbol: str,
-        slot_start_ms: int,
-    ) -> FifteenMinuteCloseSnapshot:
-        close_time_ms = slot_start_ms + 899_999
+    async def get_latest_prices(self) -> dict[str, Decimal]:
+        """Fetch the latest market prices for all USDⓈ-M symbols in one request."""
+
         payload = await self._request_json(
             "GET",
-            "/fapi/v1/klines",
-            params={
-                "symbol": symbol,
-                "interval": "15m",
-                "startTime": str(slot_start_ms),
-                "endTime": str(close_time_ms),
-                "limit": "1",
-            },
+            "/fapi/v2/ticker/price",
         )
-        if not isinstance(payload, list) or len(payload) != 1:
-            raise BinanceProtocolError("15-minute kline response must contain exactly one candle")
-        candle = payload[0]
-        if not isinstance(candle, list) or len(candle) < 7:
-            raise BinanceProtocolError("15-minute kline response has an invalid candle row")
-        if (
-            _integer(candle[0], "openTime") != slot_start_ms
-            or _integer(candle[6], "closeTime") != close_time_ms
-        ):
-            raise BinanceProtocolError("15-minute kline response does not match the requested slot")
-        return FifteenMinuteCloseSnapshot(
-            symbol=symbol,
-            close_price=_decimal(candle[4], "close"),
-        )
+        if not isinstance(payload, list):
+            raise BinanceProtocolError("ticker price response must be a list")
+        prices: dict[str, Decimal] = {}
+        for row in payload:
+            if not isinstance(row, dict):
+                raise BinanceProtocolError("ticker price row must be an object")
+            symbol = _required_text(row.get("symbol"), "symbol")
+            if symbol in prices:
+                raise BinanceProtocolError("ticker price response contains duplicate symbols")
+            price = _decimal(row.get("price"), "price")
+            if price <= ZERO:
+                raise BinanceProtocolError("ticker price must be positive")
+            prices[symbol] = price
+        if not prices:
+            raise BinanceProtocolError("ticker price response must not be empty")
+        return prices
 
     async def get_position_snapshot(self) -> tuple[ExchangePosition, ...]:
         """Fetch position quantities for all USDⓈ-M symbols."""

@@ -63,7 +63,3 @@ class ExchangeInstrument:
     rules: InstrumentRules | None
 
 
-@dataclass(frozen=True, slots=True)
-class FifteenMinuteCloseSnapshot:
-    symbol: str
-    close_price: Decimal

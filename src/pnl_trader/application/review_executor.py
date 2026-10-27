@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 import logging
 from uuid import NAMESPACE_URL, uuid5
@@ -12,7 +13,6 @@ from ..domain.policy import StrategyPolicy
 from .execution import ExecutionCoordinator, ExecutionResult
 from .exchange_errors import UnsupportedLeverageError
 from .execution_models import IntentStatus, OrderIntent
-from .market_models import FifteenMinuteCloseSnapshot
 from .order_planning import MarketOrderPlan, MarketOrderPlanner
 from .ports import ExchangeGatewayPort, StateStorePort
 from .store_errors import (
@@ -38,7 +38,7 @@ class SymbolReviewResult:
     disposition: ReviewDisposition
     plan: MarketOrderPlan | None = None
     execution: ExecutionResult | None = None
-    close_snapshot: FifteenMinuteCloseSnapshot | None = None
+    price: Decimal | None = None
 
 
 class SymbolReviewExecutor:
@@ -65,9 +65,9 @@ class SymbolReviewExecutor:
         symbol: str,
         slot_start_ms: int,
         admitted: bool,
-        close_snapshot: FifteenMinuteCloseSnapshot | None = None,
+        price: Decimal,
     ) -> SymbolReviewResult:
-        """Review one action for a symbol in a 15-minute slot."""
+        """Review one action for a symbol using the slot's latest-price snapshot."""
 
         state = self._store.load_symbol_state(symbol)
         intent_key = f"{slot_start_ms}:{symbol}"
@@ -81,23 +81,16 @@ class SymbolReviewExecutor:
         if existing is not None:
             return existing
 
-        if close_snapshot is None:
-            candle = await self._exchange.get_fifteen_minute_close(
-                symbol,
-                slot_start_ms,
-            )
-        else:
-            candle = close_snapshot
         observation = Observation(
             admitted=admitted,
-            close_price=candle.close_price,
+            price=price,
         )
         decision = self._policy.decide(state, observation)
         if decision.action is Action.HOLD:
             return SymbolReviewResult(disposition=ReviewDisposition.NO_ACTION)
 
         rules = await self._exchange.get_instrument_rules(symbol)
-        plan = self._planner.plan(decision, state, rules, candle)
+        plan = self._planner.plan(decision, state, rules, price)
 
         if plan.action in BUY_ACTIONS and not await self._ensure_symbol_leverage(symbol):
             return SymbolReviewResult(
@@ -127,7 +120,7 @@ class SymbolReviewExecutor:
             disposition=ReviewDisposition.EXECUTION,
             plan=plan,
             execution=execution_result,
-            close_snapshot=candle,
+            price=price,
         )
 
     async def _ensure_symbol_leverage(self, symbol: str) -> bool:

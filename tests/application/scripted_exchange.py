@@ -12,10 +12,7 @@ from pnl_trader.application.execution_models import (
     SubmissionResult,
     MarketOrderRequest,
 )
-from pnl_trader.application.market_models import (
-    FifteenMinuteCloseSnapshot,
-    InstrumentRules,
-)
+from pnl_trader.application.market_models import InstrumentRules
 from pnl_trader.domain.models import TradeFillRecord, ZERO
 
 
@@ -60,11 +57,11 @@ class ScriptedExchangeGateway:
         scenarios: Mapping[str, ScriptedOrderScenario],
         *,
         instrument_rules: Mapping[str, InstrumentRules] | None = None,
-        close_prices: Mapping[str, Decimal] | None = None,
+        latest_prices: Mapping[str, Decimal] | None = None,
     ) -> None:
         self._scenarios = dict(scenarios)
         self._instrument_rules = dict(instrument_rules or {})
-        self._close_prices = dict(close_prices or {})
+        self._latest_prices = dict(latest_prices or {})
         self._submitted: dict[str, tuple[MarketOrderRequest, ScriptedOrderScenario]] = {}
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
@@ -76,19 +73,8 @@ class ScriptedExchangeGateway:
     async def set_leverage(self, symbol: str, leverage: int) -> int:
         return leverage
 
-    async def get_fifteen_minute_close(
-        self,
-        symbol: str,
-        slot_start_ms: int,
-    ) -> FifteenMinuteCloseSnapshot:
-        try:
-            close_price = self._close_prices[symbol]
-        except KeyError as exc:
-            raise LookupError(f"no scripted close price for {symbol}") from exc
-        return FifteenMinuteCloseSnapshot(
-            symbol=symbol,
-            close_price=close_price,
-        )
+    async def get_latest_prices(self) -> dict[str, Decimal]:
+        return dict(self._latest_prices)
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         prior = self._submitted.get(request.client_order_id)

@@ -18,7 +18,7 @@ class PeriodicReviewSchedulerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options["minute"], "0,15,30,45")
         self.assertEqual(options["second"], 0)
 
-    async def test_exact_quarter_hour_reviews_the_candle_that_just_closed(self) -> None:
+    async def test_quarter_hour_trigger_uses_the_preceding_slot_id(self) -> None:
         review_runs = _ReviewRuns([ReviewRunResult(candidate_count=0, result_counts=())])
         scheduler = PeriodicReviewScheduler(review_runs=review_runs)
         with patch("pnl_trader.application.scheduler.time.time_ns", return_value=900_000_000_000):

@@ -147,6 +147,7 @@ async def run_application(config: RuntimeConfig) -> None:
                     execution=execution,
                     symbol_reviews=symbol_reviews,
                     batch_source=batch_source,
+                    market_prices=exchange,
                     account_equity=exchange,
                 )
 

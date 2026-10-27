@@ -21,10 +21,10 @@ T3_WRITEOFF_VALUE_LIMIT = Decimal("5.0")
 
 
 class StrategyPolicy:
-    """Map an aligned position and one close-price observation to an intent."""
+    """Map an aligned position and one latest-price observation to an intent."""
 
     def decide(self, state: SymbolState, observation: Observation) -> Decision:
-        price = observation.close_price
+        price = observation.price
 
         if state.lifecycle in {Lifecycle.IDLE, Lifecycle.REOPEN_PENDING}:
             if observation.admitted:

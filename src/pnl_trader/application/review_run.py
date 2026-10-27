@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from dataclasses import dataclass
+from decimal import Decimal
 import logging
 import time
-from typing import Callable
+from typing import Callable, Mapping
 
 from ..domain.models import FULL_CLOSE_ACTIONS, Lifecycle
 from .execution import ExecutionCoordinator, ExecutionResult
 from .execution_models import IntentStatus
-from .ports import AccountEquitySnapshotPort, ReviewBatchSourcePort, StateStorePort
+from .ports import (
+    AccountEquitySnapshotPort,
+    MarketPriceSnapshotPort,
+    ReviewBatchSourcePort,
+    StateStorePort,
+)
 from .review_executor import SymbolReviewExecutor
 from .review_run_models import ReviewBatch
 
@@ -53,6 +60,7 @@ class ReviewRunCoordinator:
         execution: ExecutionCoordinator,
         symbol_reviews: SymbolReviewExecutor,
         batch_source: ReviewBatchSourcePort,
+        market_prices: MarketPriceSnapshotPort,
         account_equity: AccountEquitySnapshotPort | None = None,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
@@ -60,6 +68,7 @@ class ReviewRunCoordinator:
         self._execution = execution
         self._symbol_reviews = symbol_reviews
         self._batch_source = batch_source
+        self._market_prices = market_prices
         self._account_equity = account_equity
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
 
@@ -69,10 +78,11 @@ class ReviewRunCoordinator:
         slot_start_ms: int,
     ) -> ReviewRunResult:
         await self._execution.recover_pending()
-        batch = await self._batch_source.load_review_batch(
-            slot_start_ms,
+        batch, latest_prices = await asyncio.gather(
+            self._batch_source.load_review_batch(slot_start_ms),
+            self._market_prices.get_latest_prices(),
         )
-        result = await self._run_batch(batch)
+        result = await self._run_batch(batch, latest_prices)
         await self._execution.recover_full_close_fills()
         await self._record_account_equity_snapshot()
         return result
@@ -92,7 +102,11 @@ class ReviewRunCoordinator:
                 type(exc).__name__,
             )
 
-    async def _run_batch(self, batch: ReviewBatch) -> ReviewRunResult:
+    async def _run_batch(
+        self,
+        batch: ReviewBatch,
+        latest_prices: Mapping[str, Decimal],
+    ) -> ReviewRunResult:
         counts: Counter[str] = Counter()
         ordered = sorted(
             batch.candidates,
@@ -100,11 +114,17 @@ class ReviewRunCoordinator:
         )
 
         for candidate in ordered:
+            price = latest_prices.get(candidate.symbol)
+            if price is None:
+                logger.error("latest price missing for symbol=%s", candidate.symbol)
+                counts["ERROR"] += 1
+                continue
             try:
                 result = await self._symbol_reviews.review_symbol(
                     symbol=candidate.symbol,
                     slot_start_ms=batch.slot_start_ms,
                     admitted=candidate.admitted,
+                    price=price,
                 )
                 counts[result.disposition.value] += 1
                 _log_execution_issue(candidate.symbol, result.execution)
@@ -121,7 +141,7 @@ class ReviewRunCoordinator:
                             symbol=candidate.symbol,
                             slot_start_ms=batch.slot_start_ms,
                             admitted=candidate.admitted,
-                            close_snapshot=result.close_snapshot,
+                            price=price,
                         )
                         counts[reopen_result.disposition.value] += 1
                         _log_execution_issue(candidate.symbol, reopen_result.execution)

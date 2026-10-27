@@ -16,7 +16,6 @@ from pnl_trader.application.execution_models import (
     SubmissionResult,
 )
 from pnl_trader.application.market_models import (
-    FifteenMinuteCloseSnapshot,
     InstrumentRules,
     MarketQuantityRules,
 )
@@ -85,6 +84,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=symbol_reviews,
                     batch_source=_OneSymbolBatchSource(),
+                    market_prices=exchange,
                     account_equity=exchange,
                 )
 
@@ -131,6 +131,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
                     batch_source=_OneSymbolBatchSource(),
+                    market_prices=exchange,
                 )
                 with self.assertLogs("pnl_trader.application.execution", level="WARNING"):
                     await reviews.run_slot(slot_start_ms=SLOT_START_MS)
@@ -177,6 +178,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                         execution=execution,
                         symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
                         batch_source=_OneSymbolBatchSource(),
+                        market_prices=exchange,
                     )
                     await reviews.run_slot(slot_start_ms=SLOT_START_MS)
                     self.assertEqual(exchange.submitted_sides, ["SELL"])
@@ -229,15 +231,8 @@ class _FilledExchange:
     async def get_account_snapshot(self) -> AccountSnapshot:
         return AccountSnapshot(D("100"), D("-5"), D("75"), D("200"))
 
-    async def get_fifteen_minute_close(
-        self,
-        symbol: str,
-        slot_start_ms: int,
-    ) -> FifteenMinuteCloseSnapshot:
-        return FifteenMinuteCloseSnapshot(
-            symbol=symbol,
-            close_price=D("90"),
-        )
+    async def get_latest_prices(self) -> dict[str, Decimal]:
+        return {"BTCUSDT": D("90")}
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
         return self._rules

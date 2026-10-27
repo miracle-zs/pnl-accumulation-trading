@@ -135,8 +135,6 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(requests), 1)
 
     async def test_read_retries_transport_server_and_rate_limit_failures(self) -> None:
-        slot_start_ms = 0
-        close_time_ms = slot_start_ms + 899_999
         requests: list[httpx.Request] = []
 
         async def respond(request: httpx.Request) -> httpx.Response:
@@ -153,7 +151,7 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 )
             return httpx.Response(
                 200,
-                json=[[slot_start_ms, "59000", "61000", "58000", "60000", "10", close_time_ms]],
+                json=[{"symbol": "BTCUSDT", "price": "60000", "time": 1_700_000_000_000}],
             )
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
@@ -166,18 +164,16 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 "pnl_trader.adapters.binance.gateway.asyncio.sleep",
                 new_callable=AsyncMock,
             ) as sleep:
-                snapshot = await gateway.get_fifteen_minute_close("BTCUSDT", slot_start_ms)
+                prices = await gateway.get_latest_prices()
 
-        self.assertEqual(snapshot.close_price, Decimal("60000"))
+        self.assertEqual(prices, {"BTCUSDT": Decimal("60000")})
         self.assertEqual(len(requests), 4)
         self.assertEqual(
             sleep.await_args_list,
             [call(1), call(2), call(9.0)],
         )
 
-    async def test_fifteen_minute_close_requests_the_exact_closed_candle(self) -> None:
-        slot_start_ms = 900_000
-        expected_close_time_ms = slot_start_ms + 899_999
+    async def test_latest_price_returns_all_symbols_in_one_request(self) -> None:
         requests: list[httpx.Request] = []
 
         async def respond(request: httpx.Request) -> httpx.Response:
@@ -185,15 +181,8 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 json=[
-                    [
-                        slot_start_ms,
-                        "59000",
-                        "61000",
-                        "58000",
-                        "60500.5",
-                        "10",
-                        expected_close_time_ms,
-                    ]
+                    {"symbol": "BTCUSDT", "price": "60500.5", "time": 1_700_000_000_000},
+                    {"symbol": "ETHUSDT", "price": "3000.25", "time": 1_700_000_000_000},
                 ],
             )
 
@@ -203,14 +192,15 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 api_key="test-api-key",
                 api_secret="test-api-secret",
             )
-            snapshot = await gateway.get_fifteen_minute_close("BTCUSDT", slot_start_ms)
+            prices = await gateway.get_latest_prices()
 
-        self.assertEqual(snapshot.close_price, Decimal("60500.5"))
+        self.assertEqual(
+            prices,
+            {"BTCUSDT": Decimal("60500.5"), "ETHUSDT": Decimal("3000.25")},
+        )
         self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0].url.path, "/fapi/v1/klines")
-        self.assertEqual(requests[0].url.params["interval"], "15m")
-        self.assertEqual(requests[0].url.params["startTime"], str(slot_start_ms))
-        self.assertEqual(requests[0].url.params["endTime"], str(expected_close_time_ms))
+        self.assertEqual(requests[0].url.path, "/fapi/v2/ticker/price")
+        self.assertEqual(dict(requests[0].url.params), {})
 
 
 if __name__ == "__main__":
