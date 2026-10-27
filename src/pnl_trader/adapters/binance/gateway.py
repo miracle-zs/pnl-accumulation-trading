@@ -159,6 +159,15 @@ class BinanceFuturesGateway:
             margin_asset = _required_text(row.get("marginAsset"), "marginAsset")
             contract_type = _required_text(row.get("contractType"), "contractType")
             status = _required_text(row.get("status"), "status")
+            underlying_type = _required_text(row.get("underlyingType"), "underlyingType")
+            underlying_sub_type = row.get("underlyingSubType")
+            if not isinstance(underlying_sub_type, list) or any(
+                not isinstance(value, str) or not value
+                for value in underlying_sub_type
+            ):
+                raise BinanceProtocolError(
+                    "exchangeInfo underlyingSubType must be a string list"
+                )
             try:
                 rules = _parse_instrument_rules(
                     row,
@@ -178,6 +187,8 @@ class BinanceFuturesGateway:
                     margin_asset=margin_asset,
                     contract_type=contract_type,
                     status=status,
+                    underlying_type=underlying_type,
+                    underlying_sub_type=tuple(underlying_sub_type),
                     rules=rules,
                 )
             )

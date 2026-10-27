@@ -21,10 +21,6 @@ from .application.review_executor import SymbolReviewExecutor
 from .application.review_run import ReviewRunCoordinator
 from .application.scheduler import PeriodicReviewScheduler
 from .application.universe import UniverseCatalog
-from .application.universe_models import (
-    AssetClassification,
-    VersionedAssetClassificationDirectory,
-)
 from .credentials import optional_secret, require_secret
 
 
@@ -34,19 +30,14 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     data_dir: Path
-    classification_file: Path
 
     @classmethod
     def from_environment(cls) -> RuntimeConfig:
-        """Load local runtime values without ever selecting the example list."""
-        classification_file = Path(
-            _required_environment("PNL_ASSET_CLASSIFICATIONS")
-        ).expanduser().resolve()
+        """Load local runtime values."""
         data_dir = Path(_required_environment("PNL_DATA_DIR")).expanduser().resolve()
 
         return cls(
             data_dir=data_dir,
-            classification_file=classification_file,
         )
 
 
@@ -57,26 +48,11 @@ def _required_environment(name: str) -> str:
     return value
 
 
-def _load_reviewed_classifications(path: Path) -> VersionedAssetClassificationDirectory:
-    directory = VersionedAssetClassificationDirectory.from_toml(path)
-    if directory.version.lower().startswith("example-"):
-        raise ValueError("asset classification version still identifies itself as an example")
-    return directory
-
-
 def validate_runtime_config(config: RuntimeConfig) -> dict[str, object]:
-    """Validate settings and classifications without network or database writes."""
-
-    classifications = _load_reviewed_classifications(config.classification_file)
-    native_asset_count = sum(
-        entry.classification is AssetClassification.NATIVE_CRYPTO
-        for entry in classifications.assets
-    )
+    """Validate local settings without network or database writes."""
     return {
         "status": "valid",
         "mode": "Binance USDⓈ-M Futures",
-        "classification_version": classifications.version,
-        "native_asset_count": native_asset_count,
         "data_dir": str(config.data_dir),
     }
 
@@ -84,7 +60,6 @@ def validate_runtime_config(config: RuntimeConfig) -> dict[str, object]:
 async def run_application(config: RuntimeConfig) -> None:
     """Compose adapters and keep the Binance Futures service alive until shutdown."""
 
-    classifications = _load_reviewed_classifications(config.classification_file)
     api_key = require_secret("BINANCE_API_KEY")
     api_secret = require_secret("BINANCE_API_SECRET")
     process_lock = ProcessFileLock(config.data_dir / "trader.lock")
@@ -126,7 +101,6 @@ async def run_application(config: RuntimeConfig) -> None:
                 )
                 universe = UniverseCatalog(
                     exchange_info=exchange,
-                    classifications=classifications,
                 )
                 execution = ExecutionCoordinator(
                     store=store,

@@ -18,17 +18,9 @@
    sudo .venv/bin/pip install .
    ```
 
-2. 安装已审核的生产分类文件：
-
-   ```sh
-   sudo install -d -o root -g root -m 0755 /etc/pnl-trader
-   sudo install -o root -g root -m 0644 config/asset_classifications.toml /etc/pnl-trader/asset_classifications.toml
-   ```
-
-3. 在项目根目录创建 `.env`，写入运行配置：
+2. 在项目根目录创建 `.env`，写入运行配置：
 
    ```ini
-   PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml
    PNL_DATA_DIR=/var/lib/pnl-trader
    BINANCE_API_KEY=
    BINANCE_API_SECRET=
@@ -42,21 +34,20 @@
 
    `.env` 由 systemd 读取，须保持 root 所有、权限 `0600`。该文件已被 `.gitignore` 排除；不要提交到 Git。Server酱是可选项，填写 `SERVERCHAN_SENDKEY` 后才会发送整轮失败提醒。
 
-4. 安装 unit 并执行预检：
+3. 安装 unit 并执行预检：
 
    ```sh
    sudo install -o root -g root -m 0644 deploy/systemd/pnl-trader.service /etc/systemd/system/pnl-trader.service
    sudo systemctl daemon-reload
    sudo systemd-analyze verify /etc/systemd/system/pnl-trader.service
    sudo -u pnl-trader env \
-     PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml \
      PNL_DATA_DIR=/var/lib/pnl-trader \
      /opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
    ```
 
-`validate-config` 只检查本地配置和资产分类，不需要 Binance API 凭据。
+标的池从 Binance `exchangeInfo` 动态筛选：USDT 报价和保证金、`PERPETUAL`、`TRADING`、`underlyingType=COIN` 且 `underlyingSubType` 不包含 `RWA`。`validate-config` 只检查本地配置，不需要 Binance API 凭据。
 
-预检通过后先停在这里，不要执行 `systemctl enable` 或 `systemctl start`。启动服务会连接主网并可能下单，须由项目负责人确认账户、现有持仓和资产分类后另行决定。
+预检通过后先停在这里，不要执行 `systemctl enable` 或 `systemctl start`。启动服务会连接主网并可能下单，须由项目负责人确认账户、现有持仓和自动筛选的标的范围后另行决定。
 
 ## 公网只读看板
 

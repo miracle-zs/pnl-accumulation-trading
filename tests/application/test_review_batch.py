@@ -9,11 +9,6 @@ from pnl_trader.application.position_models import ExchangePosition
 from pnl_trader.application.review_batch import ReconciledReviewBatchSource
 from pnl_trader.application.review_batch_models import ReviewSignal
 from pnl_trader.application.universe import UniverseCatalog
-from pnl_trader.application.universe_models import (
-    AssetClassification,
-    AssetClassificationEntry,
-    VersionedAssetClassificationDirectory,
-)
 from pnl_trader.domain import Action, Lifecycle
 from tests.helpers import seed_buy_execution
 
@@ -63,11 +58,12 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                         margin_asset="USDT",
                         contract_type="PERPETUAL",
                         status="DELIVERING",
+                        underlying_type="COIN",
+                        underlying_sub_type=("Crypto",),
                         rules=None,
                     ),
                 )
             ),
-            classifications=_native_btc_directory(),
         )
         signals = await catalog.load_review_signals(managed_symbols=("BTCUSDT", "ETHUSDT"))
         signals_by_symbol = {signal.symbol: signal for signal in signals}
@@ -134,18 +130,6 @@ class _InstrumentCatalog:
 
     async def get_exchange_info_snapshot(self) -> tuple[ExchangeInstrument, ...]:
         return self._instruments
-
-
-def _native_btc_directory() -> VersionedAssetClassificationDirectory:
-    return VersionedAssetClassificationDirectory(
-        version="test",
-        assets=(
-            AssetClassificationEntry(
-                base_asset="BTC",
-                classification=AssetClassification.NATIVE_CRYPTO,
-            ),
-        ),
-    )
 
 
 if __name__ == "__main__":

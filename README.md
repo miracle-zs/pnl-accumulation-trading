@@ -36,7 +36,7 @@ PNL_DATA_DIR=./var pnl-trader web
 python -m unittest discover -s tests -v
 ```
 
-交易运行入口连接 Binance USDⓈ-M Futures 主网，启动后可能提交真实市价单。不要在未确认账户、标的分类和风险参数时启动服务，也不要将密钥提交到仓库。
+交易运行入口连接 Binance USDⓈ-M Futures 主网，启动后可能提交真实市价单。标的池由 Binance `exchangeInfo` 自动筛选为活跃的 USDT 永续 `COIN` 合约并排除 `RWA` 子类型；符合条件的新合约会自动纳入。不要在未确认账户和风险参数时启动服务，也不要将密钥提交到仓库。
 
 可选配置 `SERVERCHAN_SENDKEY` 接收整轮巡检失败提醒；不配置时只写服务日志，不影响交易服务启动。
 
@@ -44,5 +44,5 @@ python -m unittest discover -s tests -v
 
 - [旧版 SPEC](docs/SPEC.md)：记录此前的事件驱动、限价挂单和市值缩水循环方案，仅供追溯。
 - [ADR 历史记录说明](docs/adr/README.md)：ADR 保留当时的决策背景；部分内容已与当前方案不同，当前行为以 PRD 和架构设计为准。
-- `data/` 仅存放本地回测与研究材料，已从 Git 版本控制中排除。当前交易服务使用 `config/` 中的生产配置，运行状态目录必须通过 `PNL_DATA_DIR` 显式指定。
+- `data/` 仅存放本地回测与研究材料，已从 Git 版本控制中排除。交易服务从 Binance 获取合约目录，运行状态目录必须通过 `PNL_DATA_DIR` 显式指定。
 - `research/` 下的历史回测、模拟和数据处理脚本不属于当前交易服务，也不构成实盘安全或收益保证。

@@ -29,7 +29,7 @@ def main() -> None:
     )
     commands.add_parser(
         "validate-config",
-        help="validate local runtime values and asset classifications without network access",
+        help="validate local runtime values without network access",
     )
     web_parser = commands.add_parser(
         "web",

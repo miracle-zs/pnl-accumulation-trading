@@ -12,41 +12,21 @@ from pnl_trader.runtime import (
 
 
 class RuntimeConfigTests(unittest.TestCase):
-    def test_runtime_validation_checks_reviewed_assets(self) -> None:
+    def test_runtime_validation_checks_local_settings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            classifications = root / "asset_classifications.toml"
-            classifications.write_text(
-                'version = "reviewed-v1"\n'
-                '\n[[assets]]\n'
-                'base_asset = "BTC"\n'
-                'classification = "NATIVE_CRYPTO"\n',
-                encoding="utf-8",
-            )
-            config = RuntimeConfig(
-                data_dir=root / "state",
-                classification_file=classifications,
-            )
+            config = RuntimeConfig(data_dir=root / "state")
 
             result = validate_runtime_config(config)
             self.assertEqual(result["status"], "valid")
-            self.assertEqual(result["classification_version"], "reviewed-v1")
-            self.assertEqual(result["native_asset_count"], 1)
+            self.assertEqual(result["data_dir"], str(root / "state"))
 
 
 class RuntimeStartupTests(unittest.IsolatedAsyncioTestCase):
     async def test_runtime_builds_application_without_connecting_to_exchange(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            classifications = root / "assets.toml"
-            classifications.write_text(
-                'version = "reviewed-v1"\n'
-                '\n[[assets]]\n'
-                'base_asset = "BTC"\n'
-                'classification = "NATIVE_CRYPTO"\n',
-                encoding="utf-8",
-            )
-            config = RuntimeConfig(data_dir=root / "state", classification_file=classifications)
+            config = RuntimeConfig(data_dir=root / "state")
             loop = asyncio.get_running_loop()
             with (
                 patch("pnl_trader.runtime.require_secret", return_value="test-credential"),
