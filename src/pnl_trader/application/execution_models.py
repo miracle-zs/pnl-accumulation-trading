@@ -76,17 +76,22 @@ class ExchangeOrderStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ExchangeOrderSnapshot:
+    """Order state; fills supply quote totals when a submit response omits them."""
+
     status: ExchangeOrderStatus
     executed_qty: Decimal
-    cumulative_quote: Decimal
+    cumulative_quote: Decimal | None
     exchange_order_id: str
 
     def __post_init__(self) -> None:
-        for name in ("executed_qty", "cumulative_quote"):
-            value = getattr(self, name)
-            if value < ZERO:
-                raise ValueError(f"{name} must be non-negative")
-        if (self.executed_qty == ZERO) != (self.cumulative_quote == ZERO):
+        if self.executed_qty < ZERO:
+            raise ValueError("executed_qty must be non-negative")
+        if self.cumulative_quote is not None and self.cumulative_quote < ZERO:
+            raise ValueError("cumulative_quote must be non-negative")
+        if (
+            self.cumulative_quote is not None
+            and (self.executed_qty == ZERO) != (self.cumulative_quote == ZERO)
+        ):
             raise ValueError("quantity and quote must both be zero or both be positive")
         if (
             self.status in {ExchangeOrderStatus.NEW, ExchangeOrderStatus.REJECTED}

@@ -217,7 +217,7 @@ class ExecutionCoordinator:
         receipt = ExecutionReceipt(
             action=intent.action,
             filled_qty=order.executed_qty,
-            quote_qty=order.cumulative_quote,
+            quote_qty=sum((fill.price * fill.qty for fill in fills), ZERO),
             target_cumulative_sold_qty=intent.target_cumulative_sold_qty,
         )
         terminal_status = _TERMINAL_STATUS_BY_EXCHANGE[order.status]

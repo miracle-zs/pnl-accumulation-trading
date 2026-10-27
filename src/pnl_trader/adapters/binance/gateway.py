@@ -265,7 +265,7 @@ class BinanceFuturesGateway:
                 params=params,
                 signed=True,
             )
-            order = _parse_order_snapshot(payload)
+            order = _parse_order_snapshot(payload, require_cumulative_quote=False)
         except BinanceApiError as exc:
             certainty = (
                 SubmissionCertainty.UNKNOWN
@@ -273,6 +273,11 @@ class BinanceFuturesGateway:
                 else SubmissionCertainty.REJECTED
             )
             return SubmissionResult(certainty, detail=str(exc))
+        except BinanceProtocolError as exc:
+            return SubmissionResult(
+                SubmissionCertainty.UNKNOWN,
+                detail=f"submit response could not be confirmed ({exc}); lookup required",
+            )
         except Exception as exc:
             return SubmissionResult(
                 SubmissionCertainty.UNKNOWN,
@@ -332,11 +337,11 @@ class BinanceFuturesGateway:
         )
         total_qty = sum((fill.qty for fill in fills), ZERO)
         total_quote = sum((fill.price * fill.qty for fill in fills), ZERO)
-        if (
-            total_qty != order_snapshot.executed_qty
-            or total_quote != order_snapshot.cumulative_quote
+        if total_qty != order_snapshot.executed_qty or (
+            order_snapshot.cumulative_quote is not None
+            and total_quote != order_snapshot.cumulative_quote
         ):
-            raise BinanceProtocolError("userTrades do not reconcile with the queried order totals")
+            raise BinanceProtocolError("userTrades do not reconcile with the order totals")
         return fills
 
     async def _request_json(
@@ -487,7 +492,11 @@ def _parse_instrument_rules(
     )
 
 
-def _parse_order_snapshot(payload: Any) -> ExchangeOrderSnapshot:
+def _parse_order_snapshot(
+    payload: Any,
+    *,
+    require_cumulative_quote: bool = True,
+) -> ExchangeOrderSnapshot:
     if not isinstance(payload, dict):
         raise BinanceProtocolError("order response must be an object")
     raw_status = _required_text(payload.get("status"), "status")
@@ -496,7 +505,10 @@ def _parse_order_snapshot(payload: Any) -> ExchangeOrderSnapshot:
     except ValueError as exc:
         raise BinanceProtocolError(f"unsupported order status {raw_status!r}") from exc
     executed_qty = _decimal(payload.get("executedQty"), "executedQty")
-    cumulative_quote = _decimal(payload.get("cumQuote"), "cumQuote")
+    if "cumQuote" not in payload and not require_cumulative_quote:
+        cumulative_quote = None
+    else:
+        cumulative_quote = _decimal(payload.get("cumQuote"), "cumQuote")
     return ExchangeOrderSnapshot(
         status=status,
         executed_qty=executed_qty,
