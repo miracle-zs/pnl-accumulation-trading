@@ -39,6 +39,7 @@ from ...domain.models import TradeFillRecord, ZERO
 BINANCE_USDM_FUTURES_URL = "https://fapi.binance.com"
 BINANCE_RECV_WINDOW_MS = 5_000
 EXCHANGE_INFO_CACHE_TTL_MS = 15 * 60 * 1_000
+ORDER_SUBMISSION_INTERVAL_SECONDS = 0.2
 logger = logging.getLogger(__name__)
 
 
@@ -90,6 +91,7 @@ class BinanceFuturesGateway:
         self._api_secret = api_secret.encode("utf-8")
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._exchange_info_cache: tuple[int, tuple[ExchangeInstrument, ...]] | None = None
+        self._last_order_started_monotonic: float | None = None
 
     async def set_leverage(self, symbol: str, leverage: int) -> int:
         """Set initial leverage and return Binance's confirmed setting."""
@@ -240,6 +242,13 @@ class BinanceFuturesGateway:
         return tuple(positions)
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
+        if self._last_order_started_monotonic is not None:
+            elapsed = time.monotonic() - self._last_order_started_monotonic
+            delay = ORDER_SUBMISSION_INTERVAL_SECONDS - elapsed
+            if delay > 0:
+                await asyncio.sleep(delay)
+        self._last_order_started_monotonic = time.monotonic()
+
         params = {
             "symbol": request.symbol,
             "side": request.side,
