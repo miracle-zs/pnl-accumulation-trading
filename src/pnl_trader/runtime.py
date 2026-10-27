@@ -141,7 +141,6 @@ async def run_application(config: RuntimeConfig) -> None:
                     store=store,
                     positions=exchange,
                     signals=universe,
-                    account_equity=exchange,
                 )
                 review_runs = ReviewRunCoordinator(
                     store=store,
