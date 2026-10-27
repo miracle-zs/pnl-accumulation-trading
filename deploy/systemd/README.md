@@ -6,7 +6,7 @@
 
 ## 安装与预检（不启动）
 
-目标主机需运行 Linux、systemd 247 或更新版本（本 unit 使用 `LoadCredential=`），并安装 Git 和包含 `venv`、`pip` 的 Python 3.11 或更新版本。以下步骤只安装和验证，不启用或启动服务。
+目标主机需运行 Linux、systemd 和 Python 3.11 或更新版本，并安装 Git、`venv` 和 `pip`。以下步骤只安装和验证，不启用或启动服务。
 
 1. 创建服务用户（已存在时跳过），克隆项目并安装：
 
@@ -25,45 +25,24 @@
    sudo install -o root -g root -m 0644 config/asset_classifications.toml /etc/pnl-trader/asset_classifications.toml
    ```
 
-3. 创建 `/etc/pnl-trader/pnl-trader.env`，写入分类文件路径：
+3. 在项目根目录创建 `.env`，写入运行配置：
 
    ```ini
    PNL_ASSET_CLASSIFICATIONS=/etc/pnl-trader/asset_classifications.toml
+   PNL_DATA_DIR=/var/lib/pnl-trader
+   BINANCE_API_KEY=
+   BINANCE_API_SECRET=
+   SERVERCHAN_SENDKEY=
    ```
 
    ```sh
-   sudo install -o root -g root -m 0644 /dev/null /etc/pnl-trader/pnl-trader.env
-   sudoedit /etc/pnl-trader/pnl-trader.env
+   sudo install -o root -g root -m 0600 /dev/null /opt/pnl-accumulation-trading/.env
+   sudoedit /opt/pnl-accumulation-trading/.env
    ```
 
-   该环境文件只包含非敏感配置，保持 root 所有、权限 `0644`。
+   `.env` 由 systemd 读取，须保持 root 所有、权限 `0600`。该文件已被 `.gitignore` 排除；不要提交到 Git。Server酱是可选项，填写 `SERVERCHAN_SENDKEY` 后才会发送整轮失败提醒。
 
-4. 创建 API 凭据文件并用安全编辑器写入密钥。文件须为 root 所有、权限 `0600`：
-
-   - `/etc/pnl-trader/credentials/binance-api-key`
-   - `/etc/pnl-trader/credentials/binance-api-secret`
-
-   ```sh
-   sudo install -d -o root -g root -m 0700 /etc/pnl-trader/credentials
-   sudo install -o root -g root -m 0600 /dev/null /etc/pnl-trader/credentials/binance-api-key
-   sudo install -o root -g root -m 0600 /dev/null /etc/pnl-trader/credentials/binance-api-secret
-   sudoedit /etc/pnl-trader/credentials/binance-api-key
-   sudoedit /etc/pnl-trader/credentials/binance-api-secret
-   ```
-
-   不要把密钥放进环境文件、命令行参数或 Git。
-
-   Server酱通知是可选的。需要启用时，将 SendKey 写入 systemd credential store：
-
-   ```sh
-   sudo install -d -o root -g root -m 0700 /etc/credstore
-   sudo install -o root -g root -m 0600 /dev/null /etc/credstore/serverchan_sendkey
-   sudoedit /etc/credstore/serverchan_sendkey
-   ```
-
-   不配置该凭据时，服务仍可运行，但不会发送整轮失败通知。也可在本地运行时通过环境变量 `SERVERCHAN_SENDKEY` 配置。
-
-5. 安装 unit 并执行预检：
+4. 安装 unit 并执行预检：
 
    ```sh
    sudo install -o root -g root -m 0644 deploy/systemd/pnl-trader.service /etc/systemd/system/pnl-trader.service

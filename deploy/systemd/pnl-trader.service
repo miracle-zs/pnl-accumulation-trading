@@ -10,13 +10,9 @@ Type=exec
 User=pnl-trader
 Group=pnl-trader
 WorkingDirectory=/opt/pnl-accumulation-trading
-EnvironmentFile=/etc/pnl-trader/pnl-trader.env
-Environment=PNL_DATA_DIR=/var/lib/pnl-trader
+EnvironmentFile=/opt/pnl-accumulation-trading/.env
 StateDirectory=pnl-trader
 StateDirectoryMode=0700
-LoadCredential=binance_api_key:/etc/pnl-trader/credentials/binance-api-key
-LoadCredential=binance_api_secret:/etc/pnl-trader/credentials/binance-api-secret
-LoadCredential=serverchan_sendkey
 ExecStart=/opt/pnl-accumulation-trading/.venv/bin/pnl-trader run
 Restart=on-failure
 RestartSec=10s
