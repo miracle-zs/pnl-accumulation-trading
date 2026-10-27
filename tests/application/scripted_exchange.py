@@ -73,6 +73,9 @@ class ScriptedExchangeGateway:
         except KeyError as exc:
             raise LookupError(f"no scripted instrument rules for {symbol}") from exc
 
+    async def set_leverage(self, symbol: str, leverage: int) -> int:
+        return leverage
+
     async def get_fifteen_minute_close(
         self,
         symbol: str,

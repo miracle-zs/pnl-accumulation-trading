@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import logging
 from uuid import NAMESPACE_URL, uuid5
 
-from ..domain.models import Action, Lifecycle, Observation
+from ..domain.models import BUY_ACTIONS, Action, Lifecycle, Observation
 from ..domain.policy import StrategyPolicy
 from .execution import ExecutionCoordinator, ExecutionResult
+from .exchange_errors import UnsupportedLeverageError
 from .execution_models import IntentStatus, OrderIntent
 from .market_models import FifteenMinuteCloseSnapshot
 from .order_planning import MarketOrderPlan, MarketOrderPlanner
@@ -18,9 +20,13 @@ from .store_errors import (
     IntentConflict,
 )
 
+logger = logging.getLogger(__name__)
+LEVERAGE_PREFERENCE = (10, 5, 3)
+
 
 class ReviewDisposition(str, Enum):
     NO_ACTION = "NO_ACTION"
+    LEVERAGE_UNAVAILABLE = "LEVERAGE_UNAVAILABLE"
     INTENT_CONFLICT = "INTENT_CONFLICT"
     ORDER_PENDING = "ORDER_PENDING"
     ORDER_RESOLVED = "ORDER_RESOLVED"
@@ -50,6 +56,8 @@ class SymbolReviewExecutor:
         self._execution = execution
         self._policy = StrategyPolicy()
         self._planner = MarketOrderPlanner()
+        self._symbol_leverages: dict[str, int] = {}
+        self._unsupported_leverage_symbols: set[str] = set()
 
     async def review_symbol(
         self,
@@ -91,6 +99,12 @@ class SymbolReviewExecutor:
         rules = await self._exchange.get_instrument_rules(symbol)
         plan = self._planner.plan(decision, state, rules, candle)
 
+        if plan.action in BUY_ACTIONS and not await self._ensure_symbol_leverage(symbol):
+            return SymbolReviewResult(
+                disposition=ReviewDisposition.LEVERAGE_UNAVAILABLE,
+                plan=plan,
+            )
+
         intent = OrderIntent(
             intent_id=intent_id,
             symbol=state.symbol,
@@ -115,6 +129,38 @@ class SymbolReviewExecutor:
             execution=execution_result,
             close_snapshot=candle,
         )
+
+    async def _ensure_symbol_leverage(self, symbol: str) -> bool:
+        if symbol in self._symbol_leverages:
+            return True
+        if symbol in self._unsupported_leverage_symbols:
+            return False
+
+        for leverage in LEVERAGE_PREFERENCE:
+            try:
+                actual_leverage = await self._exchange.set_leverage(symbol, leverage)
+            except UnsupportedLeverageError:
+                logger.info(
+                    "requested leverage is unsupported: symbol=%s leverage=%sx",
+                    symbol,
+                    leverage,
+                )
+                continue
+
+            self._symbol_leverages[symbol] = actual_leverage
+            logger.info(
+                "configured Binance leverage: symbol=%s leverage=%sx",
+                symbol,
+                actual_leverage,
+            )
+            return True
+
+        self._unsupported_leverage_symbols.add(symbol)
+        logger.warning(
+            "symbol skipped because Binance rejected 10x, 5x and 3x leverage: symbol=%s",
+            symbol,
+        )
+        return False
 
     async def _resolve_prior_symbol_intent(
         self,

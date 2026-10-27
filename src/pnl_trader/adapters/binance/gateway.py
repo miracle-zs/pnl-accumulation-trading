@@ -25,6 +25,7 @@ from ...application.execution_models import (
     SubmissionCertainty,
     SubmissionResult,
 )
+from ...application.exchange_errors import UnsupportedLeverageError
 from ...application.market_models import (
     ExchangeInstrument,
     FifteenMinuteCloseSnapshot,
@@ -89,6 +90,32 @@ class BinanceFuturesGateway:
         self._api_secret = api_secret.encode("utf-8")
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
         self._exchange_info_cache: tuple[int, tuple[ExchangeInstrument, ...]] | None = None
+
+    async def set_leverage(self, symbol: str, leverage: int) -> int:
+        """Set initial leverage and return Binance's confirmed setting."""
+
+        try:
+            payload = await self._request_json(
+                "POST",
+                "/fapi/v1/leverage",
+                params={"symbol": symbol, "leverage": str(leverage)},
+                signed=True,
+            )
+        except BinanceApiError as exc:
+            if exc.code != -4028:
+                raise
+            raise UnsupportedLeverageError(symbol, leverage, str(exc)) from exc
+
+        if not isinstance(payload, dict):
+            raise BinanceProtocolError("leverage response must be an object")
+        if payload.get("symbol") != symbol:
+            raise BinanceProtocolError("leverage response does not match the requested symbol")
+        actual_leverage = _integer(payload.get("leverage"), "leverage")
+        if actual_leverage != leverage:
+            raise BinanceProtocolError(
+                f"Binance confirmed {actual_leverage}x for {symbol}, requested {leverage}x"
+            )
+        return actual_leverage
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
         instruments = await self.get_exchange_info_snapshot()

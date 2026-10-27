@@ -84,6 +84,8 @@ class AlertNotifierPort(Protocol):
 
 
 class ExchangeGatewayPort(Protocol):
+    async def set_leverage(self, symbol: str, leverage: int) -> int: ...
+
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules: ...
 
     async def get_fifteen_minute_close(

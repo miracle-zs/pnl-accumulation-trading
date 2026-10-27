@@ -138,6 +138,9 @@ class _FilledExchange:
             min_market_notional=D("5"),
         )
 
+    async def set_leverage(self, symbol: str, leverage: int) -> int:
+        return leverage
+
     async def get_fifteen_minute_close(
         self,
         symbol: str,
