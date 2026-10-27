@@ -3,358 +3,332 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PNL Accumulation Trader - 15m Periodic Dashboard</title>
+  <title>PNL Trader · 15m 巡检量化终端</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     :root {
       --bg: #090d16;
-      --card-bg: #111726;
-      --card-hover: #161f33;
-      --border-color: #1e293b;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
+      --card: #0f172a;
+      --card-border: #1e293b;
+      --card-hover: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
     }
     body {
       background-color: var(--bg);
-      color: var(--text-main);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      font-size: 16px;
-      caret-color: #60a5fa;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .font-mono {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     }
     .custom-scrollbar::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+      width: 5px;
+      height: 5px;
     }
     .custom-scrollbar::-webkit-scrollbar-track {
-      background: #0f172a;
+      background: #090d16;
     }
     .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: #334155;
+      background: #1e293b;
       border-radius: 3px;
     }
-    .badge-t1 { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-    .badge-t2 { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-    .badge-t21 { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .badge-t3 { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-    .badge-t31 { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); }
-    ::selection { background: #2563eb; color: #fff; }
-    button:focus-visible, input:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
-    .equity-panel {
-      background: #111726;
-      border: 1px solid #263247;
-      border-radius: 16px;
-      padding: 20px;
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #334155;
     }
-    header h1, .equity-panel h2 { font-size: 1.25rem; line-height: 1.25; }
-    .equity-number { font-size: 3rem; line-height: 1.1; }
-    .equity-range-button {
-      min-width: 58px;
-      color: #aab7ca;
-      border: 1px solid transparent;
-      transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
-    }
-    .equity-range-button:disabled { cursor: not-allowed; color: #64748b; }
-    .equity-range-button:hover { color: #fff; background: #1e293b; }
-    .equity-range-button[aria-pressed="true"] {
-      color: #f8fafc;
+    .badge-t1 { background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.25); }
+    .badge-t2 { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25); }
+    .badge-t21 { background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.25); }
+    .badge-t3 { background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); }
+    .badge-t31 { background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.25); }
+    .tab-btn[aria-selected="true"] {
       background: #1e293b;
-      border-color: #3b4b63;
+      color: #f8fafc;
+      border-color: #3b82f6;
     }
-    .filter-button {
-      color: #94a3b8;
-      border-bottom: 2px solid transparent;
-      transition: color 140ms ease, border-color 140ms ease;
-    }
-    .filter-button:hover { color: #fff; }
-    .filter-button[aria-pressed="true"] { color: #f8fafc; border-color: #60a5fa; }
-    .equity-chart-shell { height: 270px; }
-    #equity-chart { display: block; width: 100%; height: 100%; overflow: visible; }
-    .chart-grid { stroke: #253147; stroke-width: 1; }
-    .chart-axis-label { fill: #94a3b8; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .chart-empty-label { fill: #aab7ca; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    @media (max-width: 640px) {
-      .equity-chart-shell { height: 220px; }
-      .equity-number { font-size: clamp(2.35rem, 11vw, 3.4rem); }
+    .period-btn[aria-pressed="true"] {
+      background: #1e293b;
+      color: #38bdf8;
+      border-color: #0284c7;
     }
   </style>
 </head>
-<body class="antialiased min-h-screen p-4 md:p-6 lg:p-8">
+<body class="min-h-screen p-4 md:p-6 lg:p-8 flex flex-col gap-6 max-w-7xl mx-auto">
 
   <!-- Top Navigation Header -->
-  <header class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 mb-6 border-b border-[#1e293b] gap-4">
+  <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-5 border-b border-slate-800/80 gap-4">
     <div class="flex items-center gap-3">
-      <div class="h-10 w-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 font-bold text-lg">
-        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13.2 2.8 5.5 13h5.3l-.8 8.2L18.5 11h-5.4l.1-8.2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+      <div class="h-10 w-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold text-lg shadow-inner">
+        ⚡
       </div>
       <div>
-        <div class="flex items-center gap-2">
-      <h1 class="font-bold tracking-tight text-white">PNL Periodic Review Trader</h1>
-          <span id="system-status-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30">
-            只读本地数据 · 交易服务状态未知
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-lg font-bold tracking-tight text-white">PNL Periodic Review Trader</h1>
+          <span id="system-status-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+            只读本地账本
           </span>
         </div>
-        <p class="text-xs text-slate-400 mt-0.5">Binance USDT-M 永续合约 · 15 分钟无状态定时巡检 · 方案一（利润反哺注销）</p>
+        <p class="text-xs text-slate-400 mt-0.5">Binance USDT-M · 15 分钟无状态定时巡检 · 方案一（利润注销重启）</p>
       </div>
     </div>
 
-    <!-- Planned review time and local dashboard actions -->
-    <div class="flex items-center gap-3 flex-wrap">
-      <div class="bg-[#111726] border border-[#1e293b] rounded-lg px-3 py-1.5 flex items-center gap-2.5 text-xs text-slate-300">
-        <span class="text-slate-400">下次计划巡检倒计时:</span>
+    <!-- Quick Status & Actions -->
+    <div class="flex items-center gap-2.5 flex-wrap">
+      <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs">
+        <span class="text-slate-400">下次巡检:</span>
         <span id="countdown" class="font-mono text-emerald-400 font-semibold text-sm">--:--</span>
       </div>
-      <button onclick="fetchData()" class="bg-[#1e293b] hover:bg-[#334155] text-slate-200 text-xs font-medium px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5">
+      <button onclick="fetchData()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 border border-slate-700">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-        刷新数据
+        刷新
       </button>
     </div>
   </header>
 
-  <section class="equity-panel mb-6" aria-labelledby="equity-heading">
-    <div class="flex flex-col gap-5">
-      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
-          <h2 id="equity-heading" class="font-semibold tracking-tight text-white">账户权益走势</h2>
-          <p class="text-xs sm:text-sm text-slate-400 mt-1">Binance totalMarginBalance · 每轮 15 分钟采样 · 单资产模式以 USDT 计，多资产模式以 USD 计</p>
-        </div>
-        <div class="inline-flex w-fit gap-1" role="group" aria-label="权益曲线时间范围">
-          <button class="equity-range-button rounded-md px-3 py-1.5 text-xs font-medium" type="button" data-period="24h" aria-pressed="false" onclick="selectEquityPeriod('24h')">24 小时</button>
-          <button class="equity-range-button rounded-md px-3 py-1.5 text-xs font-medium" type="button" data-period="7d" aria-pressed="true" onclick="selectEquityPeriod('7d')">7 天</button>
-          <button class="equity-range-button rounded-md px-3 py-1.5 text-xs font-medium" type="button" data-period="30d" aria-pressed="false" onclick="selectEquityPeriod('30d')">30 天</button>
-        </div>
+  <!-- 4 Core Metric Cards (KPI Ribbon) -->
+  <section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="核心指标">
+    <!-- Card 1: Total Equity -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between text-xs text-slate-400">
+        <span>账户总权益</span>
+        <span id="equity-change-badge" class="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">—</span>
       </div>
-
-      <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-        <div>
-          <div id="equity-value" class="equity-number text-5xl font-semibold tracking-tight text-white tabular-nums" aria-live="polite">—</div>
-          <div class="text-xs text-slate-400 mt-1">最近一次账户权益快照</div>
-        </div>
-        <div class="sm:text-right">
-          <div class="text-[11px] uppercase tracking-[0.12em] text-slate-400">区间变化</div>
-          <div id="equity-change" class="text-lg font-semibold text-slate-200 tabular-nums mt-1">等待数据</div>
-          <div id="equity-sampled-at" class="text-xs text-slate-400 mt-1">等待首次采样</div>
-        </div>
+      <div class="my-2">
+        <span class="text-2xl lg:text-3xl font-bold font-mono tracking-tight text-white" id="kpi-equity">—</span>
+        <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
-
-      <div class="equity-chart-shell border-t border-[#263247] pt-4">
-        <svg id="equity-chart" viewBox="0 0 920 280" preserveAspectRatio="none" role="img" aria-label="账户权益历史曲线">
-          <text x="50%" y="50%" text-anchor="middle" class="chart-empty-label">正在读取本地权益记录…</text>
-        </svg>
-      </div>
-
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-t border-[#263247] pt-3 text-[11px] text-slate-400">
-        <span id="equity-range-caption">7 天 · 从首个采样点计算区间变化</span>
-        <span>账户整体变化，包含未实现盈亏与资金转入转出 · 仅显示采样值，不是实时查询</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="bg-[#111726] border border-[#1e293b] rounded-xl p-5 mb-6" aria-labelledby="account-heading">
-    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-      <h2 id="account-heading" class="text-sm font-semibold text-white">账户概况</h2>
-      <span class="text-xs text-slate-400">与权益曲线使用同一次采样</span>
-    </div>
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-4">
-      <div><div class="text-xs text-slate-400">整体实际杠杆</div><div id="account-leverage" class="text-xl font-semibold text-white tabular-nums mt-1">—</div><div class="text-[11px] text-slate-400 mt-1">持仓总价值 ÷ 账户权益</div></div>
-      <div><div class="text-xs text-slate-400">持仓总价值</div><div id="account-notional" class="text-xl font-semibold text-white tabular-nums mt-1">—</div></div>
-      <div><div class="text-xs text-slate-400">未实现盈亏</div><div id="account-unrealized" class="text-xl font-semibold text-white tabular-nums mt-1">—</div></div>
-      <div><div class="text-xs text-slate-400">可用余额</div><div id="account-available" class="text-xl font-semibold text-white tabular-nums mt-1">—</div></div>
-    </div>
-  </section>
-
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-    <section class="bg-[#111726] border border-[#1e293b] rounded-xl p-5" aria-labelledby="today-heading">
-      <h2 id="today-heading" class="text-sm font-semibold text-white">今日交易</h2>
-      <p class="text-xs text-slate-400 mt-1">北京时间 · 策略成交账本</p>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
-        <div><div class="text-xs text-slate-400">已实现净盈亏</div><div id="today-pnl" class="text-lg text-white font-semibold tabular-nums mt-1">—</div></div>
-        <div><div class="text-xs text-slate-400">USDT 手续费</div><div id="today-fees" class="text-lg text-white font-semibold tabular-nums mt-1">—</div></div>
-        <div><div class="text-xs text-slate-400">成交笔数</div><div id="today-count" class="text-lg text-white font-semibold tabular-nums mt-1">—</div></div>
-      </div>
-      <p id="today-note" class="text-xs text-slate-400 mt-4">净盈亏扣除今日 USDT 手续费</p>
-    </section>
-    <section class="bg-[#111726] border border-[#1e293b] rounded-xl p-5" aria-labelledby="ranking-heading">
-      <h2 id="ranking-heading" class="text-sm font-semibold text-white">币种盈亏排行</h2>
-      <p class="text-xs text-slate-400 mt-1">累计已实现毛盈亏 · 不含手续费 · 前 10 名</p>
-      <div id="symbol-ranking" class="mt-3 text-xs"><p class="text-slate-400 py-3">正在读取成交记录…</p></div>
-    </section>
-  </div>
-
-  <!-- Key Metrics Row (4 Cards) -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <!-- Card 1: Net Profit -->
-    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
-      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>累计已实现净盈亏 (扣除 USDT 手续费)</span>
-      </div>
-      <div class="text-2xl font-bold text-white font-mono tracking-tight" id="kpi-net-profit">—</div>
-      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
-        <span>仅含已记录成交，不含未结浮盈</span>
-        <span id="fee-warning" class="text-amber-300 font-medium">成交账本统计</span>
+      <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
+        <span>可用余额</span>
+        <span id="kpi-available" class="font-mono text-slate-200">—</span>
       </div>
     </div>
 
     <!-- Card 2: Realized Cash -->
-    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
-      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>累计已实现毛盈亏</span>
-        <span id="kpi-fill-count" class="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded text-[11px]">0 笔</span>
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between text-xs text-slate-400">
+        <span>已实现净利润</span>
+        <span id="kpi-fill-count" class="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">—</span>
       </div>
-      <div class="text-2xl font-bold text-emerald-400 font-mono tracking-tight" id="kpi-realized-cash">—</div>
-      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
-        <span>未扣手续费</span>
-        <span>最近成交: <span id="last-fill-time" class="text-slate-200 font-mono">—</span></span>
+      <div class="my-2">
+        <span class="text-2xl lg:text-3xl font-bold font-mono tracking-tight text-emerald-400" id="kpi-realized-cash">—</span>
+        <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
-    </div>
-
-    <!-- Card 3: Active strategy positions -->
-    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
-      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>本地策略持仓</span>
-        <span class="text-slate-400 bg-slate-500/10 px-1.5 py-0.5 rounded text-[11px]">策略状态统计</span>
-      </div>
-      <div class="text-2xl font-bold text-amber-400 font-mono tracking-tight"><span id="kpi-active-symbols">0</span> 个</div>
-      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
-        <span>当前处于 OPEN 状态的标的数</span>
-        <span class="text-slate-300">非交易所实时仓位</span>
+      <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
+        <span>今日已实现</span>
+        <span id="kpi-today-pnl" class="font-mono text-slate-200">—</span>
       </div>
     </div>
 
-    <!-- Card 4: USDT fees -->
-    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
-      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>累计 USDT 手续费</span>
-        <span class="text-slate-400 bg-slate-500/10 px-1.5 py-0.5 rounded text-[11px]">成交账本汇总</span>
+    <!-- Card 3: Floating Unrealized -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between text-xs text-slate-400">
+        <span>未结浮动盈亏</span>
+        <span id="kpi-active-symbols" class="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono">—</span>
       </div>
-      <div class="text-2xl font-bold text-slate-200 font-mono tracking-tight" id="kpi-fees">—</div>
-      <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
-        <span>仅统计 USDT 手续费</span>
-        <span class="text-slate-400 font-medium">非 USDT 费用不折算</span>
+      <div class="my-2">
+        <span class="text-2xl lg:text-3xl font-bold font-mono tracking-tight text-slate-200" id="kpi-unrealized-pnl">—</span>
+        <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
     </div>
-  </div>
 
-  <!-- Tier Overview -->
-  <div class="mb-6">
-    <!-- Tier Distribution Donut & State Panel (1 col) -->
-    <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-5 flex flex-col justify-between">
+    <!-- Card 4: Position Notional & Leverage -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+      <div class="flex items-center justify-between text-xs text-slate-400">
+        <span>持仓总额 / 杠杆</span>
+        <span id="kpi-actual-leverage" class="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-mono">—</span>
+      </div>
+      <div class="my-2">
+        <span class="text-2xl lg:text-3xl font-bold font-mono tracking-tight text-white" id="kpi-notional">—</span>
+        <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Hero Section: High-Res Retina Chart (Left 2/3) + Tier & Risk Distribution (Right 1/3) -->
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Chart: High-Resolution Retina HTML5 Canvas -->
+    <div class="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+        <div>
+          <h2 class="text-sm font-semibold text-white">账户权益走势</h2>
+          <p class="text-xs text-slate-400 mt-0.5">每轮 15 分钟账户净值采样</p>
+        </div>
+
+        <!-- Period Toggle Buttons -->
+        <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-xs">
+          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors" data-period="24h" aria-pressed="false" onclick="selectPeriod('24h')">24 小时</button>
+          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors" data-period="7d" aria-pressed="true" onclick="selectPeriod('7d')">7 天</button>
+          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors" data-period="30d" aria-pressed="false" onclick="selectPeriod('30d')">30 天</button>
+        </div>
+      </div>
+
+      <!-- High-DPI Canvas Shell with Relative Positioning for Crisp Tooltip -->
+      <div class="relative w-full h-64 sm:h-72" id="canvas-container">
+        <canvas id="equity-canvas" class="w-full h-full block cursor-crosshair"></canvas>
+        <!-- Floating Hover Tooltip -->
+        <div id="chart-tooltip" class="absolute hidden pointer-events-none bg-slate-950/95 border border-slate-700/80 rounded-lg px-3 py-2 text-xs shadow-xl backdrop-blur-sm z-20">
+          <div id="tooltip-time" class="text-slate-400 font-mono text-[11px] mb-0.5">--</div>
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span class="text-slate-300">权益:</span>
+            <span id="tooltip-val" class="font-bold font-mono text-white">--</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-3 border-t border-slate-800 mt-2">
+        <span id="chart-start-time">—</span>
+        <span id="chart-latest-time">—</span>
+      </div>
+    </div>
+
+    <!-- Tier Structure & Option 1 Status -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
       <div>
-        <h2 class="text-sm font-semibold text-white mb-1">标的状态结构分布</h2>
-        <p class="text-xs text-slate-400 mb-4">本地标的状态在各 Tier 的分布</p>
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="text-sm font-semibold text-white">标的层级结构</h2>
+          <span id="tier-total-badge" class="text-xs text-slate-400 font-mono">— 币在管</span>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">当前持仓在各阶梯的分布</p>
 
-        <div class="space-y-2 mt-2 text-xs">
-          <div class="flex items-center justify-between py-2 border-b border-[#263247]">
+        <!-- Segmented Ratio Bar -->
+        <div class="w-full h-2.5 rounded-full bg-slate-950 overflow-hidden flex mb-5 border border-slate-800" id="tier-ratio-bar">
+          <div id="bar-t1" style="width: 0%;" class="bg-blue-500 h-full" title="T1 底仓"></div>
+          <div id="bar-t2" style="width: 0%;" class="bg-amber-500 h-full" title="T2 正常/半仓"></div>
+          <div id="bar-t3" style="width: 0%;" class="bg-rose-500 h-full" title="T3 深度承压"></div>
+          <div id="bar-t31" style="width: 0%;" class="bg-purple-500 h-full" title="T3 分批止盈"></div>
+        </div>
+
+        <!-- Tier Metrics List -->
+        <div class="space-y-2.5 text-xs">
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-              <span class="text-slate-300">T1 底仓</span>
+              <span class="text-slate-300">T1 底仓 (10U)</span>
             </div>
-            <div class="font-mono text-slate-200" id="tier-cnt-t1">0 币</div>
+            <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t1">—</span>
           </div>
-          <div class="flex items-center justify-between py-2 border-b border-[#263247]">
+
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-              <span class="text-slate-300">T2 普通/已分批</span>
+              <span class="text-slate-300">T2 正常/半仓 (15~30U)</span>
             </div>
-            <div class="font-mono text-slate-200" id="tier-cnt-t2">0 币</div>
+            <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t2">—</span>
           </div>
-          <div class="flex items-center justify-between py-2 border-b border-[#263247]">
+
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-              <span class="text-slate-300">T3 深度承压</span>
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              <span class="text-slate-300">T3 深度承压 (90U)</span>
             </div>
-            <div class="font-mono text-slate-200" id="tier-cnt-t3">0 币</div>
+            <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t3">—</span>
           </div>
-          <div class="flex items-center justify-between py-2">
+
+          <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
               <span class="text-slate-300">T3.1 / T3.2 已分批提利</span>
             </div>
-            <div class="font-mono text-slate-200" id="tier-cnt-t31">0 币</div>
+            <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t31">—</span>
           </div>
         </div>
       </div>
 
-      <div class="pt-3 border-t border-[#1e293b] flex items-center justify-between text-xs text-slate-400 mt-4">
-        <span>在管标的总计:</span>
-        <span class="font-mono text-slate-200 font-semibold" id="tier-total-cnt">0 币</span>
+      <!-- Option 1 Status Footer -->
+      <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+        <span class="text-slate-400">方案一铁底线:</span>
+        <span class="font-mono text-purple-400 font-medium">残值 &le; 5.0 USDT 割肉重启</span>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- Local strategy positions table -->
-  <div class="bg-[#111726] border border-[#1e293b] rounded-xl overflow-hidden mb-6">
-    <div class="p-4 border-b border-[#1e293b] flex flex-col md:flex-row md:items-center justify-between gap-3">
+  <!-- Lower Section: Position Matrix & Real-time Trades -->
+  <section class="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden">
+    <!-- Header with Tabs and Filters -->
+    <div class="p-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
       <div class="flex items-center gap-2">
-        <h2 class="text-sm font-semibold text-white">本地策略持仓</h2>
-        <span class="text-xs text-slate-500">(来自 SQLite 状态)</span>
+        <button type="button" onclick="switchView('positions')" id="tab-positions" aria-selected="true" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-800 border border-blue-500/50 transition-colors">
+          持仓监控大表
+        </button>
+        <button type="button" onclick="switchView('fills')" id="tab-fills" aria-selected="false" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white bg-slate-950 border border-slate-800 transition-colors">
+          最新成交流水
+        </button>
+        <button type="button" onclick="switchView('ranking')" id="tab-ranking" aria-selected="false" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white bg-slate-950 border border-slate-800 transition-colors">
+          收益排行 Top 10
+        </button>
       </div>
 
-      <!-- Filters & Search -->
-      <div class="flex items-center gap-2.5 flex-wrap">
-        <div class="inline-flex items-center gap-3 text-xs">
-          <button onclick="filterTier('ALL')" id="filter-all" aria-pressed="true" class="filter-button px-1 py-1 font-medium">全部</button>
-          <button onclick="filterTier('T1')" id="filter-t1" aria-pressed="false" class="filter-button px-1 py-1 font-medium">T1</button>
-          <button onclick="filterTier('T2')" id="filter-t2" aria-pressed="false" class="filter-button px-1 py-1 font-medium">T2</button>
-          <button onclick="filterTier('T3')" id="filter-t3" aria-pressed="false" class="filter-button px-1 py-1 font-medium">T3</button>
+      <!-- Filter Pills & Search for Positions -->
+      <div id="positions-toolbar" class="flex items-center gap-2.5 flex-wrap">
+        <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-xs">
+          <button onclick="filterTier('ALL')" id="filter-all" class="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium">全部</button>
+          <button onclick="filterTier('T1')" id="filter-t1" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T1</button>
+          <button onclick="filterTier('T2')" id="filter-t2" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T2</button>
+          <button onclick="filterTier('T3')" id="filter-t3" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T3</button>
         </div>
 
-        <div class="relative">
-          <input type="text" id="symbol-search" oninput="searchSymbols()" placeholder="搜索币种 (如 BTC, PEPE)..." class="bg-[#090d16] border border-[#1e293b] rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-44">
-        </div>
+        <input type="text" id="symbol-search" oninput="searchSymbols()" placeholder="搜索代币 (如 BTC, SOL)..." class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-44">
       </div>
     </div>
 
-    <!-- Table -->
-    <div class="overflow-x-auto custom-scrollbar max-h-96">
+    <!-- View 1: Positions Table -->
+    <div id="view-positions" class="overflow-x-auto custom-scrollbar max-h-96">
       <table class="w-full text-left text-xs">
-        <thead class="bg-[#0f172a] text-slate-400 uppercase tracking-wider text-[11px] sticky top-0 z-10 border-b border-[#1e293b]">
+        <thead class="bg-slate-950/80 text-slate-400 uppercase tracking-wider text-[11px] sticky top-0 z-10 border-b border-slate-800 font-mono">
           <tr>
-            <th class="py-3 px-4">标的 / 合约</th>
-            <th class="py-3 px-3">当前 Tier</th>
+            <th class="py-3 px-4">代币 / 合约</th>
+            <th class="py-3 px-3">当前层级</th>
             <th class="py-3 px-3">持仓均价</th>
-            <th class="py-3 px-3">目标止盈线</th>
-            <th class="py-3 px-3">加仓 / 注销价</th>
+            <th class="py-3 px-3">止盈触发价</th>
+            <th class="py-3 px-3">补仓 / 注销线</th>
             <th class="py-3 px-3">持仓数量</th>
-            <th class="py-3 px-4 text-right">入场名义价值</th>
+            <th class="py-3 px-4 text-right">名义价值</th>
           </tr>
         </thead>
-        <tbody id="position-table-body" class="divide-y divide-[#1e293b] font-mono">
+        <tbody id="position-table-body" class="divide-y divide-slate-800/80 font-mono">
           <tr>
-            <td colspan="7" class="py-8 text-center text-slate-500">正在从 SQLite 数据库同步持仓中...</td>
+            <td colspan="7" class="py-12 text-center text-slate-500 font-sans">
+              正在同步本地持仓数据...
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div class="p-3 bg-[#0f172a] border-t border-[#1e293b] flex items-center justify-between text-xs text-slate-400 px-4">
-      <div id="position-summary-text">等待持仓同步...</div>
-    </div>
-  </div>
-
-  <!-- Bottom: Recent fills -->
-  <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-5">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-2">
-        <h2 class="text-sm font-semibold text-white">最近成交流水</h2>
-        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+    <!-- View 2: Fills Feed -->
+    <div id="view-fills" class="hidden p-5">
+      <div id="fills-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div class="text-slate-500 text-xs py-8 text-center col-span-3">正在拉取成交流水...</div>
       </div>
-      <span class="text-xs text-slate-500 font-mono">本地成交记录</span>
     </div>
 
-    <div id="fills-feed-container" class="grid grid-cols-1 md:grid-cols-2 gap-x-8">
-      <div class="py-3 text-slate-400 text-xs">暂无成交流水记录</div>
+    <!-- View 3: Symbol Ranking -->
+    <div id="view-ranking" class="hidden p-5">
+      <div id="ranking-container" class="space-y-2 max-w-xl">
+        <div class="text-slate-500 text-xs py-8 text-center">正在计算收益排行...</div>
+      </div>
     </div>
-  </div>
+
+    <!-- Footer Counter -->
+    <div class="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 px-4 font-mono">
+      <div id="position-summary-text">等待同步...</div>
+      <div class="flex items-center gap-3">
+        <span>候选标的池约 630 个</span>
+      </div>
+    </div>
+  </section>
 
   <script>
     // 15-minute countdown clock
     function updateCountdown() {
-      const nowMs = Date.now();
-      const intervalMs = 15 * 60 * 1000;
-      const nextReviewMs = (Math.floor(nowMs / intervalMs) + 1) * intervalMs;
-      const remainingSeconds = Math.ceil((nextReviewMs - nowMs) / 1000);
-      const remainingMins = Math.floor(remainingSeconds / 60);
-      const remainingSecs = remainingSeconds % 60;
+      const now = new Date();
+      const mins = now.getMinutes();
+      const secs = now.getSeconds();
+      const remainingMins = 14 - (mins % 15);
+      const remainingSecs = 59 - secs;
       const str = `${String(remainingMins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
       document.getElementById('countdown').textContent = str;
     }
@@ -363,18 +337,15 @@
 
     let allPositions = [];
     let currentTierFilter = 'ALL';
-    let currentEquityPeriod = '7d';
+    let currentPeriod = '7d';
+    let chartHistoryPoints = [];
+    let ledgerAvailable = false;
 
-    function formatMoney(value) {
+    function formatSignedUsd(value) {
       if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
       const amount = Number(value);
-      return `${amount < 0 ? '-' : amount > 0 ? '+' : ''}$${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
-    }
-
-    function formatFee(value) {
-      if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
-      const amount = Math.abs(Number(value));
-      return `${amount === 0 ? '' : '-'}$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+      const sign = amount > 0 ? '+' : amount < 0 ? '-' : '';
+      return `${sign}$${Math.abs(amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     }
 
     function formatPrice(value) {
@@ -384,203 +355,311 @@
       const magnitude = Math.abs(amount);
       if (magnitude < 1e-20) return amount.toExponential(6);
       const fractionDigits = Math.min(20, Math.max(4, 5 - Math.floor(Math.log10(magnitude))));
-      return amount.toLocaleString(undefined, { maximumFractionDigits: fractionDigits });
+      return amount.toLocaleString('en-US', {maximumFractionDigits: fractionDigits});
     }
 
-    function escapeHtml(value) {
-      return String(value).replace(/[&<>"']/g, char => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      })[char]);
-    }
+    // --- High-Resolution Retina HTML5 Canvas Chart ---
+    function renderRetinaChart(points) {
+      const canvas = document.getElementById('equity-canvas');
+      const container = document.getElementById('canvas-container');
+      const rect = container.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
 
-    function formatEquity(value) {
-      if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
-      const amount = Number(value);
-      return `${amount < 0 ? '-$' : '$'}${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    }
+      // Set internal dimensions scaled by DPR for razor-sharp rendering on Retina
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
 
-    function formatChartTime(timestamp, period) {
-      const date = new Date(timestamp);
-      return period === '24h'
-        ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    }
+      const ctx = canvas.getContext('2d');
+      ctx.resetTransform();
+      ctx.scale(dpr, dpr);
 
-    function renderEquityChart(points, period) {
-      const svg = document.getElementById('equity-chart');
-      const left = 84;
-      const right = 908;
-      const top = 22;
-      const bottom = 238;
-      if (!points.length) {
-        svg.innerHTML = `
-          <line x1="${left}" y1="${top}" x2="${right}" y2="${top}" class="chart-grid" />
-          <line x1="${left}" y1="${(top + bottom) / 2}" x2="${right}" y2="${(top + bottom) / 2}" class="chart-grid" />
-          <line x1="${left}" y1="${bottom}" x2="${right}" y2="${bottom}" class="chart-grid" />
-          <text x="${(left + right) / 2}" y="132" text-anchor="middle" class="chart-empty-label">当前区间暂无权益记录</text>
-          <text x="${(left + right) / 2}" y="154" text-anchor="middle" class="chart-axis-label">数据会从本版本首次成功采样后开始积累</text>
-        `;
+      const w = rect.width;
+      const h = rect.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      if (!points || points.length < 2) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '13px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('暂无足够权益采样数据', w / 2, h / 2);
+        document.getElementById('chart-start-time').textContent = '—';
+        document.getElementById('chart-latest-time').textContent = '—';
+        document.getElementById('chart-tooltip').classList.add('hidden');
         return;
       }
 
-      const values = points.map(point => Number(point.equity));
-      const low = Math.min(...values);
-      const high = Math.max(...values);
-      const spread = high - low;
-      const padding = spread === 0 ? Math.max(1, Math.abs(high) * 0.005) : spread * 0.14;
-      const min = low - padding;
-      const max = high + padding;
-      const xAt = index => points.length === 1
-        ? (left + right) / 2
-        : left + (right - left) * index / (points.length - 1);
-      const yAt = value => bottom - (value - min) / (max - min) * (bottom - top);
-      const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${xAt(index).toFixed(2)} ${yAt(Number(point.equity)).toFixed(2)}`).join(' ');
-      const area = `${path} L ${xAt(points.length - 1).toFixed(2)} ${bottom} L ${xAt(0).toFixed(2)} ${bottom} Z`;
-      const lastIndex = points.length - 1;
-      const lastX = xAt(lastIndex);
-      const lastY = yAt(Number(points[lastIndex].equity));
-      const ticks = [0, 0.5, 1].map(fraction => {
-        const value = max - (max - min) * fraction;
-        const y = top + (bottom - top) * fraction;
-        return `<line x1="${left}" y1="${y}" x2="${right}" y2="${y}" class="chart-grid" />
-          <text x="${left - 12}" y="${y + 4}" text-anchor="end" class="chart-axis-label">${formatEquity(value)}</text>`;
-      }).join('');
-      const firstTime = formatChartTime(points[0].captured_at_ms, period);
-      const lastTime = formatChartTime(points[lastIndex].captured_at_ms, period);
-      svg.innerHTML = `
-        <defs>
-          <linearGradient id="equity-area-fill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stop-color="#34d399" stop-opacity="0.22" />
-            <stop offset="100%" stop-color="#34d399" stop-opacity="0.01" />
-          </linearGradient>
-        </defs>
-        ${ticks}
-        <path d="${area}" fill="url(#equity-area-fill)" />
-        <path d="${path}" fill="none" stroke="#34d399" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />
-        <line x1="${lastX}" y1="${top}" x2="${lastX}" y2="${bottom}" stroke="#34d399" stroke-opacity="0.35" stroke-dasharray="3 5" vector-effect="non-scaling-stroke" />
-        <circle cx="${lastX}" cy="${lastY}" r="4.5" fill="#090d16" stroke="#6ee7b7" stroke-width="2.5" vector-effect="non-scaling-stroke" />
-        <text x="${left}" y="266" class="chart-axis-label">${firstTime}</text>
-        <text x="${right}" y="266" text-anchor="end" class="chart-axis-label">${lastTime}</text>
-      `;
-    }
+      const paddingLeft = 65;
+      const paddingRight = 20;
+      const paddingTop = 20;
+      const paddingBottom = 30;
+      const plotW = w - paddingLeft - paddingRight;
+      const plotH = h - paddingTop - paddingBottom;
 
-    async function fetchEquityHistory(period = currentEquityPeriod) {
-      const value = document.getElementById('equity-value');
-      const change = document.getElementById('equity-change');
-      const sampledAt = document.getElementById('equity-sampled-at');
-      const labels = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
-      currentEquityPeriod = period;
-      document.querySelectorAll('.equity-range-button').forEach(button => {
-        button.setAttribute('aria-pressed', String(button.dataset.period === period));
-      });
-      document.getElementById('equity-range-caption').textContent = `${labels[period]} · 从首个采样点计算区间变化`;
-      document.getElementById('equity-chart').innerHTML = '<text x="50%" y="50%" text-anchor="middle" class="chart-empty-label">正在读取本地权益记录…</text>';
-
-      try {
-        const response = await fetch(`api/equity?period=${period}`);
-        if (!response.ok) throw new Error('equity history API returned an error');
-        const history = await response.json();
-        const latest = history.latest;
-        value.textContent = latest ? formatEquity(latest.equity) : '—';
-        document.getElementById('account-leverage').textContent = latest && latest.leverage !== null ? `${latest.leverage.toFixed(2)}x` : '—';
-        document.getElementById('account-notional').textContent = latest ? formatEquity(latest.position_notional) : '—';
-        document.getElementById('account-unrealized').textContent = latest ? formatEquity(latest.unrealized_pnl) : '—';
-        document.getElementById('account-available').textContent = latest ? formatEquity(latest.available_balance) : '—';
-        sampledAt.textContent = latest
-          ? `采样于 ${new Date(latest.captured_at_ms).toLocaleString()}`
-          : '尚无账户权益采样';
-        if (history.change === null) {
-          change.textContent = '样本不足，暂不可计算';
-          change.className = 'text-sm font-medium text-slate-300 mt-1';
-        } else {
-          const direction = history.change > 0 ? 'text-emerald-300' : history.change < 0 ? 'text-rose-300' : 'text-slate-200';
-          const sign = history.change > 0 ? '+' : '';
-          const percentSign = history.change_pct > 0 ? '+' : '';
-          const percentage = history.change_pct === null ? '' : ` (${percentSign}${history.change_pct.toFixed(2)}%)`;
-          change.textContent = `${sign}${formatEquity(history.change)}${percentage}`;
-          change.className = `text-lg font-semibold ${direction} tabular-nums mt-1`;
-        }
-        renderEquityChart(history.points, period);
-      } catch (err) {
-        console.error('Failed to load account equity history:', err);
-        value.textContent = '—';
-        change.textContent = '权益曲线读取失败';
-        change.className = 'text-sm font-medium text-rose-300 mt-1';
-        sampledAt.textContent = '请刷新页面重试';
-        ['account-leverage', 'account-notional', 'account-unrealized', 'account-available'].forEach(id => document.getElementById(id).textContent = '—');
-        document.getElementById('equity-chart').innerHTML = '<text x="50%" y="50%" text-anchor="middle" class="chart-empty-label">本地权益历史读取失败，请刷新重试</text>';
+      const values = points.map(p => p.equity);
+      let minVal = Math.min(...values);
+      let maxVal = Math.max(...values);
+      if (minVal === maxVal) {
+        minVal *= 0.95;
+        maxVal *= 1.05;
       }
+      const valRange = maxVal - minVal;
+      minVal -= valRange * 0.08;
+      maxVal += valRange * 0.08;
+
+      const getX = (idx) => paddingLeft + (idx / (points.length - 1)) * plotW;
+      const getY = (val) => paddingTop + plotH - ((val - minVal) / (maxVal - minVal)) * plotH;
+
+      // Draw horizontal grid lines & labels
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(30, 41, 59, 0.7)';
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px ui-monospace, monospace';
+      ctx.textAlign = 'right';
+
+      const gridTicks = 4;
+      for (let i = 0; i <= gridTicks; i++) {
+        const val = minVal + (maxVal - minVal) * (i / gridTicks);
+        const y = getY(val);
+
+        ctx.beginPath();
+        ctx.moveTo(paddingLeft, y);
+        ctx.lineTo(w - paddingRight, y);
+        ctx.stroke();
+
+        ctx.fillText('$' + val.toFixed(0), paddingLeft - 10, y + 4);
+      }
+
+      // Smooth Curve using Catmull-Rom / Bezier
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(getX(0), getY(points[0].equity));
+
+      for (let i = 0; i < points.length - 1; i++) {
+        const x0 = getX(i);
+        const y0 = getY(points[i].equity);
+        const x1 = getX(i + 1);
+        const y1 = getY(points[i + 1].equity);
+        const mx = (x0 + x1) / 2;
+        ctx.bezierCurveTo(mx, y0, mx, y1, x1, y1);
+      }
+
+      // Stroke Line
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#10b981';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = 'rgba(16, 185, 129, 0.4)';
+      ctx.shadowBlur = 8;
+      ctx.stroke();
+
+      // Area Fill
+      const lastX = getX(points.length - 1);
+      const firstX = getX(0);
+      const bottomY = paddingTop + plotH;
+      ctx.lineTo(lastX, bottomY);
+      ctx.lineTo(firstX, bottomY);
+      ctx.closePath();
+
+      const grad = ctx.createLinearGradient(0, paddingTop, 0, bottomY);
+      grad.addColorStop(0, 'rgba(16, 185, 129, 0.22)');
+      grad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+      ctx.fillStyle = grad;
+      ctx.shadowBlur = 0;
+      ctx.fill();
+      ctx.restore();
+
+      // Current Point Pulsing Indicator
+      const curX = getX(points.length - 1);
+      const curY = getY(points[points.length - 1].equity);
+      ctx.beginPath();
+      ctx.arc(curX, curY, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#10b981';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+
+      // Update range times
+      const d0 = new Date(points[0].captured_at_ms);
+      const d1 = new Date(points[points.length - 1].captured_at_ms);
+      document.getElementById('chart-start-time').textContent = d0.toLocaleDateString() + ' ' + d0.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      document.getElementById('chart-latest-time').textContent = d1.toLocaleDateString() + ' ' + d1.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
+      // Attach crosshair listener
+      setupCanvasHover(canvas, points, getX, getY, minVal, maxVal);
     }
 
-    function selectEquityPeriod(period) {
-      fetchEquityHistory(period);
+    // Interactive Hover Crosshair & Tooltip
+    function setupCanvasHover(canvas, points, getX, getY, minVal, maxVal) {
+      const tooltip = document.getElementById('chart-tooltip');
+      const container = document.getElementById('canvas-container');
+
+      canvas.onmousemove = function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const paddingLeft = 65;
+        const paddingRight = 20;
+        const plotW = rect.width - paddingLeft - paddingRight;
+
+        if (mouseX < paddingLeft || mouseX > rect.width - paddingRight) {
+          tooltip.classList.add('hidden');
+          return;
+        }
+
+        const ratio = (mouseX - paddingLeft) / plotW;
+        const index = Math.min(points.length - 1, Math.max(0, Math.round(ratio * (points.length - 1))));
+        const p = points[index];
+
+        const targetX = getX(index);
+        const targetY = getY(p.equity);
+
+        tooltip.classList.remove('hidden');
+        tooltip.style.left = `${Math.min(rect.width - 140, Math.max(10, targetX - 50))}px`;
+        tooltip.style.top = `${Math.max(10, targetY - 55)}px`;
+
+        document.getElementById('tooltip-time').textContent = new Date(p.captured_at_ms).toLocaleString([], {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
+        document.getElementById('tooltip-val').textContent = `$${p.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+      };
+
+      canvas.onmouseleave = function() {
+        tooltip.classList.add('hidden');
+      };
     }
 
+    // Window resize handler for Retina canvas
+    window.addEventListener('resize', () => {
+      if (chartHistoryPoints.length > 0) {
+        renderRetinaChart(chartHistoryPoints);
+      }
+    });
+
+    // Fetch and sync data
     async function fetchData() {
+      const statusBadge = document.getElementById('system-status-badge');
       try {
-        const equityRequest = fetchEquityHistory(currentEquityPeriod);
-        const [overviewRes, tierRes, posRes, fillsRes, analyticsRes] = await Promise.all([
-          fetch('api/overview'),
-          fetch('api/tier-distribution'),
-          fetch('api/positions'),
-          fetch('api/fills?limit=6'),
-          fetch('api/analytics')
+        const responses = await Promise.all([
+          fetch('/api/overview'),
+          fetch(`/api/equity?period=${currentPeriod}`),
+          fetch('/api/tier-distribution'),
+          fetch('/api/positions'),
+          fetch('/api/fills?limit=12'),
+          fetch('/api/analytics')
         ]);
-        const responses = [overviewRes, tierRes, posRes, fillsRes, analyticsRes];
-        if (responses.some(response => !response.ok)) throw new Error('dashboard API returned an error');
+        if (responses.some(response => !response.ok)) {
+          throw new Error('Dashboard API returned an unsuccessful response');
+        }
+        const [overviewRes, equityRes, tierRes, posRes, fillsRes, analyticsRes] = responses;
 
-        const ov = await overviewRes.json();
-        document.getElementById('kpi-net-profit').textContent = formatMoney(ov.realized_cash);
-        document.getElementById('kpi-realized-cash').textContent = formatMoney(ov.realized_gross);
-        document.getElementById('kpi-fill-count').textContent = `${ov.fill_count} 笔`;
-        document.getElementById('kpi-fees').textContent = formatFee(ov.total_commission);
-        document.getElementById('kpi-active-symbols').textContent = ov.active_positions_count;
-        document.getElementById('fee-warning').textContent = ov.pending_close_fill_count > 0
-          ? `${ov.pending_close_fill_count} 笔平仓明细待补录`
-          : ov.other_fee_count > 0 ? '含未折算的非 USDT 费用' : '已扣记录中的 USDT 手续费';
-        document.getElementById('last-fill-time').textContent = ov.last_fill_at_ms
-          ? new Date(ov.last_fill_at_ms).toLocaleString()
-          : '暂无成交';
-        document.getElementById('system-status-badge').textContent = ov.status === 'WAITING_DATA'
-          ? '本地数据尚未生成 · 交易服务状态未知'
-          : '只读本地数据 · 交易服务状态未知';
+        if (overviewRes.ok) {
+          const ov = await overviewRes.json();
+          ledgerAvailable = ov.status !== 'WAITING_DATA';
+          statusBadge.textContent = ledgerAvailable ? '只读本地账本' : '等待账本数据';
+          statusBadge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${ledgerAvailable ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`;
+          const realizedCash = ledgerAvailable ? ov.realized_cash : null;
+          const realizedEl = document.getElementById('kpi-realized-cash');
+          realizedEl.textContent = formatSignedUsd(realizedCash);
+          realizedEl.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${realizedCash === null ? 'text-slate-400' : realizedCash >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+          realizedEl.title = ov.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
+          document.getElementById('kpi-fill-count').textContent = ledgerAvailable ? `${ov.fill_count} 笔成交` : '—';
+          document.getElementById('kpi-active-symbols').textContent = ledgerAvailable ? `${ov.active_positions_count} 币在持` : '—';
+        }
 
-        const td = await tierRes.json();
-        document.getElementById('tier-cnt-t1').textContent = `${td.t1} 币`;
-        document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
-        document.getElementById('tier-cnt-t3').textContent = `${td.t3} 币`;
-        document.getElementById('tier-cnt-t31').textContent = `${td.t31 + td.t32} 币`;
-        document.getElementById('tier-total-cnt').textContent = `${td.total} 币`;
+        if (equityRes.ok) {
+          const eq = await equityRes.json();
+          if (eq.latest) {
+            document.getElementById('kpi-equity').textContent = `$${eq.latest.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+            document.getElementById('kpi-available').textContent = eq.latest.available_balance !== null ? `$${eq.latest.available_balance.toFixed(2)}` : '—';
+            document.getElementById('kpi-notional').textContent = eq.latest.position_notional !== null ? `$${eq.latest.position_notional.toFixed(2)}` : '—';
+            document.getElementById('kpi-actual-leverage').textContent = eq.latest.leverage !== null ? `${eq.latest.leverage.toFixed(2)}x` : '—';
 
-        allPositions = await posRes.json();
-        renderPositions();
+            const unpnl = eq.latest.unrealized_pnl;
+            const unEl = document.getElementById('kpi-unrealized-pnl');
+            unEl.textContent = formatSignedUsd(unpnl);
+            unEl.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${unpnl === null ? 'text-slate-400' : unpnl >= 0 ? 'text-emerald-400' : 'text-amber-400'}`;
+          } else {
+            document.getElementById('kpi-equity').textContent = '—';
+            document.getElementById('kpi-available').textContent = '—';
+            document.getElementById('kpi-notional').textContent = '—';
+            document.getElementById('kpi-actual-leverage').textContent = '—';
+            document.getElementById('kpi-unrealized-pnl').textContent = '—';
+          }
 
-        const fills = await fillsRes.json();
-        renderFills(fills);
-        const analytics = await analyticsRes.json();
-        document.getElementById('today-pnl').textContent = formatMoney(analytics.today.realized_net);
-        document.getElementById('today-fees').textContent = formatFee(analytics.today.commission);
-        document.getElementById('today-count').textContent = `${analytics.today.fill_count} 笔`;
-        document.getElementById('today-note').textContent = analytics.today.other_fee_count > 0
-          ? '存在非 USDT 手续费，净盈亏暂不计算'
-          : ov.pending_close_fill_count > 0 ? '存在待补录的平仓明细，统计可能不完整' : '净盈亏扣除今日 USDT 手续费';
-        const ranking = document.getElementById('symbol-ranking');
-        ranking.innerHTML = analytics.symbols.length
-          ? analytics.symbols.map(item => `<div class="flex justify-between gap-3 py-2 border-b border-[#263247]"><span class="text-slate-200">${escapeHtml(item.symbol)}</span><span class="tabular-nums ${item.realized_gross < 0 ? 'text-rose-300' : 'text-emerald-300'}">${formatMoney(item.realized_gross)}</span></div>`).join('')
-          : '<p class="text-slate-400 py-3">暂无平仓成交记录</p>';
-        await equityRequest;
+          const badge = document.getElementById('equity-change-badge');
+          if (eq.change !== null) {
+            const percentage = eq.change_pct === null ? '' : ` (${formatSignedUsd(eq.change_pct).replace('$', '')}%)`;
+            badge.textContent = `${formatSignedUsd(eq.change)}${percentage}`;
+            badge.className = `font-mono text-xs px-1.5 py-0.5 rounded ${eq.change >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`;
+          } else {
+            badge.textContent = '—';
+            badge.className = 'font-mono text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-300';
+          }
+
+          chartHistoryPoints = eq.points || [];
+          renderRetinaChart(chartHistoryPoints);
+        }
+
+        if (analyticsRes.ok) {
+          const an = await analyticsRes.json();
+          if (an.today) {
+            const todayPnl = document.getElementById('kpi-today-pnl');
+            const realizedNet = ledgerAvailable ? an.today.realized_net : null;
+            todayPnl.textContent = formatSignedUsd(realizedNet);
+            todayPnl.title = an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
+            todayPnl.className = `font-mono ${realizedNet === null ? 'text-slate-400' : realizedNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+          }
+          if (an.symbols) {
+            renderRanking(an.symbols);
+          }
+        }
+
+        if (tierRes.ok) {
+          const td = await tierRes.json();
+          if (ledgerAvailable) {
+            document.getElementById('tier-cnt-t1').textContent = `${td.t1} 币`;
+            document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
+            document.getElementById('tier-cnt-t3').textContent = `${td.t3} 币`;
+            document.getElementById('tier-cnt-t31').textContent = `${td.t31 + td.t32} 币`;
+            document.getElementById('tier-total-badge').textContent = `${td.total} 币在管`;
+
+            const total = td.total || 1;
+            document.getElementById('bar-t1').style.width = `${(td.t1 / total) * 100}%`;
+            document.getElementById('bar-t2').style.width = `${((td.t2 + td.t21) / total) * 100}%`;
+            document.getElementById('bar-t3').style.width = `${(td.t3 / total) * 100}%`;
+            document.getElementById('bar-t31').style.width = `${((td.t31 + td.t32) / total) * 100}%`;
+          } else {
+            document.getElementById('tier-cnt-t1').textContent = '—';
+            document.getElementById('tier-cnt-t2').textContent = '—';
+            document.getElementById('tier-cnt-t3').textContent = '—';
+            document.getElementById('tier-cnt-t31').textContent = '—';
+            document.getElementById('tier-total-badge').textContent = '— 币在管';
+            ['bar-t1', 'bar-t2', 'bar-t3', 'bar-t31'].forEach(id => {
+              document.getElementById(id).style.width = '0%';
+            });
+          }
+        }
+
+        if (posRes.ok) {
+          allPositions = await posRes.json();
+          renderPositions();
+        }
+
+        if (fillsRes.ok) {
+          const fills = await fillsRes.json();
+          renderFills(fills);
+        }
       } catch (err) {
-        console.error("Failed to load dashboard data:", err);
-        document.getElementById('system-status-badge').textContent = '数据读取失败 · 页面数值可能过时';
+        statusBadge.textContent = '数据刷新失败';
+        statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/30';
+        console.warn("API poll notice:", err);
       }
     }
 
     function renderPositions() {
       const tbody = document.getElementById('position-table-body');
-      const summary = document.getElementById('position-summary-text');
-      if (allPositions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">本地策略状态中暂无活跃持仓</td></tr>';
-        summary.textContent = '显示 0 / 0 活跃持仓';
+      if (!allPositions || allPositions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-slate-500 font-sans">暂无本地持仓记录</td></tr>';
+        document.getElementById('position-summary-text').textContent = '在管持仓: 0 币';
         return;
       }
 
@@ -594,59 +673,102 @@
         return matchesQuery && matchesTier;
       });
 
-      if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">没有符合当前搜索或 Tier 筛选的持仓</td></tr>';
-        summary.textContent = `显示 0 / ${allPositions.length} 活跃持仓`;
-        return;
-      }
-
       let html = '';
       filtered.forEach(p => {
         let badgeClass = 'badge-t1';
         if (p.tier === 2) badgeClass = p.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
         else if (p.tier === 3) badgeClass = p.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
 
+        const dcaStr = p.dca_price ? `$${formatPrice(p.dca_price)} (-50%)` : '—';
+        const woStr = p.writeoff_price ? `<span class="text-purple-400 font-bold">$${formatPrice(p.writeoff_price)} (5U注销)</span>` : dcaStr;
+
         html += `
-          <tr class="hover:bg-[#161f33] transition-colors">
-            <td class="py-3 px-4 font-bold text-white font-sans">${escapeHtml(p.symbol)}</td>
-            <td class="py-3 px-3"><span class="${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans">${escapeHtml(p.tier_label)}</span></td>
+          <tr class="hover:bg-slate-800/50 transition-colors">
+            <td class="py-3 px-4 font-bold text-white font-sans">${p.symbol}</td>
+            <td class="py-3 px-3"><span class="${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans">${p.tier_label}</span></td>
             <td class="py-3 px-3 text-slate-300">$${formatPrice(p.avg_entry_price)}</td>
             <td class="py-3 px-3 text-emerald-400 font-bold">$${formatPrice(p.tp_price)}</td>
-            <td class="py-3 px-3 text-slate-400">${p.tier === 3 ? '<span class="text-purple-400 font-bold">$' + formatPrice(p.writeoff_price) + ' (注销价)</span>' : '$' + formatPrice(p.dca_price) + ' (补仓)'}</td>
+            <td class="py-3 px-3 text-slate-400">${woStr}</td>
             <td class="py-3 px-3 text-slate-300">${p.qty}</td>
-            <td class="py-3 px-4 text-right text-slate-200 font-sans font-medium">$${p.entry_notional.toFixed(2)}</td>
+            <td class="py-3 px-4 text-right text-slate-100 font-bold">$${p.entry_notional.toFixed(2)}</td>
           </tr>
         `;
       });
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">没有符合当前搜索或层级筛选的持仓</td></tr>';
+        document.getElementById('position-summary-text').textContent = `显示 0 / ${allPositions.length} 个在管标的`;
+        return;
+      }
       tbody.innerHTML = html;
-      summary.textContent = `显示 ${filtered.length} / ${allPositions.length} 活跃持仓`;
+      document.getElementById('position-summary-text').textContent = `显示 ${filtered.length} / ${allPositions.length} 个在管标的`;
     }
 
     function renderFills(fills) {
-      const container = document.getElementById('fills-feed-container');
+      const container = document.getElementById('fills-container');
       if (!fills || fills.length === 0) {
-        container.innerHTML = '<div class="py-3 text-slate-400 text-xs">暂无成交流水记录</div>';
+        container.innerHTML = '<div class="text-slate-500 text-xs py-8 text-center col-span-3">暂无已记录的成交流水</div>';
         return;
       }
-
       container.innerHTML = fills.map(f => {
-        const isPositive = f.realized_pnl >= 0;
-        const colorClass = isPositive ? 'text-emerald-400' : 'text-purple-400';
-        const sideClass = f.side === 'BUY' ? 'text-blue-300 bg-blue-500/10' : 'text-amber-300 bg-amber-500/10';
+        const isWin = f.realized_pnl >= 0;
         return `
-          <div class="py-3 border-b border-[#263247] flex items-start gap-3">
-            <div class="p-1.5 rounded ${sideClass} text-xs font-bold font-mono shrink-0">${escapeHtml(f.side)}</div>
-            <div class="text-xs">
+          <div class="p-3 rounded-lg bg-slate-950/80 border border-slate-800 flex items-start justify-between text-xs">
+            <div>
               <div class="flex items-center gap-2">
-                <span class="font-bold text-white font-sans">${escapeHtml(f.symbol)}</span>
-                <span class="${colorClass} font-mono font-semibold">${formatMoney(f.realized_pnl)}</span>
+                <span class="font-bold text-white font-sans">${f.symbol}</span>
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${f.side === 'BUY' ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400'}">${f.side}</span>
               </div>
-              <p class="text-slate-400 text-[11px] mt-0.5">以 $${f.price} ${f.side} 数量 ${f.qty}</p>
-              <span class="text-[10px] text-slate-500 block mt-1">${new Date(f.traded_at_ms).toLocaleTimeString()} · 手续费 ${f.commission.toFixed(4)} ${escapeHtml(f.commission_asset)}</span>
+              <p class="text-slate-400 text-[11px] mt-1 font-mono">$${f.price} · 数量 ${f.qty}</p>
+            </div>
+            <div class="text-right">
+                <span class="font-mono font-bold ${isWin ? 'text-emerald-400' : 'text-purple-400'}">${formatSignedUsd(f.realized_pnl)}</span>
+              <span class="text-[10px] text-slate-500 block mt-1 font-mono">${new Date(f.traded_at_ms).toLocaleTimeString()}</span>
             </div>
           </div>
         `;
       }).join('');
+    }
+
+    function renderRanking(symbols) {
+      const container = document.getElementById('ranking-container');
+      if (!symbols || symbols.length === 0) {
+        container.innerHTML = '<div class="text-slate-500 text-xs py-8 text-center">暂无收益排名记录</div>';
+        return;
+      }
+      container.innerHTML = symbols.map((s, idx) => `
+        <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs font-mono">
+          <div class="flex items-center gap-3">
+            <span class="w-5 text-center font-bold ${idx < 3 ? 'text-amber-400' : 'text-slate-500'}">#${idx + 1}</span>
+            <span class="font-sans font-bold text-white">${s.symbol}</span>
+          </div>
+          <span class="${s.realized_gross >= 0 ? 'text-emerald-400' : 'text-rose-400'} font-bold">${formatSignedUsd(s.realized_gross)} USDT</span>
+        </div>
+      `).join('');
+    }
+
+    function switchView(view) {
+      ['positions', 'fills', 'ranking'].forEach(v => {
+        const btn = document.getElementById(`tab-${v}`);
+        const el = document.getElementById(`view-${v}`);
+        if (v === view) {
+          btn.className = 'tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-800 border border-blue-500/50 transition-colors';
+          btn.setAttribute('aria-selected', 'true');
+          el.classList.remove('hidden');
+        } else {
+          btn.className = 'tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white bg-slate-950 border border-slate-800 transition-colors';
+          btn.setAttribute('aria-selected', 'false');
+          el.classList.add('hidden');
+        }
+      });
+      document.getElementById('positions-toolbar').style.display = (view === 'positions') ? 'flex' : 'none';
+    }
+
+    function selectPeriod(p) {
+      currentPeriod = p;
+      document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.setAttribute('aria-pressed', String(btn.dataset.period === p));
+      });
+      fetchData();
     }
 
     function filterTier(tier) {
@@ -654,8 +776,11 @@
       ['all', 't1', 't2', 't3'].forEach(k => {
         const btn = document.getElementById('filter-' + k);
         if (btn) {
-          const selected = k.toUpperCase() === tier || (k === 'all' && tier === 'ALL');
-          btn.setAttribute('aria-pressed', String(selected));
+          if (k.toUpperCase() === tier || (k === 'all' && tier === 'ALL')) {
+            btn.className = 'px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white';
+          }
         }
       });
       renderPositions();
@@ -665,9 +790,9 @@
       renderPositions();
     }
 
-    // Initial fetch & auto poll every minute
+    // Initial load & poll every 5s
     fetchData();
-    setInterval(fetchData, 60_000);
+    setInterval(fetchData, 5000);
   </script>
 </body>
 </html>
