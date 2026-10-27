@@ -81,10 +81,10 @@ class ReviewRunCoordinator:
         if self._account_equity is None:
             return
         try:
-            total_margin_balance = await self._account_equity.get_account_equity()
+            snapshot = await self._account_equity.get_account_snapshot()
             self._store.record_account_equity_snapshot(
                 captured_at_ms=self._clock_ms(),
-                total_margin_balance=total_margin_balance,
+                snapshot=snapshot,
             )
         except Exception as exc:
             logger.warning(

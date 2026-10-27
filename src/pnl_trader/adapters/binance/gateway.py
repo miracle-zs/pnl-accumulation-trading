@@ -19,6 +19,7 @@ from urllib.parse import urlencode
 
 import httpx
 
+from ...application.account_models import AccountSnapshot
 from ...application.execution_models import (
     ExchangeOrderSnapshot,
     ExchangeOrderStatus,
@@ -247,8 +248,8 @@ class BinanceFuturesGateway:
             )
         return tuple(positions)
 
-    async def get_account_equity(self) -> Decimal:
-        """Fetch Binance's total USDⓈ-M margin balance for dashboard history."""
+    async def get_account_snapshot(self) -> AccountSnapshot:
+        """Fetch account values for the dashboard in one request."""
 
         payload = await self._request_json(
             "GET",
@@ -257,7 +258,20 @@ class BinanceFuturesGateway:
         )
         if not isinstance(payload, dict):
             raise BinanceProtocolError("account response must be an object")
-        return _decimal(payload.get("totalMarginBalance"), "totalMarginBalance")
+        positions = payload.get("positions")
+        if not isinstance(positions, list):
+            raise BinanceProtocolError("account response must contain positions")
+        notionals = []
+        for row in positions:
+            if not isinstance(row, dict):
+                raise BinanceProtocolError("account position must be an object")
+            notionals.append(abs(_decimal(row.get("notional"), "notional")))
+        return AccountSnapshot(
+            equity=_decimal(payload.get("totalMarginBalance"), "totalMarginBalance"),
+            unrealized_pnl=_decimal(payload.get("totalUnrealizedProfit"), "totalUnrealizedProfit"),
+            available_balance=_decimal(payload.get("availableBalance"), "availableBalance"),
+            position_notional=sum(notionals, ZERO),
+        )
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         await self._reserve_order_submission()

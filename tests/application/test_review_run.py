@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from pnl_trader.adapters.sqlite import SQLiteStateStore
+from pnl_trader.application.account_models import AccountSnapshot
 from pnl_trader.application.execution import ExecutionCoordinator
 from pnl_trader.application.execution_models import (
     ExchangeOrderSnapshot,
@@ -84,6 +85,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=symbol_reviews,
                     batch_source=_OneSymbolBatchSource(),
+                    account_equity=exchange,
                 )
 
                 result = await review_runs.run_slot(
@@ -100,6 +102,10 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(final_state.tier, Tier.T1)
                 self.assertEqual(final_state.avg_entry_price, D("90"))
                 self.assertEqual(len(store.list_active_order_intents()), 0)
+                latest = DashboardQueryService(Path(directory) / "state.sqlite3").get_equity_history("24h")["latest"]
+                self.assertEqual(latest["equity"], 100.0)
+                self.assertEqual(latest["position_notional"], 200.0)
+                self.assertEqual(latest["leverage"], 2.0)
             finally:
                 store.close()
 
@@ -219,6 +225,9 @@ class _FilledExchange:
 
     async def set_leverage(self, symbol: str, leverage: int) -> int:
         return leverage
+
+    async def get_account_snapshot(self) -> AccountSnapshot:
+        return AccountSnapshot(D("100"), D("-5"), D("75"), D("200"))
 
     async def get_fifteen_minute_close(
         self,

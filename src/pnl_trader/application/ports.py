@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from ..domain.models import ExecutionReceipt, SymbolState, TradeFillRecord
+from .account_models import AccountSnapshot
 from .market_models import (
     ExchangeInstrument,
     FifteenMinuteCloseSnapshot,
@@ -41,7 +42,7 @@ class StateStorePort(Protocol):
         self,
         *,
         captured_at_ms: int,
-        total_margin_balance: Decimal,
+        snapshot: AccountSnapshot,
     ) -> None: ...
 
     def create_order_intent(
@@ -132,7 +133,7 @@ class PositionSnapshotPort(Protocol):
 
 
 class AccountEquitySnapshotPort(Protocol):
-    async def get_account_equity(self) -> Decimal: ...
+    async def get_account_snapshot(self) -> AccountSnapshot: ...
 
 
 class ExchangeInstrumentCatalogPort(Protocol):

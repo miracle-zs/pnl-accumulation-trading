@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, call, patch
 
 import httpx
 
-from pnl_trader.adapters.binance.gateway import BinanceFuturesGateway
+from pnl_trader.adapters.binance.gateway import BinanceFuturesGateway, BinanceProtocolError
 from pnl_trader.application.execution_models import (
     ExchangeOrderStatus,
     MarketOrderRequest,
@@ -20,6 +20,38 @@ from pnl_trader.application.execution_models import (
 
 
 class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_account_snapshot_uses_position_notionals_from_one_account_request(self) -> None:
+        requests = []
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json={
+                "totalMarginBalance": "1000", "totalUnrealizedProfit": "-25",
+                "availableBalance": "600", "positions": [
+                    {"notional": "1500"}, {"notional": "-500"},
+                ],
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="test-key", api_secret="test-secret")
+            snapshot = await gateway.get_account_snapshot()
+        self.assertEqual(snapshot.equity, Decimal("1000"))
+        self.assertEqual(snapshot.unrealized_pnl, Decimal("-25"))
+        self.assertEqual(snapshot.available_balance, Decimal("600"))
+        self.assertEqual(snapshot.position_notional, Decimal("2000"))
+        self.assertEqual([request.url.path for request in requests], ["/fapi/v3/account"])
+
+    async def test_account_snapshot_requires_positions(self) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={
+                "totalMarginBalance": "1000", "totalUnrealizedProfit": "0", "availableBalance": "600"
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="test-key", api_secret="test-secret")
+            with self.assertRaises(BinanceProtocolError):
+                await gateway.get_account_snapshot()
+
     async def test_market_order_is_signed_and_uses_reduce_only_market_request(self) -> None:
         requests: list[httpx.Request] = []
 

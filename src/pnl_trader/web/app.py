@@ -32,6 +32,10 @@ def create_app(data_dir: Path | str) -> FastAPI:
     ) -> dict[str, Any]:
         return service.get_equity_history(period)
 
+    @app.get("/api/analytics")
+    def get_analytics() -> dict[str, Any]:
+        return service.get_analytics()
+
     @app.get("/api/tier-distribution")
     def get_tier_distribution() -> dict[str, Any]:
         return service.get_tier_distribution()

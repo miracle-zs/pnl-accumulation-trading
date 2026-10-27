@@ -69,7 +69,7 @@ SQLite 保留执行闭环所需的记录：
 - `symbol_states`：当前标的状态和策略批次。
 - `order_intents`：动作、累计卖出目标、下单数量和执行状态；`intent_id` 同时作为 Binance 客户端订单 ID。买入预算只用于规划下单数量，不重复保存在意图记录中。
 - `trade_fills`：交易所确认的成交明细；订单终态保存在 `order_intents`。
-- `account_equity_snapshots`：每轮策略处理结束后读取的账户 `totalMarginBalance`，只供看板展示。
+- `account_equity_snapshots`：每轮策略处理结束后读取的账户权益、未实现盈亏、可用余额和持仓总价值，只供看板展示。
 
 本轮仓位只在内存中用于核对本系统管理的持仓；策略下单准入不读取账户资产或保证金快照。账户权益采集失败只记日志，不阻断本轮交易。
 

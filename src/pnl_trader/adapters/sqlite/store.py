@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator
 
+from ...application.account_models import AccountSnapshot
 from ...application.execution_models import (
     IntentStatus,
     OrderIntent,
@@ -32,11 +33,14 @@ from ...domain.models import (
 from ...domain.transitions import apply_confirmed_execution, validate_execution_intent
 
 
-_SCHEMA_VERSION = 20
+_SCHEMA_VERSION = 21
 _ACCOUNT_EQUITY_SCHEMA = """
 CREATE TABLE account_equity_snapshots (
     captured_at_ms INTEGER PRIMARY KEY,
-    total_margin_balance TEXT NOT NULL
+    total_margin_balance TEXT NOT NULL,
+    unrealized_pnl TEXT,
+    available_balance TEXT,
+    position_notional TEXT
 )
 """
 _SCHEMA = """
@@ -85,7 +89,10 @@ CREATE INDEX trade_fills_by_time ON trade_fills(traded_at_ms);
 
 CREATE TABLE account_equity_snapshots (
     captured_at_ms INTEGER PRIMARY KEY,
-    total_margin_balance TEXT NOT NULL
+    total_margin_balance TEXT NOT NULL,
+    unrealized_pnl TEXT,
+    available_balance TEXT,
+    position_notional TEXT
 );
 
 """
@@ -158,6 +165,13 @@ class SQLiteStateStore:
                 connection.execute(_ACCOUNT_EQUITY_SCHEMA)
                 connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             return
+        if schema_version == 20:
+            with self._transaction() as connection:
+                connection.execute("ALTER TABLE account_equity_snapshots ADD COLUMN unrealized_pnl TEXT")
+                connection.execute("ALTER TABLE account_equity_snapshots ADD COLUMN available_balance TEXT")
+                connection.execute("ALTER TABLE account_equity_snapshots ADD COLUMN position_notional TEXT")
+                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+            return
         if schema_version != 0:
             raise RuntimeError(f"unsupported database schema version: {schema_version}")
         has_tables = self._connection.execute(
@@ -193,14 +207,16 @@ class SQLiteStateStore:
         self,
         *,
         captured_at_ms: int,
-        total_margin_balance: Decimal,
+        snapshot: AccountSnapshot,
     ) -> None:
         with self._transaction() as connection:
             connection.execute(
                 """INSERT OR REPLACE INTO account_equity_snapshots (
-                       captured_at_ms, total_margin_balance
-                   ) VALUES (?, ?)""",
-                (captured_at_ms, str(total_margin_balance)),
+                       captured_at_ms, total_margin_balance, unrealized_pnl,
+                       available_balance, position_notional
+                   ) VALUES (?, ?, ?, ?, ?)""",
+                (captured_at_ms, str(snapshot.equity), str(snapshot.unrealized_pnl),
+                 str(snapshot.available_balance), str(snapshot.position_notional)),
             )
 
     def ensure_idle_symbol_state(

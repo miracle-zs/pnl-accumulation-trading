@@ -132,7 +132,8 @@ class DashboardQueryService:
             )
             rows = cur.fetchall()
             cur.execute(
-                """SELECT captured_at_ms, total_margin_balance
+                """SELECT captured_at_ms, total_margin_balance, unrealized_pnl,
+                          available_balance, position_notional
                    FROM account_equity_snapshots
                    ORDER BY captured_at_ms DESC
                    LIMIT 1"""
@@ -155,19 +156,72 @@ class DashboardQueryService:
             if start_equity != 0:
                 change_pct = round(change / start_equity * 100, 2)
 
+        latest = None
+        if latest_row is not None:
+            equity = float(latest_row["total_margin_balance"])
+            notional = latest_row["position_notional"]
+            unrealized = latest_row["unrealized_pnl"]
+            available = latest_row["available_balance"]
+            notional = float(notional) if notional is not None else None
+            latest = {
+                "captured_at_ms": latest_row["captured_at_ms"],
+                "equity": equity,
+                "unrealized_pnl": float(unrealized) if unrealized is not None else None,
+                "available_balance": float(available) if available is not None else None,
+                "position_notional": notional,
+                "leverage": notional / equity if notional is not None and equity > 0 else None,
+            }
+
         return {
             "period": period,
             "points": points,
-            "latest": (
-                {
-                    "captured_at_ms": latest_row["captured_at_ms"],
-                    "equity": float(latest_row["total_margin_balance"]),
-                }
-                if latest_row is not None
-                else None
-            ),
+            "latest": latest,
             "change": change,
             "change_pct": change_pct,
+        }
+
+    def get_analytics(self) -> dict[str, Any]:
+        """Summarize strategy fills for the current Beijing day and by symbol."""
+
+        if not self._db_path.is_file():
+            return {
+                "today": {"realized_net": 0.0, "commission": 0.0, "fill_count": 0, "other_fee_count": 0},
+                "symbols": [],
+            }
+        now_ms = time.time_ns() // 1_000_000
+        day_ms = 24 * 60 * 60 * 1_000
+        offset_ms = 8 * 60 * 60 * 1_000
+        start_ms = ((now_ms + offset_ms) // day_ms) * day_ms - offset_ms
+        with closing(_get_readonly_connection(self._db_path)) as conn:
+            today = conn.execute(
+                """SELECT COALESCE(SUM(CAST(realized_pnl AS REAL)), 0) AS gross,
+                          COALESCE(SUM(CASE WHEN commission_asset = 'USDT'
+                              THEN CAST(commission AS REAL) ELSE 0 END), 0) AS commission,
+                          COALESCE(SUM(CASE WHEN commission_asset != 'USDT'
+                              AND CAST(commission AS REAL) != 0 THEN 1 ELSE 0 END), 0) AS other_fee_count,
+                          COUNT(*) AS fill_count
+                   FROM trade_fills WHERE traded_at_ms >= ? AND traded_at_ms < ?""",
+                (start_ms, start_ms + day_ms),
+            ).fetchone()
+            symbols = conn.execute(
+                """SELECT symbol, SUM(CAST(realized_pnl AS REAL)) AS gross
+                   FROM trade_fills WHERE side = 'SELL'
+                   GROUP BY symbol ORDER BY gross DESC, symbol LIMIT 10"""
+            ).fetchall()
+        return {
+            "today": {
+                "realized_net": (
+                    round(today["gross"] - today["commission"], 2)
+                    if today["other_fee_count"] == 0 else None
+                ),
+                "commission": round(today["commission"], 2),
+                "fill_count": today["fill_count"],
+                "other_fee_count": today["other_fee_count"],
+            },
+            "symbols": [
+                {"symbol": row["symbol"], "realized_gross": round(row["gross"], 2)}
+                for row in symbols
+            ],
         }
 
     def get_tier_distribution(self) -> dict[str, Any]:

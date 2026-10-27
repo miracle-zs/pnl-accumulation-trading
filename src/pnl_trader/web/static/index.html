@@ -149,12 +149,43 @@
     </div>
   </section>
 
+  <section class="bg-[#111726] border border-[#1e293b] rounded-xl p-5 mb-6" aria-labelledby="account-heading">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+      <h2 id="account-heading" class="text-sm font-semibold text-white">账户概况</h2>
+      <span class="text-xs text-slate-400">与权益曲线使用同一次采样</span>
+    </div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-4">
+      <div><div class="text-xs text-slate-400">整体实际杠杆</div><div id="account-leverage" class="text-xl font-semibold text-white tabular-nums mt-1">—</div><div class="text-[11px] text-slate-400 mt-1">持仓总价值 ÷ 账户权益</div></div>
+      <div><div class="text-xs text-slate-400">持仓总价值</div><div id="account-notional" class="text-xl font-semibold text-white tabular-nums mt-1">—</div></div>
+      <div><div class="text-xs text-slate-400">未实现盈亏</div><div id="account-unrealized" class="text-xl font-semibold text-white tabular-nums mt-1">—</div></div>
+      <div><div class="text-xs text-slate-400">可用余额</div><div id="account-available" class="text-xl font-semibold text-white tabular-nums mt-1">—</div></div>
+    </div>
+  </section>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <section class="bg-[#111726] border border-[#1e293b] rounded-xl p-5" aria-labelledby="today-heading">
+      <h2 id="today-heading" class="text-sm font-semibold text-white">今日交易</h2>
+      <p class="text-xs text-slate-400 mt-1">北京时间 · 策略成交账本</p>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+        <div><div class="text-xs text-slate-400">已实现净盈亏</div><div id="today-pnl" class="text-lg text-white font-semibold tabular-nums mt-1">—</div></div>
+        <div><div class="text-xs text-slate-400">USDT 手续费</div><div id="today-fees" class="text-lg text-white font-semibold tabular-nums mt-1">—</div></div>
+        <div><div class="text-xs text-slate-400">成交笔数</div><div id="today-count" class="text-lg text-white font-semibold tabular-nums mt-1">—</div></div>
+      </div>
+      <p id="today-note" class="text-xs text-slate-400 mt-4">净盈亏扣除今日 USDT 手续费</p>
+    </section>
+    <section class="bg-[#111726] border border-[#1e293b] rounded-xl p-5" aria-labelledby="ranking-heading">
+      <h2 id="ranking-heading" class="text-sm font-semibold text-white">币种盈亏排行</h2>
+      <p class="text-xs text-slate-400 mt-1">累计已实现毛盈亏 · 不含手续费 · 前 10 名</p>
+      <div id="symbol-ranking" class="mt-3 text-xs"><p class="text-slate-400 py-3">正在读取成交记录…</p></div>
+    </section>
+  </div>
+
   <!-- Key Metrics Row (4 Cards) -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
     <!-- Card 1: Net Profit -->
     <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
       <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>已实现净盈亏 (扣除 USDT 手续费)</span>
+        <span>累计已实现净盈亏 (扣除 USDT 手续费)</span>
       </div>
       <div class="text-2xl font-bold text-white font-mono tracking-tight" id="kpi-net-profit">—</div>
       <div class="text-[11px] text-slate-400 mt-2 flex items-center justify-between border-t border-[#1e293b] pt-2">
@@ -166,7 +197,7 @@
     <!-- Card 2: Realized Cash -->
     <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
       <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>已实现毛盈亏</span>
+        <span>累计已实现毛盈亏</span>
         <span id="kpi-fill-count" class="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded text-[11px]">0 笔</span>
       </div>
       <div class="text-2xl font-bold text-emerald-400 font-mono tracking-tight" id="kpi-realized-cash">—</div>
@@ -192,7 +223,7 @@
     <!-- Card 4: USDT fees -->
     <div class="bg-[#111726] border border-[#1e293b] rounded-xl p-4 relative overflow-hidden">
       <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
-        <span>USDT 手续费</span>
+        <span>累计 USDT 手续费</span>
         <span class="text-slate-400 bg-slate-500/10 px-1.5 py-0.5 rounded text-[11px]">成交账本汇总</span>
       </div>
       <div class="text-2xl font-bold text-slate-200 font-mono tracking-tight" id="kpi-fees">—</div>
@@ -343,7 +374,7 @@
     function formatFee(value) {
       if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
       const amount = Math.abs(Number(value));
-      return `-$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
+      return `${amount === 0 ? '' : '-'}$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT`;
     }
 
     function formatPrice(value) {
@@ -451,6 +482,10 @@
         const history = await response.json();
         const latest = history.latest;
         value.textContent = latest ? formatEquity(latest.equity) : '—';
+        document.getElementById('account-leverage').textContent = latest && latest.leverage !== null ? `${latest.leverage.toFixed(2)}x` : '—';
+        document.getElementById('account-notional').textContent = latest ? formatEquity(latest.position_notional) : '—';
+        document.getElementById('account-unrealized').textContent = latest ? formatEquity(latest.unrealized_pnl) : '—';
+        document.getElementById('account-available').textContent = latest ? formatEquity(latest.available_balance) : '—';
         sampledAt.textContent = latest
           ? `采样于 ${new Date(latest.captured_at_ms).toLocaleString()}`
           : '尚无账户权益采样';
@@ -472,6 +507,7 @@
         change.textContent = '权益曲线读取失败';
         change.className = 'text-sm font-medium text-rose-300 mt-1';
         sampledAt.textContent = '请刷新页面重试';
+        ['account-leverage', 'account-notional', 'account-unrealized', 'account-available'].forEach(id => document.getElementById(id).textContent = '—');
         document.getElementById('equity-chart').innerHTML = '<text x="50%" y="50%" text-anchor="middle" class="chart-empty-label">本地权益历史读取失败，请刷新重试</text>';
       }
     }
@@ -483,13 +519,14 @@
     async function fetchData() {
       try {
         const equityRequest = fetchEquityHistory(currentEquityPeriod);
-        const [overviewRes, tierRes, posRes, fillsRes] = await Promise.all([
+        const [overviewRes, tierRes, posRes, fillsRes, analyticsRes] = await Promise.all([
           fetch('api/overview'),
           fetch('api/tier-distribution'),
           fetch('api/positions'),
-          fetch('api/fills?limit=6')
+          fetch('api/fills?limit=6'),
+          fetch('api/analytics')
         ]);
-        const responses = [overviewRes, tierRes, posRes, fillsRes];
+        const responses = [overviewRes, tierRes, posRes, fillsRes, analyticsRes];
         if (responses.some(response => !response.ok)) throw new Error('dashboard API returned an error');
 
         const ov = await overviewRes.json();
@@ -520,6 +557,17 @@
 
         const fills = await fillsRes.json();
         renderFills(fills);
+        const analytics = await analyticsRes.json();
+        document.getElementById('today-pnl').textContent = formatMoney(analytics.today.realized_net);
+        document.getElementById('today-fees').textContent = formatFee(analytics.today.commission);
+        document.getElementById('today-count').textContent = `${analytics.today.fill_count} 笔`;
+        document.getElementById('today-note').textContent = analytics.today.other_fee_count > 0
+          ? '存在非 USDT 手续费，净盈亏暂不计算'
+          : ov.pending_close_fill_count > 0 ? '存在待补录的平仓明细，统计可能不完整' : '净盈亏扣除今日 USDT 手续费';
+        const ranking = document.getElementById('symbol-ranking');
+        ranking.innerHTML = analytics.symbols.length
+          ? analytics.symbols.map(item => `<div class="flex justify-between gap-3 py-2 border-b border-[#263247]"><span class="text-slate-200">${escapeHtml(item.symbol)}</span><span class="tabular-nums ${item.realized_gross < 0 ? 'text-rose-300' : 'text-emerald-300'}">${formatMoney(item.realized_gross)}</span></div>`).join('')
+          : '<p class="text-slate-400 py-3">暂无平仓成交记录</p>';
         await equityRequest;
       } catch (err) {
         console.error("Failed to load dashboard data:", err);
