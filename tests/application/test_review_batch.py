@@ -104,6 +104,7 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                         contract_type="PERPETUAL",
                         status="DELIVERING",
                         underlying_type="COIN",
+                        underlying_sub_types=(),
                         rules=None,
                     ),
                 )

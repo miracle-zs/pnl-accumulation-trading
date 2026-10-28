@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 import sqlite3
-from typing import Iterator
+from typing import Iterator, Mapping
 
 from ...application.account_models import AccountSnapshot
 from ...application.execution_models import (
@@ -33,7 +33,21 @@ from ...domain.models import (
 from ...domain.transitions import apply_confirmed_execution, validate_execution_intent
 
 
-_SCHEMA_VERSION = 21
+_SCHEMA_VERSION = 24
+_DASHBOARD_ANALYTICS_SCHEMA = """
+CREATE TABLE latest_symbol_prices (
+    symbol TEXT PRIMARY KEY,
+    price TEXT NOT NULL,
+    captured_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE dashboard_issues (
+    symbol TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    occurred_at_ms INTEGER NOT NULL
+);
+"""
 _SCHEMA = """
 CREATE TABLE symbol_states (
     symbol TEXT NOT NULL,
@@ -55,7 +69,8 @@ CREATE TABLE order_intents (
     target_cumulative_sold_qty TEXT,
     status TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL,
-    requested_qty TEXT
+    requested_qty TEXT,
+    full_close_confirmed_at_ms INTEGER
 );
 
 CREATE UNIQUE INDEX one_active_intent_per_symbol
@@ -77,6 +92,8 @@ CREATE TABLE trade_fills (
 );
 
 CREATE INDEX trade_fills_by_time ON trade_fills(traded_at_ms);
+CREATE INDEX trade_fills_by_intent ON trade_fills(intent_id);
+CREATE INDEX trade_fills_by_side_symbol_pnl ON trade_fills(side, symbol, realized_pnl);
 
 CREATE TABLE account_equity_snapshots (
     captured_at_ms INTEGER PRIMARY KEY,
@@ -84,6 +101,19 @@ CREATE TABLE account_equity_snapshots (
     unrealized_pnl TEXT,
     available_balance TEXT,
     position_notional TEXT
+);
+
+CREATE TABLE latest_symbol_prices (
+    symbol TEXT PRIMARY KEY,
+    price TEXT NOT NULL,
+    captured_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE dashboard_issues (
+    symbol TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    occurred_at_ms INTEGER NOT NULL
 );
 
 """
@@ -151,6 +181,31 @@ class SQLiteStateStore:
         schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
         if schema_version == _SCHEMA_VERSION:
             return
+        if schema_version == 21:
+            with self._transaction() as connection:
+                for statement in _DASHBOARD_ANALYTICS_SCHEMA.split(";"):
+                    if statement.strip():
+                        connection.execute(statement)
+                connection.execute("PRAGMA user_version = 22")
+            schema_version = 22
+        if schema_version == 22:
+            with self._transaction() as connection:
+                connection.execute(
+                    "CREATE INDEX trade_fills_by_intent ON trade_fills(intent_id)"
+                )
+                connection.execute("PRAGMA user_version = 23")
+            schema_version = 23
+        if schema_version == 23:
+            with self._transaction() as connection:
+                connection.execute(
+                    "ALTER TABLE order_intents ADD COLUMN full_close_confirmed_at_ms INTEGER"
+                )
+                connection.execute(
+                    "CREATE INDEX trade_fills_by_side_symbol_pnl "
+                    "ON trade_fills(side, symbol, realized_pnl)"
+                )
+                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+            return
         if schema_version != 0:
             raise RuntimeError(f"unsupported database schema version: {schema_version}")
         has_tables = self._connection.execute(
@@ -196,6 +251,59 @@ class SQLiteStateStore:
                    ) VALUES (?, ?, ?, ?, ?)""",
                 (captured_at_ms, str(snapshot.equity), str(snapshot.unrealized_pnl),
                  str(snapshot.available_balance), str(snapshot.position_notional)),
+            )
+
+    def record_market_prices(
+        self,
+        prices: Mapping[str, Decimal],
+        *,
+        captured_at_ms: int,
+    ) -> None:
+        with self._transaction() as connection:
+            if prices:
+                placeholders = ", ".join("?" for _ in prices)
+                connection.execute(
+                    f"DELETE FROM latest_symbol_prices WHERE symbol NOT IN ({placeholders})",
+                    tuple(prices),
+                )
+            else:
+                connection.execute("DELETE FROM latest_symbol_prices")
+            connection.executemany(
+                """INSERT INTO latest_symbol_prices (symbol, price, captured_at_ms)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(symbol) DO UPDATE SET
+                       price = excluded.price,
+                       captured_at_ms = excluded.captured_at_ms""",
+                ((symbol, str(price), captured_at_ms) for symbol, price in prices.items()),
+            )
+
+    def record_dashboard_issue(
+        self,
+        *,
+        symbol: str,
+        category: str,
+        detail: str,
+        occurred_at_ms: int,
+    ) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO dashboard_issues (symbol, category, detail, occurred_at_ms)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(symbol) DO UPDATE SET
+                       category = excluded.category,
+                       detail = excluded.detail,
+                       occurred_at_ms = excluded.occurred_at_ms""",
+                (symbol, category, detail, occurred_at_ms),
+            )
+
+    def clear_dashboard_issues(self, symbols: tuple[str, ...]) -> None:
+        if not symbols:
+            return
+        placeholders = ", ".join("?" for _ in symbols)
+        with self._transaction() as connection:
+            connection.execute(
+                f"DELETE FROM dashboard_issues WHERE symbol IN ({placeholders})",
+                symbols,
             )
 
     def ensure_idle_symbol_state(
@@ -380,7 +488,9 @@ class SQLiteStateStore:
         rows = self._connection.execute(
             f"""SELECT * FROM order_intents AS i
                 WHERE status = 'FILLED' AND action IN ({placeholders})
-                  AND i.intent_id NOT IN (SELECT intent_id FROM trade_fills)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM trade_fills AS f WHERE f.intent_id = i.intent_id
+                  )
                 ORDER BY created_at_ms, intent_id""",
             actions,
         ).fetchall()
@@ -427,8 +537,10 @@ class SQLiteStateStore:
                 (updated_at_ms, parsed.symbol),
             )
             connection.execute(
-                "UPDATE order_intents SET status = 'FILLED' WHERE intent_id = ?",
-                (intent_id,),
+                """UPDATE order_intents
+                   SET status = 'FILLED', full_close_confirmed_at_ms = ?
+                   WHERE intent_id = ?""",
+                (updated_at_ms, intent_id),
             )
 
     def record_full_close_fills(

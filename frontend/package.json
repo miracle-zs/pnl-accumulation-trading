@@ -1,0 +1,10 @@
+{
+  "name": "pnl-trader-dashboard-assets",
+  "private": true,
+  "scripts": {
+    "build": "tailwindcss -c tailwind.config.cjs -i tailwind.input.css -o ../src/pnl_trader/web/static/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

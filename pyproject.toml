@@ -22,4 +22,4 @@ where = ["src"]
 include = ["pnl_trader*"]
 
 [tool.setuptools.package-data]
-"pnl_trader.web" = ["static/*.html"]
+"pnl_trader.web" = ["static/*.html", "static/*.css"]

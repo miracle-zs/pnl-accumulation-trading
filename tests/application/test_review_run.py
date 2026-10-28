@@ -367,6 +367,9 @@ class _FilledExchange:
     async def set_leverage(self, symbol: str, leverage: int) -> int:
         return leverage
 
+    async def reserve_order_submission(self) -> None:
+        return None
+
     async def get_account_snapshot(self) -> AccountSnapshot:
         return AccountSnapshot(D("100"), D("-5"), D("75"), D("200"))
 

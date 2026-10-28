@@ -28,7 +28,7 @@ PNL_DATA_DIR=./var pnl-trader web
 
 看板只读取 `PNL_DATA_DIR` 下的 `state.sqlite3`，不会连接交易所或提交订单。交易服务每轮策略处理结束后读取一次 Binance 账户数据，展示权益曲线、未实现盈亏、可用余额、持仓总价值和整体实际杠杆（持仓总价值除以账户权益）；数据不参与策略决策。新增账户指标从升级后首次采样开始显示。
 
-数据库使用 schema v21；其他已有版本不自动迁移，启动时会报错。
+数据库使用 schema v24；支持从 v21、v22、v23 按顺序升级。看板样式由 `frontend/` 中锁定版本的 Tailwind CLI 编译为本地静态文件，构建命令为 `cd frontend && npm ci && npm run build`。
 
 运行本地自动化测试：
 
@@ -36,7 +36,7 @@ PNL_DATA_DIR=./var pnl-trader web
 python -m unittest discover -s tests -v
 ```
 
-交易运行入口连接 Binance USDⓈ-M Futures 主网，启动后可能提交真实市价单。标的池由 Binance `exchangeInfo` 自动筛选活跃的 USDT 永续 `COIN` 和 `INDEX` 合约；符合条件的新合约会自动纳入。不要在未确认账户和风险参数时启动服务，也不要将密钥提交到仓库。
+交易运行入口连接 Binance USDⓈ-M Futures 主网，启动后可能提交真实市价单。标的池由 Binance `exchangeInfo` 自动筛选活跃的 USDT 永续 `COIN`、`INDEX` 合约及 `underlyingSubType` 含 `RWA` 的合约；符合条件的新合约会自动纳入。不要在未确认账户和风险参数时启动服务，也不要将密钥提交到仓库。
 
 可选配置 `SERVERCHAN_SENDKEY` 接收整轮巡检失败提醒；不配置时只写服务日志，不影响交易服务启动。
 

@@ -94,6 +94,7 @@ class ExecutionCoordinator:
                 detail="attempt already exists; reconcile it instead of submitting again",
             )
 
+        await self._exchange.reserve_order_submission()
         self._store.create_order_attempt(intent.intent_id, requested_qty=requested_qty)
 
         submission = await self._exchange.submit_market_order(request)

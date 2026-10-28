@@ -46,13 +46,15 @@
      /opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
    ```
 
-标的池从 Binance `exchangeInfo` 动态筛选：USDT 报价和保证金、`PERPETUAL`、`TRADING`，且 `underlyingType=COIN` 或 `INDEX`。`validate-config` 检查数据目录路径中已存在的部分是否为目录，以及 Binance API Key、Secret 是否已提供；不联网，不验证密钥有效性、账户权限或数据目录写入权限。
+标的池从 Binance `exchangeInfo` 动态筛选：USDT 报价和保证金、`PERPETUAL`、`TRADING`，且 `underlyingType=COIN` 或 `INDEX`，或 `underlyingSubType` 包含 `RWA`。`validate-config` 检查数据目录路径中已存在的部分是否为目录，以及 Binance API Key、Secret 是否已提供；不联网，不验证密钥有效性、账户权限或数据目录写入权限。
 
 预检通过后先停在这里，不要执行 `systemctl enable` 或 `systemctl start`。启动服务会连接主网并可能下单，须由项目负责人确认账户、现有持仓和自动筛选的标的范围后另行决定。
 
 ## 公网只读看板
 
 看板独立于交易服务运行，仅读取 `/var/lib/pnl-trader/state.sqlite3`，监听服务器本机 `127.0.0.1:8001`。公网地址为 `https://43.167.191.253/pnl-trader/`，无需密码。HTTPS 根路径会跳转到项目路径。
+
+看板读取 schema v24。交易服务负责创建和升级数据库；首次启动或升级数据库后，再启动看板。两个 unit 都启用时，systemd 会先启动交易服务。
 
 服务器的 80 端口由另一项目使用，保留其现有路由。为签发和续期 IP 证书，只在该默认 HTTP server 中增加以下 ACME challenge location：
 

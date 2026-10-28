@@ -623,6 +623,9 @@ class _ControllableExchangeGateway:
         self.fills = fills
         self.submit_calls = 0
 
+    async def reserve_order_submission(self) -> None:
+        return None
+
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         self.submit_calls += 1
         return SubmissionResult(

@@ -57,7 +57,7 @@ class SymbolReviewExecutor:
         self._policy = StrategyPolicy()
         self._planner = MarketOrderPlanner()
         self._symbol_leverages: dict[str, int] = {}
-        self._unsupported_leverage_symbols: set[str] = set()
+        self._unsupported_leverage_slots: dict[str, int] = {}
 
     async def review_symbol(
         self,
@@ -92,7 +92,9 @@ class SymbolReviewExecutor:
         rules = await self._exchange.get_instrument_rules(symbol)
         plan = self._planner.plan(decision, state, rules, price)
 
-        if plan.action in BUY_ACTIONS and not await self._ensure_symbol_leverage(symbol):
+        if plan.action in BUY_ACTIONS and not await self._ensure_symbol_leverage(
+            symbol, slot_start_ms
+        ):
             return SymbolReviewResult(
                 disposition=ReviewDisposition.LEVERAGE_UNAVAILABLE,
                 plan=plan,
@@ -123,10 +125,10 @@ class SymbolReviewExecutor:
             price=price,
         )
 
-    async def _ensure_symbol_leverage(self, symbol: str) -> bool:
+    async def _ensure_symbol_leverage(self, symbol: str, slot_start_ms: int) -> bool:
         if symbol in self._symbol_leverages:
             return True
-        if symbol in self._unsupported_leverage_symbols:
+        if self._unsupported_leverage_slots.get(symbol) == slot_start_ms:
             return False
 
         for leverage in LEVERAGE_PREFERENCE:
@@ -148,7 +150,7 @@ class SymbolReviewExecutor:
             )
             return True
 
-        self._unsupported_leverage_symbols.add(symbol)
+        self._unsupported_leverage_slots[symbol] = slot_start_ms
         logger.warning(
             "symbol skipped because Binance rejected 10x, 5x and 3x leverage: symbol=%s",
             symbol,

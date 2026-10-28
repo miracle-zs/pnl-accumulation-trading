@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from .service import DashboardQueryService
 
@@ -59,5 +59,10 @@ def create_app(data_dir: Path | str) -> FastAPI:
         if not html_path.is_file():
             return HTMLResponse("<h1>Dashboard HTML not found</h1>", status_code=404)
         return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+    @app.get("/tailwind.css")
+    def get_dashboard_stylesheet() -> FileResponse:
+        css_path = Path(__file__).parent / "static" / "tailwind.css"
+        return FileResponse(css_path, media_type="text/css")
 
     return app

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 import time
@@ -33,6 +34,7 @@ _EQUITY_PERIOD_MS = {
     "7d": 7 * 24 * 60 * 60 * 1_000,
     "30d": 30 * 24 * 60 * 60 * 1_000,
 }
+_BEIJING_TIMEZONE = timezone(timedelta(hours=8))
 
 
 class DashboardQueryService:
@@ -86,7 +88,10 @@ class DashboardQueryService:
             cur.execute(
                 f"""SELECT COUNT(*) FROM order_intents
                     WHERE status = 'FILLED' AND action IN ({placeholders})
-                      AND intent_id NOT IN (SELECT intent_id FROM trade_fills)""",
+                      AND NOT EXISTS (
+                          SELECT 1 FROM trade_fills AS f
+                          WHERE f.intent_id = order_intents.intent_id
+                      )""",
                 actions,
             )
             pending_close_fill_count = cur.fetchone()[0]
@@ -119,6 +124,9 @@ class DashboardQueryService:
                 "latest": None,
                 "change": None,
                 "change_pct": None,
+                "max_drawdown": None,
+                "max_drawdown_pct": None,
+                "current_drawdown_pct": None,
             }
 
         now_ms = time.time_ns() // 1_000_000
@@ -157,6 +165,21 @@ class DashboardQueryService:
             if start_equity != 0:
                 change_pct = round(change / start_equity * 100, 2)
 
+        peak_equity = None
+        max_drawdown = 0.0
+        max_drawdown_pct = 0.0
+        for point in points:
+            peak_equity = point["equity"] if peak_equity is None else max(peak_equity, point["equity"])
+            if peak_equity > 0:
+                drawdown = peak_equity - point["equity"]
+                drawdown_pct = drawdown / peak_equity * 100
+                if drawdown_pct > max_drawdown_pct:
+                    max_drawdown = drawdown
+                    max_drawdown_pct = drawdown_pct
+        current_drawdown_pct = None
+        if len(points) >= 2 and peak_equity is not None and peak_equity > 0:
+            current_drawdown_pct = round((peak_equity - points[-1]["equity"]) / peak_equity * 100, 2)
+
         latest = None
         if latest_row is not None:
             equity = float(latest_row["total_margin_balance"])
@@ -180,6 +203,9 @@ class DashboardQueryService:
             "latest": latest,
             "change": change,
             "change_pct": change_pct,
+            "max_drawdown": round(max_drawdown, 2) if len(points) >= 2 else None,
+            "max_drawdown_pct": round(max_drawdown_pct, 2) if len(points) >= 2 else None,
+            "current_drawdown_pct": current_drawdown_pct,
         }
 
     def get_analytics(self) -> dict[str, Any]:
@@ -187,13 +213,22 @@ class DashboardQueryService:
 
         if not self._db_path.is_file():
             return {
-                "today": {"realized_net": 0.0, "commission": 0.0, "fill_count": 0, "other_fee_count": 0},
+                "today": {"realized_net": 0.0, "commission": 0.0, "fill_count": 0, "other_fee_count": 0,
+                          "pending_close_fill_count": 0},
                 "symbols": [],
+                "costs": {"commission_usdt": 0.0, "fill_count": 0, "other_fee_count": 0,
+                          "pending_close_fill_count": 0, "days": []},
+                "execution_issues": [],
             }
         now_ms = time.time_ns() // 1_000_000
         day_ms = 24 * 60 * 60 * 1_000
-        offset_ms = 8 * 60 * 60 * 1_000
-        start_ms = ((now_ms + offset_ms) // day_ms) * day_ms - offset_ms
+        now_beijing = datetime.fromtimestamp(now_ms / 1_000, tz=_BEIJING_TIMEZONE)
+        today_start = now_beijing.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_ms = int(today_start.timestamp() * 1_000)
+        week_start = today_start - timedelta(days=6)
+        week_start_ms = int(week_start.timestamp() * 1_000)
+        close_actions = tuple(action.value for action in FULL_CLOSE_ACTIONS)
+        close_placeholders = ", ".join("?" for _ in close_actions)
         with closing(_get_readonly_connection(self._db_path)) as conn:
             today = conn.execute(
                 """SELECT COALESCE(SUM(CAST(realized_pnl AS REAL)), 0) AS gross,
@@ -205,30 +240,96 @@ class DashboardQueryService:
                    FROM trade_fills WHERE traded_at_ms >= ? AND traded_at_ms < ?""",
                 (start_ms, start_ms + day_ms),
             ).fetchone()
+            pending_by_period = conn.execute(
+                f"""SELECT
+                       COUNT(CASE WHEN full_close_confirmed_at_ms IS NULL OR
+                           (full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?)
+                           THEN 1 END) AS today_count,
+                       COUNT(CASE WHEN full_close_confirmed_at_ms IS NULL OR
+                           (full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?)
+                           THEN 1 END) AS week_count
+                    FROM order_intents AS i
+                    WHERE status = 'FILLED' AND action IN ({close_placeholders})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM trade_fills AS f WHERE f.intent_id = i.intent_id
+                      )""",
+                (start_ms, start_ms + day_ms, week_start_ms, now_ms + 1, *close_actions),
+            ).fetchone()
             symbols = conn.execute(
                 """SELECT symbol, SUM(CAST(realized_pnl AS REAL)) AS gross
                    FROM trade_fills WHERE side = 'SELL'
                    GROUP BY symbol ORDER BY gross DESC, symbol LIMIT 10"""
             ).fetchall()
+            cost_days = conn.execute(
+                """SELECT strftime('%Y-%m-%d', traded_at_ms / 1000, 'unixepoch', '+8 hours') AS day,
+                          COALESCE(SUM(CASE WHEN commission_asset = 'USDT'
+                              THEN CAST(commission AS REAL) ELSE 0 END), 0) AS commission_usdt,
+                          COALESCE(SUM(CASE WHEN commission_asset != 'USDT'
+                              AND CAST(commission AS REAL) != 0 THEN 1 ELSE 0 END), 0) AS other_fee_count,
+                          COUNT(*) AS fill_count
+                   FROM trade_fills WHERE traded_at_ms >= ? AND traded_at_ms < ?
+                   GROUP BY day ORDER BY day""",
+                (week_start_ms, now_ms + 1),
+            ).fetchall()
+            issues = conn.execute(
+                """SELECT symbol, category, detail, occurred_at_ms
+                   FROM dashboard_issues ORDER BY occurred_at_ms DESC, symbol LIMIT 50"""
+            ).fetchall()
+        cost_by_day = {row["day"]: row for row in cost_days}
+        week_days = []
+        for day_offset in range(7):
+            day = (week_start.date() + timedelta(days=day_offset)).isoformat()
+            row = cost_by_day.get(day)
+            week_days.append(
+                {
+                    "day": day,
+                    "commission_usdt": round(row["commission_usdt"], 4) if row else 0.0,
+                    "fill_count": row["fill_count"] if row else 0,
+                    "other_fee_count": row["other_fee_count"] if row else 0,
+                }
+            )
+
         return {
             "today": {
                 "realized_net": (
                     round(today["gross"] - today["commission"], 2)
-                    if today["other_fee_count"] == 0 else None
+                    if today["other_fee_count"] == 0 and pending_by_period["today_count"] == 0 else None
                 ),
                 "commission": round(today["commission"], 2),
                 "fill_count": today["fill_count"],
                 "other_fee_count": today["other_fee_count"],
+                "pending_close_fill_count": pending_by_period["today_count"],
             },
             "symbols": [
                 {"symbol": row["symbol"], "realized_gross": round(row["gross"], 2)}
                 for row in symbols
             ],
+            "costs": {
+                "commission_usdt": round(sum(row["commission_usdt"] for row in week_days), 2),
+                "fill_count": sum(row["fill_count"] for row in week_days),
+                "other_fee_count": sum(row["other_fee_count"] for row in week_days),
+                "pending_close_fill_count": pending_by_period["week_count"],
+                "days": week_days,
+            },
+            "execution_issues": [
+                {
+                    "symbol": row["symbol"],
+                    "category": row["category"],
+                    "detail": row["detail"],
+                    "occurred_at_ms": row["occurred_at_ms"],
+                }
+                for row in issues
+            ],
         }
 
     def get_tier_distribution(self) -> dict[str, Any]:
         if not self._db_path.is_file():
-            return {"t1": 0, "t2": 0, "t21": 0, "t3": 0, "t31": 0, "t32": 0, "total": 0}
+            return {
+                "t1": 0, "t2": 0, "t21": 0, "t3": 0, "t31": 0,
+                "t32": 0, "total": 0,
+                "exposure": {"t1": 0.0, "t2": 0.0, "t3": 0.0, "total": 0.0,
+                             "priced_positions": 0, "total_positions": 0},
+            }
 
         with closing(_get_readonly_connection(self._db_path)) as conn:
             cur = conn.cursor()
@@ -239,6 +340,12 @@ class DashboardQueryService:
                 GROUP BY tier, completed_batches
             """)
             rows = cur.fetchall()
+            exposure_rows = cur.execute(
+                """SELECT s.tier, s.qty, p.price
+                   FROM symbol_states AS s
+                   LEFT JOIN latest_symbol_prices AS p ON p.symbol = s.symbol
+                   WHERE s.lifecycle IN ('OPEN', 'CLOSING')"""
+            ).fetchall()
             dist = {"t1": 0, "t2": 0, "t21": 0, "t3": 0, "t31": 0, "t32": 0}
             total = 0
             for r in rows:
@@ -261,6 +368,21 @@ class DashboardQueryService:
                     else:
                         dist["t32"] += cnt
             dist["total"] = total
+            exposure = {"t1": 0.0, "t2": 0.0, "t3": 0.0, "total": 0.0,
+                        "priced_positions": 0, "total_positions": len(exposure_rows)}
+            for row in exposure_rows:
+                if row["price"] is None:
+                    continue
+                tier_key = f"t{row['tier']}"
+                notional = float(row["qty"]) * float(row["price"])
+                exposure[tier_key] += notional
+                exposure["total"] += notional
+                exposure["priced_positions"] += 1
+            exposure = {
+                key: round(value, 2) if isinstance(value, float) else value
+                for key, value in exposure.items()
+            }
+            dist["exposure"] = exposure
             return dist
 
     def get_positions(self) -> list[dict[str, Any]]:
@@ -270,12 +392,14 @@ class DashboardQueryService:
         with closing(_get_readonly_connection(self._db_path)) as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT symbol, tier, lifecycle, qty, avg_entry_price,
-                       tier_entry_qty, tier_anchor_price, completed_batches,
-                       updated_at_ms
-                FROM symbol_states
+                SELECT s.symbol, s.tier, s.lifecycle, s.qty, s.avg_entry_price,
+                       s.tier_entry_qty, s.tier_anchor_price, s.completed_batches,
+                       s.updated_at_ms, p.price AS scan_price,
+                       p.captured_at_ms AS price_captured_at_ms
+                FROM symbol_states AS s
+                LEFT JOIN latest_symbol_prices AS p ON p.symbol = s.symbol
                 WHERE lifecycle IN ('OPEN', 'CLOSING')
-                ORDER BY tier DESC, updated_at_ms DESC
+                ORDER BY s.tier DESC, s.updated_at_ms DESC
             """)
             rows = cur.fetchall()
             results = []
@@ -327,6 +451,8 @@ class DashboardQueryService:
                     wo_price = None
 
                 notional = q * avg_p
+                scan_price = float(r["scan_price"]) if r["scan_price"] is not None else None
+                unrealized_pnl = (scan_price - avg_p) * q if scan_price is not None else None
 
                 results.append({
                     "symbol": r["symbol"],
@@ -339,6 +465,10 @@ class DashboardQueryService:
                     "dca_price": dca_price,
                     "writeoff_price": wo_price,
                     "entry_notional": round(notional, 2),
+                    "scan_price": scan_price,
+                    "price_captured_at_ms": r["price_captured_at_ms"],
+                    "scan_notional": round(q * scan_price, 2) if scan_price is not None else None,
+                    "estimated_unrealized_pnl": round(unrealized_pnl, 2) if unrealized_pnl is not None else None,
                 })
             return results
 

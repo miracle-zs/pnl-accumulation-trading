@@ -1,6 +1,6 @@
 [Unit]
 Description=Read-only PNL trading dashboard
-After=network.target
+After=network.target pnl-trader.service
 
 [Service]
 Type=exec

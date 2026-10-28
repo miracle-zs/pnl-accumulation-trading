@@ -57,7 +57,8 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             CREATE TABLE order_intents (
                 intent_id TEXT PRIMARY KEY,
                 action TEXT NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL,
+                full_close_confirmed_at_ms INTEGER
             );
 
             CREATE TABLE account_equity_snapshots (
@@ -66,6 +67,19 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 unrealized_pnl TEXT,
                 available_balance TEXT,
                 position_notional TEXT
+            );
+
+            CREATE TABLE latest_symbol_prices (
+                symbol TEXT PRIMARY KEY,
+                price TEXT NOT NULL,
+                captured_at_ms INTEGER NOT NULL
+            );
+
+            CREATE TABLE dashboard_issues (
+                symbol TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                detail TEXT NOT NULL,
+                occurred_at_ms INTEGER NOT NULL
             );
 
             INSERT INTO account_equity_snapshots VALUES
@@ -217,7 +231,10 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
     async def test_net_profit_waits_for_close_fills(self) -> None:
         self._init_sample_db()
         with closing(sqlite3.connect(self._db_path)) as connection, connection:
-            connection.execute("INSERT INTO order_intents VALUES (?, ?, ?)", ("close-2", "CLOSE_T1", "FILLED"))
+            connection.execute(
+                "INSERT INTO order_intents VALUES (?, ?, ?, ?)",
+                ("close-2", "CLOSE_T1", "FILLED", None),
+            )
         app = create_app(data_dir=self._data_dir)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             pending = (await client.get("/api/overview")).json()

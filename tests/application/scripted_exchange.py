@@ -73,6 +73,9 @@ class ScriptedExchangeGateway:
     async def set_leverage(self, symbol: str, leverage: int) -> int:
         return leverage
 
+    async def reserve_order_submission(self) -> None:
+        return None
+
     async def get_latest_prices(self) -> dict[str, Decimal]:
         return dict(self._latest_prices)
 

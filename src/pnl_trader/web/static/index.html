@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PNL Trader · 15m 巡检量化终端</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="tailwind.css">
   <style>
     :root {
       --bg: #090d16;
@@ -70,7 +70,7 @@
             只读本地账本
           </span>
         </div>
-        <p class="text-xs text-slate-400 mt-0.5">Binance USDT-M · 15 分钟无状态定时巡检 · 方案一（利润注销重启）</p>
+        <p class="text-xs text-slate-400 mt-0.5">Binance USDT-M · 每 15 分钟巡检</p>
       </div>
     </div>
 
@@ -240,10 +240,106 @@
 
       <!-- Option 1 Status Footer -->
       <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
-        <span class="text-slate-400">方案一铁底线:</span>
-        <span class="font-mono text-purple-400 font-medium">残值 &le; 5.0 USDT 割肉重启</span>
+        <span class="text-slate-400">T3 全平条件:</span>
+        <span class="font-mono text-purple-400 font-medium">残值 ≤ 5 USDT，全平后重开 T1</span>
       </div>
     </div>
+  </section>
+
+  <section class="grid grid-cols-1 xl:grid-cols-3 gap-4" aria-label="账户风险与持仓分析">
+    <section class="xl:col-span-1 bg-slate-900/90 border border-slate-800 rounded-xl p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">权益回撤</h2>
+          <p id="drawdown-period" class="text-xs text-slate-400 mt-1">最近 7 天</p>
+        </div>
+        <span class="text-[11px] text-slate-500">采样权益</span>
+      </div>
+      <div class="grid grid-cols-2 gap-4 mt-5">
+        <div>
+          <div class="text-xs text-slate-400">区间最大回撤</div>
+          <div id="max-drawdown" class="text-xl font-semibold font-mono text-rose-400 mt-1">—</div>
+          <div id="max-drawdown-pct" class="text-xs text-slate-400 font-mono mt-1">—</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400">当前回撤</div>
+          <div id="current-drawdown-pct" class="text-xl font-semibold font-mono text-amber-400 mt-1">—</div>
+          <div class="text-xs text-slate-500 mt-1">相对区间权益高点</div>
+        </div>
+      </div>
+      <p class="text-[11px] leading-relaxed text-slate-500 border-t border-slate-800 mt-4 pt-3">基于所选范围内的权益快照；充值和提现也会影响曲线。</p>
+    </section>
+
+    <section class="xl:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-5">
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">浮亏持仓</h2>
+          <p class="text-xs text-slate-400 mt-1">按最近一次巡检价格估算，最长显示 6 个</p>
+        </div>
+        <span id="losers-count" class="text-xs text-slate-500 font-mono">—</span>
+      </div>
+      <div class="overflow-x-auto custom-scrollbar">
+        <table class="w-full text-xs min-w-[420px]">
+          <thead class="text-[11px] text-slate-500 border-b border-slate-800">
+            <tr><th class="text-left font-medium py-2">标的</th><th class="text-left font-medium py-2">层级</th><th class="text-right font-medium py-2">估算浮亏</th><th class="text-right font-medium py-2">价格采样</th></tr>
+          </thead>
+          <tbody id="losers-list" class="divide-y divide-slate-800/70">
+            <tr><td colspan="4" class="py-6 text-center text-slate-500">等待持仓数据</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-4" aria-label="策略执行分析">
+    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">阶梯持仓名义价值</h2>
+          <p class="text-xs text-slate-400 mt-1">按最近巡检价格估算，不等同保证金</p>
+        </div>
+        <span id="exposure-priced-count" class="text-[11px] text-slate-500 font-mono">—</span>
+      </div>
+      <div id="tier-exposure-list" class="space-y-4 mt-5">
+        <div class="text-xs text-slate-500">等待持仓数据</div>
+      </div>
+    </section>
+
+    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">交易成本</h2>
+          <p class="text-xs text-slate-400 mt-1">最近 7 天 · 不含资金费</p>
+        </div>
+      </div>
+      <div class="flex items-end justify-between mt-4 pb-3 border-b border-slate-800">
+        <div>
+          <div class="text-xs text-slate-400">USDT 手续费</div>
+          <div id="weekly-commission" class="text-xl font-semibold font-mono text-white mt-1">—</div>
+        </div>
+        <div class="text-right">
+          <div class="text-xs text-slate-400">成交笔数</div>
+          <div id="weekly-fill-count" class="text-sm font-mono text-slate-200 mt-1">—</div>
+        </div>
+      </div>
+      <div id="cost-days" class="space-y-2 mt-3">
+        <div class="text-xs text-slate-500">等待成交数据</div>
+      </div>
+      <p id="other-fees-note" class="hidden text-[11px] text-amber-400 mt-3"></p>
+    </section>
+
+    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold text-white">执行异常</h2>
+          <p class="text-xs text-slate-400 mt-1">下次巡检成功处理后自动清除</p>
+        </div>
+        <span id="execution-issue-count" class="text-xs text-slate-500 font-mono">—</span>
+      </div>
+      <div id="execution-issues" class="space-y-2 mt-4 max-h-56 overflow-y-auto custom-scrollbar">
+        <div class="text-xs text-slate-500 py-4 text-center">等待执行数据</div>
+      </div>
+    </section>
   </section>
 
   <!-- Lower Section: Position Matrix & Real-time Trades -->
@@ -335,7 +431,7 @@
     <div id="position-footer" class="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 px-4 font-mono">
       <div id="position-summary-text">等待同步...</div>
       <div class="flex items-center gap-3">
-        <span>Binance 活跃 COIN / INDEX 永续池</span>
+        <span>Binance 活跃 COIN / INDEX / RWA 永续池</span>
       </div>
     </div>
   </section>
@@ -432,7 +528,10 @@
       minVal -= valRange * 0.08;
       maxVal += valRange * 0.08;
 
-      const getX = (idx) => paddingLeft + (idx / (points.length - 1)) * plotW;
+      const firstTimestamp = points[0].captured_at_ms;
+      const timeRange = points[points.length - 1].captured_at_ms - firstTimestamp;
+      const getX = (idx) =>
+        paddingLeft + ((points[idx].captured_at_ms - firstTimestamp) / timeRange) * plotW;
       const getY = (val) => paddingTop + plotH - ((val - minVal) / (maxVal - minVal)) * plotH;
 
       // Draw horizontal grid lines & labels
@@ -533,7 +632,19 @@
         }
 
         const ratio = (mouseX - paddingLeft) / plotW;
-        const index = Math.min(points.length - 1, Math.max(0, Math.round(ratio * (points.length - 1))));
+        const targetTimestamp = points[0].captured_at_ms + ratio *
+          (points[points.length - 1].captured_at_ms - points[0].captured_at_ms);
+        let low = 0;
+        let high = points.length - 1;
+        while (low < high) {
+          const middle = Math.floor((low + high) / 2);
+          if (points[middle].captured_at_ms < targetTimestamp) low = middle + 1;
+          else high = middle;
+        }
+        const right = low;
+        const left = Math.max(0, right - 1);
+        const index = Math.abs(points[right].captured_at_ms - targetTimestamp) <
+          Math.abs(points[left].captured_at_ms - targetTimestamp) ? right : left;
         const p = points[index];
 
         const targetX = getX(index);
@@ -560,17 +671,24 @@
     });
 
     // Fetch and sync data
+    let refreshInProgress = false;
+    let refreshQueued = false;
     async function fetchData() {
+      if (refreshInProgress) {
+        refreshQueued = true;
+        return;
+      }
+      refreshInProgress = true;
       const statusBadge = document.getElementById('system-status-badge');
       try {
         const responses = await Promise.all([
-          fetch('/api/overview'),
-          fetch(`/api/equity?period=${currentPeriod}`),
-          fetch('/api/tier-distribution'),
-          fetch('/api/positions'),
-          fetch('/api/fills?limit=12&side=BUY'),
-          fetch('/api/fills?limit=12&side=SELL'),
-          fetch('/api/analytics')
+          fetch('api/overview'),
+          fetch(`api/equity?period=${currentPeriod}`),
+          fetch('api/tier-distribution'),
+          fetch('api/positions'),
+          fetch('api/fills?limit=12&side=BUY'),
+          fetch('api/fills?limit=12&side=SELL'),
+          fetch('api/analytics')
         ]);
         if (responses.some(response => !response.ok)) {
           throw new Error('Dashboard API returned an unsuccessful response');
@@ -595,6 +713,7 @@
 
         if (equityRes.ok) {
           const eq = await equityRes.json();
+          renderDrawdown(eq);
           const snapshotStatus = document.getElementById('equity-snapshot-status');
           snapshotStatus.textContent = eq.latest
             ? `采样时间 ${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 本轮待更新'}`
@@ -636,18 +755,22 @@
           const an = await analyticsRes.json();
           if (an.today) {
             const todayPnl = document.getElementById('kpi-today-pnl');
-            const realizedNet = ledgerAvailable && pendingCloseFills === 0 ? an.today.realized_net : null;
+            const todayPendingCloseFills = Number(an.today.pending_close_fill_count || 0);
+            const realizedNet = ledgerAvailable ? an.today.realized_net : null;
             todayPnl.textContent = formatSignedUsd(realizedNet);
-            todayPnl.title = pendingCloseFills > 0 ? '平仓明细待补录，净利润暂不可用' : an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
+            todayPnl.title = todayPendingCloseFills > 0 ? '今日平仓明细待补录，净利润暂不可用' : an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
             todayPnl.className = `font-mono ${realizedNet === null ? 'text-slate-400' : realizedNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
           }
           if (an.symbols) {
             renderRanking(an.symbols, pendingCloseFills);
           }
+          renderCosts(an.costs);
+          renderExecutionIssues(an.execution_issues);
         }
 
         if (tierRes.ok) {
           const td = await tierRes.json();
+          renderTierExposure(td.exposure);
           if (ledgerAvailable) {
             document.getElementById('tier-cnt-t1').textContent = `${td.t1} 币`;
             document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
@@ -675,6 +798,7 @@
         if (posRes.ok) {
           allPositions = await posRes.json();
           renderPositions();
+          renderLosingPositions(allPositions);
         }
 
         if (buyFillsRes.ok && sellFillsRes.ok) {
@@ -684,18 +808,43 @@
         statusBadge.textContent = '数据刷新失败';
         statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/30';
         console.warn("API poll notice:", err);
+      } finally {
+        refreshInProgress = false;
+        if (refreshQueued) {
+          refreshQueued = false;
+          void fetchData();
+        }
       }
+    }
+
+    function createNode(tag, className, text) {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined) element.textContent = text;
+      return element;
+    }
+
+    function showTableMessage(container, columns, className, message) {
+      const cell = createNode('td', className, message);
+      cell.colSpan = columns;
+      const row = document.createElement('tr');
+      row.append(cell);
+      container.replaceChildren(row);
+    }
+
+    function showMessage(container, className, message) {
+      container.replaceChildren(createNode('div', className, message));
     }
 
     function renderPositions() {
       const tbody = document.getElementById('position-table-body');
       if (!ledgerAvailable) {
-        tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-slate-400 font-sans">等待账本数据</td></tr>';
+        showTableMessage(tbody, 7, 'py-12 text-center text-slate-400 font-sans', '等待账本数据');
         document.getElementById('position-summary-text').textContent = '在管持仓: —';
         return;
       }
       if (!allPositions || allPositions.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-slate-500 font-sans">暂无本地持仓记录</td></tr>';
+        showTableMessage(tbody, 7, 'py-12 text-center text-slate-500 font-sans', '暂无本地持仓记录');
         document.getElementById('position-summary-text').textContent = '在管持仓: 0 币';
         return;
       }
@@ -710,34 +859,39 @@
         return matchesQuery && matchesTier;
       });
 
-      let html = '';
-      filtered.forEach(p => {
+      const rows = filtered.map(p => {
         let badgeClass = 'badge-t1';
         if (p.tier === 2) badgeClass = p.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
         else if (p.tier === 3) badgeClass = p.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
 
         const tpStr = p.tp_price === null ? '—' : `$${formatPrice(p.tp_price)}`;
         const dcaStr = p.dca_price ? `$${formatPrice(p.dca_price)} (-50%)` : '—';
-        const woStr = p.writeoff_price ? `<span class="text-purple-400 font-bold">$${formatPrice(p.writeoff_price)} (5U注销)</span>` : dcaStr;
-
-        html += `
-          <tr class="hover:bg-slate-800/50 transition-colors">
-            <td class="py-3 px-4 font-bold text-white font-sans">${p.symbol}</td>
-            <td class="py-3 px-3"><span class="${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans">${p.tier_label}</span></td>
-            <td class="py-3 px-3 text-slate-300">$${formatPrice(p.avg_entry_price)}</td>
-            <td class="py-3 px-3 text-emerald-400 font-bold">${tpStr}</td>
-            <td class="py-3 px-3 text-slate-400">${woStr}</td>
-            <td class="py-3 px-3 text-slate-300">${p.qty}</td>
-            <td class="py-3 px-4 text-right text-slate-100 font-bold">$${p.entry_notional.toFixed(2)}</td>
-          </tr>
-        `;
+        const row = createNode('tr', 'hover:bg-slate-800/50 transition-colors');
+        row.append(
+          createNode('td', 'py-3 px-4 font-bold text-white font-sans', p.symbol),
+        );
+        const tierCell = createNode('td', 'py-3 px-3');
+        tierCell.append(createNode('span', `${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans`, p.tier_label));
+        row.append(tierCell);
+        row.append(createNode('td', 'py-3 px-3 text-slate-300', `$${formatPrice(p.avg_entry_price)}`));
+        row.append(createNode('td', 'py-3 px-3 text-emerald-400 font-bold', tpStr));
+        const riskCell = createNode('td', 'py-3 px-3 text-slate-400');
+        if (p.writeoff_price) {
+          riskCell.append(createNode('span', 'text-purple-400 font-bold', `$${formatPrice(p.writeoff_price)} (5U注销)`));
+        } else {
+          riskCell.textContent = dcaStr;
+        }
+        row.append(riskCell);
+        row.append(createNode('td', 'py-3 px-3 text-slate-300', p.qty));
+        row.append(createNode('td', 'py-3 px-4 text-right text-slate-100 font-bold', `$${p.entry_notional.toFixed(2)}`));
+        return row;
       });
-      if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">没有符合当前搜索或层级筛选的持仓</td></tr>';
+      if (rows.length === 0) {
+        showTableMessage(tbody, 7, 'py-8 text-center text-slate-500 font-sans', '没有符合当前搜索或层级筛选的持仓');
         document.getElementById('position-summary-text').textContent = `显示 0 / ${allPositions.length} 个在管标的`;
         return;
       }
-      tbody.innerHTML = html;
+      tbody.replaceChildren(...rows);
       document.getElementById('position-summary-text').textContent = `显示 ${filtered.length} / ${allPositions.length} 个在管标的`;
     }
 
@@ -756,21 +910,199 @@
       );
     }
 
+    function renderDrawdown(equity) {
+      const periodNames = {'24h': '最近 24 小时', '7d': '最近 7 天', '30d': '最近 30 天'};
+      document.getElementById('drawdown-period').textContent = periodNames[equity.period] || '所选范围';
+      const hasSamples = Array.isArray(equity.points) && equity.points.length > 0;
+      document.getElementById('max-drawdown').textContent = hasSamples && equity.max_drawdown !== null
+        ? formatUsd(equity.max_drawdown) : '—';
+      document.getElementById('max-drawdown-pct').textContent = hasSamples && equity.max_drawdown_pct !== null
+        ? `${equity.max_drawdown_pct.toFixed(2)}%` : '采样不足';
+      document.getElementById('current-drawdown-pct').textContent = hasSamples && equity.current_drawdown_pct !== null
+        ? `${equity.current_drawdown_pct.toFixed(2)}%` : '—';
+    }
+
+    function renderLosingPositions(positions) {
+      const body = document.getElementById('losers-list');
+      if (!ledgerAvailable) {
+        document.getElementById('losers-count').textContent = '等待账本';
+        showTableMessage(body, 4, 'py-6 text-center text-slate-500', '等待账本数据');
+        return;
+      }
+      if (!positions || positions.length === 0) {
+        document.getElementById('losers-count').textContent = '0 个持仓';
+        showTableMessage(body, 4, 'py-6 text-center text-slate-500', '暂无在管持仓');
+        return;
+      }
+      const pricedPositions = (positions || [])
+        .filter(position => Number.isFinite(position.estimated_unrealized_pnl));
+      const losses = pricedPositions
+        .filter(position => position.estimated_unrealized_pnl < 0)
+        .sort((a, b) => a.estimated_unrealized_pnl - b.estimated_unrealized_pnl);
+      document.getElementById('losers-count').textContent = pricedPositions.length > 0
+        ? `${losses.length} 个浮亏 · ${pricedPositions.length}/${positions.length} 已估值`
+        : '等待价格采样';
+      if (losses.length === 0) {
+        const message = pricedPositions.length > 0
+          ? '当前没有浮亏持仓'
+          : '持仓价格将在下一轮巡检后显示';
+        showTableMessage(body, 4, 'py-6 text-center text-slate-500', message);
+        return;
+      }
+      const rows = losses.slice(0, 6).map(position => {
+        const sampledAt = position.price_captured_at_ms
+          ? new Date(position.price_captured_at_ms).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
+          : '—';
+        const row = document.createElement('tr');
+        row.append(
+          createNode('td', 'py-2.5 text-white font-medium', position.symbol),
+          createNode('td', 'py-2.5 text-slate-400', position.tier_label),
+          createNode('td', 'py-2.5 text-right font-mono text-rose-400', formatSignedUsd(position.estimated_unrealized_pnl)),
+          createNode('td', 'py-2.5 text-right font-mono text-slate-500', sampledAt),
+        );
+        return row;
+      });
+      body.replaceChildren(...rows);
+    }
+
+    function renderTierExposure(exposure) {
+      const container = document.getElementById('tier-exposure-list');
+      if (!ledgerAvailable || !exposure || exposure.total_positions === 0) {
+        document.getElementById('exposure-priced-count').textContent = ledgerAvailable ? '暂无持仓' : '等待账本';
+        showMessage(container, 'text-xs text-slate-500', '暂无在管持仓');
+        return;
+      }
+      document.getElementById('exposure-priced-count').textContent = `${exposure.priced_positions}/${exposure.total_positions} 已估值`;
+      const tiers = [
+        {key: 't1', label: 'T1'},
+        {key: 't2', label: 'T2'},
+        {key: 't3', label: 'T3'},
+      ];
+      const rows = tiers.map(tier => {
+        const amount = Number(exposure[tier.key] || 0);
+        const ratio = exposure.total > 0 ? Math.min(100, Math.max(0, amount / exposure.total * 100)) : 0;
+        const row = document.createElement('div');
+        const labels = createNode('div', 'flex items-center justify-between text-xs mb-1.5');
+        const amountLabel = createNode('span', 'font-mono text-slate-200');
+        amountLabel.append(
+          document.createTextNode(`${formatUsd(amount)} `),
+          createNode('span', 'text-slate-500', `${ratio.toFixed(1)}%`),
+        );
+        labels.append(createNode('span', 'text-slate-300', tier.label), amountLabel);
+        const track = createNode('div', 'h-1.5 rounded-full bg-slate-950 overflow-hidden');
+        const barClass = tier.key === 't1' ? 'bg-blue-500' : tier.key === 't2' ? 'bg-amber-500' : 'bg-rose-500';
+        const bar = createNode('div', `h-full rounded-full ${barClass}`);
+        bar.style.width = `${ratio}%`;
+        track.append(bar);
+        row.append(labels, track);
+        return row;
+      });
+      const total = createNode('div', 'flex justify-between border-t border-slate-800 pt-3 text-xs');
+      total.append(
+        createNode('span', 'text-slate-400', '已估值名义价值'),
+        createNode('span', 'font-mono font-semibold text-white', formatUsd(exposure.total)),
+      );
+      container.replaceChildren(...rows, total);
+    }
+
+    function renderCosts(costs) {
+      const rows = document.getElementById('cost-days');
+      if (!costs) return;
+      document.getElementById('weekly-commission').textContent = formatUsd(costs.commission_usdt);
+      document.getElementById('weekly-fill-count').textContent = `${costs.fill_count} 笔`;
+      const otherFees = Number(costs.other_fee_count || 0);
+      const pendingCloseFills = Number(costs.pending_close_fill_count || 0);
+      const otherFeesNote = document.getElementById('other-fees-note');
+      const warnings = [];
+      if (otherFees > 0) warnings.push(`${otherFees} 笔成交使用非 USDT 手续费资产，未折算进手续费总额。`);
+      if (pendingCloseFills > 0) warnings.push(`${pendingCloseFills} 笔平仓成交待补录，手续费统计可能不完整。`);
+      otherFeesNote.textContent = warnings.join(' ');
+      otherFeesNote.classList.toggle('hidden', warnings.length === 0);
+      const days = costs.days || [];
+      if (days.length === 0) {
+        showMessage(rows, 'text-xs text-slate-500 py-2', '最近 7 天暂无成交');
+        return;
+      }
+      const dayRows = days.slice(-7).reverse().map(day => {
+        const row = createNode('div', 'flex items-center justify-between text-xs');
+        const date = createNode('time', 'text-slate-400 font-mono', day.day.slice(5));
+        date.dateTime = day.day;
+        row.append(
+          date,
+          createNode('span', 'text-slate-500', `${day.fill_count} 笔`),
+          createNode('span', 'text-slate-200 font-mono', formatUsd(day.commission_usdt)),
+        );
+        return row;
+      });
+      rows.replaceChildren(...dayRows);
+    }
+
+    function renderExecutionIssues(issues) {
+      const container = document.getElementById('execution-issues');
+      const labels = {
+        PRICE_MISSING: '缺少价格',
+        LEVERAGE_UNAVAILABLE: '杠杆不可用',
+        INTENT_CONFLICT: '订单状态冲突',
+        ORDER_PENDING: '订单待确认',
+        ORDER_PARTIALLY_FILLED: '部分成交待处理',
+        ORDER_BELOW_MINIMUM: '低于下单门槛',
+        REVIEW_ERROR: '巡检异常',
+        REVIEW_RUN_ERROR: '整轮巡检失败',
+        ORDER_UNKNOWN: '订单结果未知',
+        ORDER_REJECTED: '订单被拒',
+        ORDER_CANCELED: '订单已取消',
+        ORDER_EXPIRED: '订单已过期',
+      };
+      if (!ledgerAvailable) {
+        document.getElementById('execution-issue-count').textContent = '等待账本';
+        showMessage(container, 'text-xs text-slate-500 py-4 text-center', '等待账本数据');
+        return;
+      }
+      const currentIssues = issues || [];
+      document.getElementById('execution-issue-count').textContent = `${currentIssues.length} 项`;
+      if (currentIssues.length === 0) {
+        showMessage(container, 'text-xs text-emerald-400/80 py-4 text-center', '当前没有未解决异常');
+        return;
+      }
+      container.replaceChildren(...currentIssues.map(issue => {
+        const item = document.createElement('article');
+        item.className = 'py-2.5 border-b border-slate-800/70';
+        const header = document.createElement('div');
+        header.className = 'flex items-center justify-between gap-2';
+        const symbol = document.createElement('span');
+        symbol.className = 'text-xs font-semibold text-white';
+        symbol.textContent = issue.symbol;
+        const category = document.createElement('span');
+        category.className = 'text-[10px] text-amber-400';
+        category.textContent = labels[issue.category] || issue.category;
+        header.append(symbol, category);
+        const detail = document.createElement('p');
+        detail.className = 'text-[11px] text-slate-400 mt-1 break-words';
+        detail.textContent = issue.detail;
+        const time = document.createElement('time');
+        time.className = 'block text-[10px] text-slate-600 font-mono mt-1';
+        time.dateTime = new Date(issue.occurred_at_ms).toISOString();
+        time.textContent = new Date(issue.occurred_at_ms).toLocaleString('zh-CN');
+        item.append(header, detail, time);
+        return item;
+      }));
+    }
+
     function renderFillGroup(listId, countId, fills, side) {
       const list = document.getElementById(listId);
       if (!ledgerAvailable) {
         document.getElementById(countId).textContent = '—';
-        list.innerHTML = '<div class="text-slate-400 text-xs py-6 text-center">等待账本数据</div>';
+        showMessage(list, 'text-slate-400 text-xs py-6 text-center', '等待账本数据');
         return;
       }
       document.getElementById(countId).textContent = `最近 ${fills.length} 笔`;
       if (fills.length === 0) {
         const emptyText = side === 'BUY' ? '暂无买入成交' : '暂无卖出成交';
-        list.innerHTML = `<div class="text-slate-400 text-xs py-6 text-center">${emptyText}</div>`;
+        showMessage(list, 'text-slate-400 text-xs py-6 text-center', emptyText);
         return;
       }
 
-      list.innerHTML = fills.map(fill => {
+      const items = fills.map(fill => {
         const tradedAt = new Date(fill.traded_at_ms);
         const time = tradedAt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
         const isBuy = side === 'BUY';
@@ -785,42 +1117,49 @@
             ? 'text-slate-400'
             : pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
 
-        return `
-          <article class="py-3 flex items-center justify-between gap-4 text-xs">
-            <div class="min-w-0">
-              <p class="font-semibold text-white truncate">${fill.symbol}</p>
-              <p class="text-slate-400 text-[11px] mt-1 font-mono tabular-nums">$${formatPrice(fill.price)} · 数量 ${formatPrice(fill.qty)}</p>
-            </div>
-            <div class="shrink-0 text-right">
-              <span class="block text-[10px] text-slate-400">${amountLabel}</span>
-              <span class="block mt-0.5 font-mono font-semibold tabular-nums ${amountClass}">${amount}</span>
-              <time class="block mt-1 text-[10px] text-slate-500 font-mono tabular-nums" datetime="${tradedAt.toISOString()}">${time}</time>
-            </div>
-          </article>
-        `;
-      }).join('');
+        const item = createNode('article', 'py-3 flex items-center justify-between gap-4 text-xs');
+        const identity = createNode('div', 'min-w-0');
+        identity.append(
+          createNode('p', 'font-semibold text-white truncate', fill.symbol),
+          createNode('p', 'text-slate-400 text-[11px] mt-1 font-mono tabular-nums', `$${formatPrice(fill.price)} · 数量 ${formatPrice(fill.qty)}`),
+        );
+        const details = createNode('div', 'shrink-0 text-right');
+        const timeNode = createNode('time', 'block mt-1 text-[10px] text-slate-500 font-mono tabular-nums', time);
+        timeNode.dateTime = tradedAt.toISOString();
+        details.append(
+          createNode('span', 'block text-[10px] text-slate-400', amountLabel),
+          createNode('span', `block mt-0.5 font-mono font-semibold tabular-nums ${amountClass}`, amount),
+          timeNode,
+        );
+        item.append(identity, details);
+        return item;
+      });
+      list.replaceChildren(...items);
     }
 
     function renderRanking(symbols, pendingCloseFills) {
       const container = document.getElementById('ranking-container');
       if (!ledgerAvailable || pendingCloseFills > 0) {
         const message = !ledgerAvailable ? '等待账本数据' : '平仓明细待补录，收益排名暂不可用';
-        container.innerHTML = `<div class="text-slate-400 text-xs py-8 text-center">${message}</div>`;
+        showMessage(container, 'text-slate-400 text-xs py-8 text-center', message);
         return;
       }
       if (!symbols || symbols.length === 0) {
-        container.innerHTML = '<div class="text-slate-500 text-xs py-8 text-center">暂无收益排名记录</div>';
+        showMessage(container, 'text-slate-500 text-xs py-8 text-center', '暂无收益排名记录');
         return;
       }
-      container.innerHTML = symbols.map((s, idx) => `
-        <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs font-mono">
-          <div class="flex items-center gap-3">
-            <span class="w-5 text-center font-bold ${idx < 3 ? 'text-amber-400' : 'text-slate-500'}">#${idx + 1}</span>
-            <span class="font-sans font-bold text-white">${s.symbol}</span>
-          </div>
-          <span class="${s.realized_gross >= 0 ? 'text-emerald-400' : 'text-rose-400'} font-bold">${formatSignedUsd(s.realized_gross)} USDT</span>
-        </div>
-      `).join('');
+      const rows = symbols.map((symbol, idx) => {
+        const row = createNode('div', 'flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs font-mono');
+        const identity = createNode('div', 'flex items-center gap-3');
+        identity.append(
+          createNode('span', `w-5 text-center font-bold ${idx < 3 ? 'text-amber-400' : 'text-slate-500'}`, `#${idx + 1}`),
+          createNode('span', 'font-sans font-bold text-white', symbol.symbol),
+        );
+        const pnlClass = symbol.realized_gross >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        row.append(identity, createNode('span', `${pnlClass} font-bold`, `${formatSignedUsd(symbol.realized_gross)} USDT`));
+        return row;
+      });
+      container.replaceChildren(...rows);
     }
 
     function switchView(view) {
@@ -868,9 +1207,9 @@
       renderPositions();
     }
 
-    // Initial load & poll every 5s
+    // Data changes after each 15-minute review; refresh every 30 seconds.
     fetchData();
-    setInterval(fetchData, 5000);
+    setInterval(fetchData, 30000);
   </script>
 </body>
 </html>

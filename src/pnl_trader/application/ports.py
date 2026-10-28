@@ -44,6 +44,16 @@ class StateStorePort(Protocol):
         snapshot: AccountSnapshot,
     ) -> None: ...
 
+    def record_market_prices(
+        self, prices: Mapping[str, Decimal], *, captured_at_ms: int
+    ) -> None: ...
+
+    def record_dashboard_issue(
+        self, *, symbol: str, category: str, detail: str, occurred_at_ms: int
+    ) -> None: ...
+
+    def clear_dashboard_issues(self, symbols: tuple[str, ...]) -> None: ...
+
     def create_order_intent(
         self,
         intent: OrderIntent,
@@ -102,6 +112,8 @@ class AlertNotifierPort(Protocol):
 
 class ExchangeGatewayPort(Protocol):
     async def set_leverage(self, symbol: str, leverage: int) -> int: ...
+
+    async def reserve_order_submission(self) -> None: ...
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules: ...
 

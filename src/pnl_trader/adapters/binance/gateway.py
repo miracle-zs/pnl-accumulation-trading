@@ -45,6 +45,8 @@ ORDER_SUBMISSION_LIMIT_1M = 1_199
 ORDER_SUBMISSION_WINDOW_10S_SECONDS = 10.0
 ORDER_SUBMISSION_WINDOW_1M_SECONDS = 60.0
 ORDER_WINDOW_WAKE_MARGIN_SECONDS = 0.01
+REQUEST_WEIGHT_PAUSE_AT_1M = 1_800
+REQUEST_WEIGHT_PAUSE_SECONDS = 60.0
 ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS = (0.25, 0.5, 1.0)
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,7 @@ class BinanceFuturesGateway:
         self._exchange_info_cache: tuple[int, tuple[ExchangeInstrument, ...]] | None = None
         self._orders_in_last_10_seconds: deque[float] = deque()
         self._orders_in_last_minute: deque[float] = deque()
+        self._request_weight_pause_until = 0.0
 
     async def set_leverage(self, symbol: str, leverage: int) -> int:
         """Set initial leverage and return Binance's confirmed setting."""
@@ -160,6 +163,14 @@ class BinanceFuturesGateway:
             contract_type = _required_text(row.get("contractType"), "contractType")
             status = _required_text(row.get("status"), "status")
             underlying_type = _required_text(row.get("underlyingType"), "underlyingType")
+            raw_underlying_sub_types = row.get("underlyingSubType", [])
+            if not isinstance(raw_underlying_sub_types, list) or any(
+                not isinstance(value, str) or not value
+                for value in raw_underlying_sub_types
+            ):
+                raise BinanceProtocolError(
+                    f"exchangeInfo row {index} has invalid underlyingSubType"
+                )
             try:
                 rules = _parse_instrument_rules(
                     row,
@@ -180,6 +191,7 @@ class BinanceFuturesGateway:
                     contract_type=contract_type,
                     status=status,
                     underlying_type=underlying_type,
+                    underlying_sub_types=tuple(raw_underlying_sub_types),
                     rules=rules,
                 )
             )
@@ -268,8 +280,6 @@ class BinanceFuturesGateway:
         )
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
-        await self._reserve_order_submission()
-
         params = {
             "symbol": request.symbol,
             "side": request.side,
@@ -319,10 +329,11 @@ class BinanceFuturesGateway:
             )
         return SubmissionResult(SubmissionCertainty.ACCEPTED, order=order)
 
-    async def _reserve_order_submission(self) -> None:
+    async def reserve_order_submission(self) -> None:
         """Keep this account below both Binance new-order rate limits."""
 
         while True:
+            await self._wait_for_request_weight_capacity()
             now = time.monotonic()
             while (
                 self._orders_in_last_10_seconds
@@ -363,6 +374,15 @@ class BinanceFuturesGateway:
                 delay,
                 len(self._orders_in_last_10_seconds),
                 len(self._orders_in_last_minute),
+            )
+            await asyncio.sleep(delay)
+
+    async def _wait_for_request_weight_capacity(self) -> None:
+        delay = self._request_weight_pause_until - time.monotonic()
+        if delay > 0:
+            logger.info(
+                "Binance IP request weight is high; waiting %.2f seconds",
+                delay,
             )
             await asyncio.sleep(delay)
 
@@ -450,6 +470,8 @@ class BinanceFuturesGateway:
             headers["X-MBX-APIKEY"] = self._api_key
 
         for attempt in range(max_attempts):
+            if not (method == "POST" and path == "/fapi/v1/order"):
+                await self._wait_for_request_weight_capacity()
             attempt_params = dict(request_params)
             if signed:
                 attempt_params["timestamp"] = str(self._clock_ms())
@@ -479,6 +501,16 @@ class BinanceFuturesGateway:
                 continue
 
             used_weight = response.headers.get("X-MBX-USED-WEIGHT-1M")
+            if path != "/fapi/v2/ticker/price" and used_weight is not None:
+                try:
+                    observed_weight = int(used_weight)
+                except ValueError:
+                    observed_weight = 0
+                if observed_weight >= REQUEST_WEIGHT_PAUSE_AT_1M:
+                    self._request_weight_pause_until = max(
+                        self._request_weight_pause_until,
+                        time.monotonic() + REQUEST_WEIGHT_PAUSE_SECONDS,
+                    )
             if used_weight is not None:
                 logger.debug(
                     "Binance request usage: path=%s status=%s used_weight_1m=%s order_count_1m=%s",
@@ -488,6 +520,21 @@ class BinanceFuturesGateway:
                     response.headers.get("X-MBX-ORDER-COUNT-1M"),
                 )
             if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    pause_seconds = (
+                        float(retry_after)
+                        if retry_after is not None
+                        else REQUEST_WEIGHT_PAUSE_SECONDS
+                    )
+                    if pause_seconds <= 0:
+                        pause_seconds = REQUEST_WEIGHT_PAUSE_SECONDS
+                except ValueError:
+                    pause_seconds = REQUEST_WEIGHT_PAUSE_SECONDS
+                self._request_weight_pause_until = max(
+                    self._request_weight_pause_until,
+                    time.monotonic() + pause_seconds,
+                )
                 logger.warning(
                     "Binance rate limit response: path=%s used_weight_1m=%s order_count_1m=%s retry_after=%s",
                     path,
@@ -498,10 +545,9 @@ class BinanceFuturesGateway:
 
             retryable_response = response.status_code == 429 or response.status_code >= 500
             if read_only and retryable_response and attempt + 1 < max_attempts:
+                if response.status_code == 429:
+                    continue
                 delay_seconds = 1 << attempt
-                retry_after = response.headers.get("Retry-After")
-                if response.status_code == 429 and retry_after is not None:
-                    delay_seconds = max(delay_seconds, float(retry_after))
                 await asyncio.sleep(delay_seconds)
                 continue
             break

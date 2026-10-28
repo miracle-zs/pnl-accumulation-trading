@@ -74,6 +74,7 @@ class ReconciledReviewBatchSource:
             symbol for symbol, signal in signals_by_symbol.items() if signal.delisted
         }
         for symbol in delisted_symbols:
+            self._store.clear_dashboard_issues((symbol,))
             state = states.get(symbol)
             position = positions_by_symbol.get(symbol)
             if (
@@ -148,6 +149,12 @@ class ReconciledReviewBatchSource:
         positions: dict[str, ExchangePosition],
         intents: dict[str, PersistedOrderIntent],
     ) -> None:
+        for symbol, position in positions.items():
+            if position.position_amt != ZERO and symbol not in states:
+                raise RuntimeError(
+                    f"exchange activity for {symbol} has no initialized local state"
+                )
+
         for symbol, state in states.items():
             actual_qty = positions[symbol].position_amt if symbol in positions else ZERO
             intent = intents.get(symbol)
