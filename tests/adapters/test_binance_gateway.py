@@ -75,17 +75,21 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
                 api_secret="test-api-secret",
                 clock_ms=lambda: 1_700_000_000_000,
             )
-            result = await gateway.submit_market_order(
-                MarketOrderRequest(
-                    symbol="BTCUSDT",
-                    side="SELL",
-                    quantity=Decimal("0.01"),
-                    client_order_id="test-close-1",
+            with self.assertLogs("pnl_trader.adapters.binance.gateway", level="INFO") as captured:
+                result = await gateway.submit_market_order(
+                    MarketOrderRequest(
+                        symbol="BTCUSDT",
+                        side="SELL",
+                        quantity=Decimal("0.01"),
+                        client_order_id="test-close-1",
+                    )
                 )
-            )
 
         self.assertEqual(result.certainty, SubmissionCertainty.ACCEPTED)
         self.assertEqual(result.order.status, ExchangeOrderStatus.FILLED)
+        self.assertIn("symbol=BTCUSDT side=SELL quantity=0.01", captured.output[0])
+        self.assertNotIn("test-api-key", captured.output[0])
+        self.assertNotIn("test-api-secret", captured.output[0])
         self.assertEqual(len(requests), 1)
         request = requests[0]
         self.assertEqual(request.method, "POST")

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from .models import Action, Decision, Lifecycle, Observation, SymbolState, Tier, ZERO
+from .models import (
+    Action, Decision, FULL_CLOSE_BY_TIER, Lifecycle, Observation, SymbolState, Tier, ZERO,
+)
 
 
 T1_TAKE_PROFIT = Decimal("0.10")
@@ -33,6 +35,9 @@ class StrategyPolicy:
                     buy_notional=T1_NOTIONAL,
                 )
             return Decision(Action.HOLD)
+
+        if state.lifecycle is Lifecycle.CLOSING:
+            return self._close_all(state, FULL_CLOSE_BY_TIER[state.tier])
 
         ret = (price - state.avg_entry_price) / state.avg_entry_price
         dca_price = state.tier_anchor_price * (Decimal("1") - DCA_DROP)

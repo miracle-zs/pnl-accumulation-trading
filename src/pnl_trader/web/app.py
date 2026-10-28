@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, Query
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse
 
 from .service import DashboardQueryService
@@ -21,6 +22,7 @@ def create_app(data_dir: Path | str) -> FastAPI:
         description="Read-only local dashboard for the 15-minute periodic review trading ledger",
         version="1.0.0",
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 
     @app.get("/api/overview")
     def get_overview() -> dict[str, Any]:
@@ -45,8 +47,11 @@ def create_app(data_dir: Path | str) -> FastAPI:
         return service.get_positions()
 
     @app.get("/api/fills")
-    def get_fills(limit: int = Query(default=50, ge=1, le=500)) -> list[dict[str, Any]]:
-        return service.get_recent_fills(limit=limit)
+    def get_fills(
+        limit: int = Query(default=50, ge=1, le=500),
+        side: Literal["BUY", "SELL"] | None = None,
+    ) -> list[dict[str, Any]]:
+        return service.get_recent_fills(limit=limit, side=side)
 
     @app.get("/", response_class=HTMLResponse)
     def get_dashboard() -> HTMLResponse:

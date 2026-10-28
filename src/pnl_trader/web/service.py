@@ -43,13 +43,13 @@ class DashboardQueryService:
         if not self._db_path.is_file():
             return {
                 "status": "WAITING_DATA",
-                "realized_cash": 0.0,
-                "realized_gross": 0.0,
-                "total_commission": 0.0,
-                "other_fee_count": 0,
-                "pending_close_fill_count": 0,
-                "fill_count": 0,
-                "active_positions_count": 0,
+                "realized_cash": None,
+                "realized_gross": None,
+                "total_commission": None,
+                "other_fee_count": None,
+                "pending_close_fill_count": None,
+                "fill_count": None,
+                "active_positions_count": None,
                 "last_fill_at_ms": None,
             }
 
@@ -78,7 +78,7 @@ class DashboardQueryService:
 
             # Active positions are local strategy state, not a claim about
             # current exchange positions.
-            cur.execute("SELECT COUNT(*) FROM symbol_states WHERE lifecycle = 'OPEN'")
+            cur.execute("SELECT COUNT(*) FROM symbol_states WHERE lifecycle IN ('OPEN', 'CLOSING')")
             active_count = cur.fetchone()[0]
 
             actions = tuple(action.value for action in FULL_CLOSE_ACTIONS)
@@ -92,7 +92,8 @@ class DashboardQueryService:
             pending_close_fill_count = cur.fetchone()[0]
 
             realized_net = (
-                realized_gross - commission_usdt if other_fee_count == 0 else None
+                realized_gross - commission_usdt
+                if other_fee_count == 0 and pending_close_fill_count == 0 else None
             )
 
             return {
@@ -165,6 +166,7 @@ class DashboardQueryService:
             notional = float(notional) if notional is not None else None
             latest = {
                 "captured_at_ms": latest_row["captured_at_ms"],
+                "is_current_slot": latest_row["captured_at_ms"] >= now_ms - now_ms % 900_000,
                 "equity": equity,
                 "unrealized_pnl": float(unrealized) if unrealized is not None else None,
                 "available_balance": float(available) if available is not None else None,
@@ -233,7 +235,7 @@ class DashboardQueryService:
             cur.execute("""
                 SELECT tier, completed_batches, COUNT(*) as cnt
                 FROM symbol_states
-                WHERE lifecycle = 'OPEN'
+                WHERE lifecycle IN ('OPEN', 'CLOSING')
                 GROUP BY tier, completed_batches
             """)
             rows = cur.fetchall()
@@ -268,11 +270,11 @@ class DashboardQueryService:
         with closing(_get_readonly_connection(self._db_path)) as conn:
             cur = conn.cursor()
             cur.execute("""
-                SELECT symbol, tier, qty, avg_entry_price,
+                SELECT symbol, tier, lifecycle, qty, avg_entry_price,
                        tier_entry_qty, tier_anchor_price, completed_batches,
                        updated_at_ms
                 FROM symbol_states
-                WHERE lifecycle = 'OPEN'
+                WHERE lifecycle IN ('OPEN', 'CLOSING')
                 ORDER BY tier DESC, updated_at_ms DESC
             """)
             rows = cur.fetchall()
@@ -318,6 +320,12 @@ class DashboardQueryService:
                         f"open symbol state has unsupported tier: {r['symbol']} tier={t}"
                     )
 
+                if r["lifecycle"] == "CLOSING":
+                    tier_label += " · 待全平"
+                    tp_price = None
+                    dca_price = None
+                    wo_price = None
+
                 notional = q * avg_p
 
                 results.append({
@@ -334,19 +342,22 @@ class DashboardQueryService:
                 })
             return results
 
-    def get_recent_fills(self, limit: int) -> list[dict[str, Any]]:
+    def get_recent_fills(self, limit: int, side: str | None = None) -> list[dict[str, Any]]:
         if not self._db_path.is_file():
             return []
 
         with closing(_get_readonly_connection(self._db_path)) as conn:
             cur = conn.cursor()
-            cur.execute("""
+            where = "WHERE side = ?" if side is not None else ""
+            params = (side, limit) if side is not None else (limit,)
+            cur.execute(f"""
                 SELECT symbol, side, price,
                        qty, realized_pnl, commission, commission_asset, traded_at_ms
                 FROM trade_fills
+                {where}
                 ORDER BY traded_at_ms DESC
                 LIMIT ?
-            """, (limit,))
+            """, params)
             rows = cur.fetchall()
             return [
                 {

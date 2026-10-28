@@ -13,6 +13,7 @@ ZERO = Decimal("0")
 class Lifecycle(str, Enum):
     IDLE = "IDLE"
     OPEN = "OPEN"
+    CLOSING = "CLOSING"
     REOPEN_PENDING = "REOPEN_PENDING"
 
 
@@ -56,11 +57,12 @@ BATCH_CLOSE_ACTIONS = frozenset({
     Action.CLOSE_T3_TO_ONE_THIRD,
     Action.CLOSE_T3_TO_TWO_THIRDS,
 })
-FULL_CLOSE_ACTIONS = frozenset({
-    Action.CLOSE_T1,
-    Action.CLOSE_T2_FULL,
-    Action.CLOSE_T3_FULL,
-})
+FULL_CLOSE_BY_TIER = {
+    Tier.T1: Action.CLOSE_T1,
+    Tier.T2: Action.CLOSE_T2_FULL,
+    Tier.T3: Action.CLOSE_T3_FULL,
+}
+FULL_CLOSE_ACTIONS = frozenset(FULL_CLOSE_BY_TIER.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +101,7 @@ class SymbolState:
             if value < ZERO:
                 raise ValueError(f"{name} must be non-negative")
 
-        if self.lifecycle is Lifecycle.OPEN:
+        if self.lifecycle in {Lifecycle.OPEN, Lifecycle.CLOSING}:
             if self.tier is Tier.NONE:
                 raise ValueError("an open lifecycle requires an active Tier")
             if self.qty <= ZERO or self.tier_entry_qty <= ZERO:

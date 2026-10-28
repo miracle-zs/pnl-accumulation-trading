@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+from io import StringIO
+import logging
+import sys
 from urllib.parse import parse_qs
 import unittest
+from unittest.mock import patch
 
 import httpx
 
+from pnl_trader.__main__ import main
 from pnl_trader.adapters.serverchan import (
     ServerChanNotificationError,
     ServerChanNotifier,
@@ -12,6 +18,39 @@ from pnl_trader.adapters.serverchan import (
 
 
 class ServerChanNotifierTests(unittest.IsolatedAsyncioTestCase):
+    async def test_application_logging_does_not_expose_sendkeys(self) -> None:
+        httpx_logger = logging.getLogger("httpx")
+        original_level = httpx_logger.level
+        original_propagate = httpx_logger.propagate
+        output = StringIO()
+        handler = logging.StreamHandler(output)
+        httpx_logger.addHandler(handler)
+        httpx_logger.setLevel(logging.INFO)
+        httpx_logger.propagate = False
+        try:
+            with (
+                patch.object(sys, "argv", ["pnl-trader"]),
+                patch("pnl_trader.__main__.logging.basicConfig"),
+                redirect_stdout(StringIO()),
+            ):
+                main()
+
+            transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"code": 0}))
+            async with httpx.AsyncClient(transport=transport) as client:
+                for sendkey in ("SCTtestkey", "sctp123tTestKey"):
+                    await ServerChanNotifier(client=client, sendkey=sendkey).send(
+                        title="Review failed", body="Details"
+                    )
+
+            httpx_logger.warning("network warning")
+            self.assertNotIn("SCTtestkey", output.getvalue())
+            self.assertNotIn("sctp123tTestKey", output.getvalue())
+            self.assertIn("network warning", output.getvalue())
+        finally:
+            httpx_logger.removeHandler(handler)
+            httpx_logger.setLevel(original_level)
+            httpx_logger.propagate = original_propagate
+
     async def test_turbo_posts_title_and_body_as_form_data(self) -> None:
         requests: list[httpx.Request] = []
 

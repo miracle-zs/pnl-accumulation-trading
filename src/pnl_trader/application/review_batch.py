@@ -20,6 +20,7 @@ from .ports import (
 
 _MANAGED_LIFECYCLES = {
     Lifecycle.OPEN,
+    Lifecycle.CLOSING,
     Lifecycle.REOPEN_PENDING,
 }
 logger = logging.getLogger(__name__)
@@ -114,7 +115,7 @@ class ReconciledReviewBatchSource:
             admitted = signals_by_symbol[symbol].admitted
             priority = (
                 ReviewPriority.POSITION
-                if states[symbol].lifecycle is Lifecycle.OPEN
+                if states[symbol].qty > ZERO
                 else ReviewPriority.ENTRY
             )
             candidates.append(

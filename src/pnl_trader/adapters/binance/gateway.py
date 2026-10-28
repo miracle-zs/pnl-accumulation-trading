@@ -279,6 +279,10 @@ class BinanceFuturesGateway:
             "reduceOnly": str(request.side == "SELL").lower(),
             "newOrderRespType": "RESULT",
         }
+        logger.info(
+            "submitting market order: symbol=%s side=%s quantity=%s",
+            request.symbol, request.side, params["quantity"],
+        )
         try:
             payload = await self._request_json(
                 "POST",

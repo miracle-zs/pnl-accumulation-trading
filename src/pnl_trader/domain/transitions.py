@@ -46,8 +46,10 @@ def validate_execution_intent(
     expected_tier = CLOSE_ACTION_TIERS.get(action)
     if expected_tier is None:
         raise InvalidExecution(f"action {action.value} cannot create an order intent")
-    if state.lifecycle is not Lifecycle.OPEN or state.tier is not expected_tier:
+    if state.lifecycle not in {Lifecycle.OPEN, Lifecycle.CLOSING} or state.tier is not expected_tier:
         raise InvalidExecution(f"{action.value} requires an open {expected_tier.name} state")
+    if state.lifecycle is Lifecycle.CLOSING and action not in FULL_CLOSE_ACTIONS:
+        raise InvalidExecution("a pending full close only allows a full-close action")
     if target_cumulative_sold_qty is None:
         raise InvalidExecution("a close intent requires its cumulative sell target")
     if not state.tier_sold_qty < target_cumulative_sold_qty <= state.tier_entry_qty:
@@ -152,6 +154,7 @@ def _apply_sell(
 
     return replace(
         state,
+        lifecycle=Lifecycle.CLOSING if receipt.action in FULL_CLOSE_ACTIONS else state.lifecycle,
         qty=new_qty,
         completed_batches=completed_batches,
     )

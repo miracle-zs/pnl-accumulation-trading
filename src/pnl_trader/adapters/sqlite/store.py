@@ -34,15 +34,6 @@ from ...domain.transitions import apply_confirmed_execution, validate_execution_
 
 
 _SCHEMA_VERSION = 21
-_ACCOUNT_EQUITY_SCHEMA = """
-CREATE TABLE account_equity_snapshots (
-    captured_at_ms INTEGER PRIMARY KEY,
-    total_margin_balance TEXT NOT NULL,
-    unrealized_pnl TEXT,
-    available_balance TEXT,
-    position_notional TEXT
-)
-"""
 _SCHEMA = """
 CREATE TABLE symbol_states (
     symbol TEXT NOT NULL,
@@ -159,18 +150,6 @@ class SQLiteStateStore:
     def _initialize_schema(self) -> None:
         schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
         if schema_version == _SCHEMA_VERSION:
-            return
-        if schema_version == 19:
-            with self._transaction() as connection:
-                connection.execute(_ACCOUNT_EQUITY_SCHEMA)
-                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
-            return
-        if schema_version == 20:
-            with self._transaction() as connection:
-                connection.execute("ALTER TABLE account_equity_snapshots ADD COLUMN unrealized_pnl TEXT")
-                connection.execute("ALTER TABLE account_equity_snapshots ADD COLUMN available_balance TEXT")
-                connection.execute("ALTER TABLE account_equity_snapshots ADD COLUMN position_notional TEXT")
-                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             return
         if schema_version != 0:
             raise RuntimeError(f"unsupported database schema version: {schema_version}")

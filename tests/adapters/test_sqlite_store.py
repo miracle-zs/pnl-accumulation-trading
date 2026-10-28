@@ -8,7 +8,6 @@ import unittest
 from pnl_trader.adapters.sqlite import SQLiteStateStore
 from pnl_trader.application.execution_models import IntentStatus, OrderIntent
 from pnl_trader.application.store_errors import ActiveIntentConflict
-from pnl_trader.web.service import DashboardQueryService
 from pnl_trader.domain import (
     Action,
     ExecutionReceipt,
@@ -30,34 +29,19 @@ class SQLiteStateStoreTests(unittest.TestCase):
         self.store.close()
         self.temp_dir.cleanup()
 
-    def test_v20_equity_history_is_preserved_on_upgrade(self) -> None:
-        old_path = Path(self.temp_dir.name) / "v20.sqlite3"
-        with closing(sqlite3.connect(old_path)) as connection, connection:
-            connection.execute("CREATE TABLE account_equity_snapshots (captured_at_ms INTEGER PRIMARY KEY, total_margin_balance TEXT NOT NULL)")
-            connection.execute("INSERT INTO account_equity_snapshots VALUES (123, '100.50')")
-            connection.execute("PRAGMA user_version = 20")
-        with SQLiteStateStore(old_path):
-            pass
-        with closing(sqlite3.connect(old_path)) as connection, connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 21)
-            self.assertEqual(
-                connection.execute("SELECT total_margin_balance, unrealized_pnl, available_balance, position_notional FROM account_equity_snapshots").fetchone(),
-                ("100.50", None, None, None),
-            )
-        latest = DashboardQueryService(old_path).get_equity_history("24h")["latest"]
-        self.assertEqual(latest["equity"], 100.5)
-        self.assertIsNone(latest["leverage"])
-
-    def test_v19_upgrade_preserves_existing_trading_state(self) -> None:
-        self.store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
-        self.store.close()
-        with closing(sqlite3.connect(self.db_path)) as connection, connection:
-            connection.execute("DROP TABLE account_equity_snapshots")
-            connection.execute("PRAGMA user_version = 19")
-        self.store = SQLiteStateStore(self.db_path)
-        self.assertEqual(self.store.load_symbol_state("BTCUSDT").symbol, "BTCUSDT")
-        with closing(sqlite3.connect(self.db_path)) as connection:
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 21)
+    def test_old_versions_are_rejected_without_changing_the_database(self) -> None:
+        for version in (19, 20):
+            with self.subTest(version=version):
+                old_path = Path(self.temp_dir.name) / f"v{version}.sqlite3"
+                with closing(sqlite3.connect(old_path)) as connection, connection:
+                    connection.execute("CREATE TABLE existing_data (value TEXT)")
+                    connection.execute("INSERT INTO existing_data VALUES ('preserved')")
+                    connection.execute(f"PRAGMA user_version = {version}")
+                with self.assertRaisesRegex(RuntimeError, f"unsupported database schema version: {version}"):
+                    SQLiteStateStore(old_path)
+                with closing(sqlite3.connect(old_path)) as connection:
+                    self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], version)
+                    self.assertEqual(connection.execute("SELECT value FROM existing_data").fetchone()[0], "preserved")
 
     def test_uses_wal_and_round_trips_decimal_position_state(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as connection, connection:

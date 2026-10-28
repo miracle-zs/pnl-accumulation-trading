@@ -251,6 +251,72 @@ class ConfirmedExecutionTransitionTests(unittest.TestCase):
         self.assertEqual(flat.tier, Tier.NONE)
         self.assertEqual(flat.qty, D("0"))
 
+    def test_partially_filled_full_close_stays_pending_until_flat(self) -> None:
+        cases = (
+            (Tier.T1, Action.CLOSE_T1, "3", "3", 0),
+            (Tier.T2, Action.CLOSE_T2_FULL, "3", "6", 1),
+            (Tier.T3, Action.CLOSE_T3_FULL, "3", "9", 2),
+        )
+        for tier, action, qty, entry_qty, batches in cases:
+            with self.subTest(tier=tier):
+                state = open_state(
+                    tier, qty=qty, entry_qty=entry_qty,
+                    average="10", anchor="5", completed_batches=batches,
+                )
+                partial = apply_confirmed_execution(
+                    state,
+                    ExecutionReceipt(
+                        action, D("1"), D("10"),
+                        target_cumulative_sold_qty=D(entry_qty),
+                    ),
+                )
+
+                self.assertEqual(partial.lifecycle, Lifecycle.CLOSING)
+                for admitted in (False, True):
+                    decision = StrategyPolicy().decide(
+                        partial, Observation(admitted=admitted, price=D("2"))
+                    )
+                    self.assertEqual(decision.action, action)
+                    self.assertEqual(decision.close_qty, D("2"))
+
+                retry_partial = apply_confirmed_execution(
+                    partial,
+                    ExecutionReceipt(
+                        action, D("0.5"), D("1"),
+                        target_cumulative_sold_qty=D(entry_qty),
+                    ),
+                )
+                self.assertEqual(retry_partial.lifecycle, Lifecycle.CLOSING)
+                self.assertEqual(retry_partial.qty, D("1.5"))
+
+                flat = apply_confirmed_execution(
+                    retry_partial,
+                    ExecutionReceipt(
+                        action, D("1.5"), D("3"),
+                        target_cumulative_sold_qty=D(entry_qty),
+                    ),
+                )
+                self.assertEqual(flat.lifecycle, Lifecycle.REOPEN_PENDING)
+                self.assertEqual(flat.qty, D("0"))
+
+    def test_pending_full_close_rejects_increase_and_partial_close(self) -> None:
+        state = SymbolState(
+            symbol="TESTUSDT", tier=Tier.T2, lifecycle=Lifecycle.CLOSING,
+            qty=D("3"), avg_entry_price=D("10"), tier_entry_qty=D("6"),
+            tier_anchor_price=D("5"),
+        )
+
+        with self.assertRaises(InvalidExecution):
+            apply_confirmed_execution(state, ExecutionReceipt(Action.ADD_T3, D("1"), D("5")))
+        with self.assertRaises(InvalidExecution):
+            apply_confirmed_execution(
+                state,
+                ExecutionReceipt(
+                    Action.CLOSE_T2_BATCH1, D("0.5"), D("5"),
+                    target_cumulative_sold_qty=D("3.5"),
+                ),
+            )
+
     def test_sell_fill_cannot_exceed_known_long_quantity(self) -> None:
         state = open_state(Tier.T1, qty="0.1", entry_qty="0.1", average="100", anchor="100")
 

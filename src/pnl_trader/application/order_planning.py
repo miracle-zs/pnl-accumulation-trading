@@ -10,11 +10,15 @@ from ..domain.models import (
     BUY_ACTIONS,
     Action,
     Decision,
+    FULL_CLOSE_BY_TIER,
     SymbolState,
-    Tier,
     ZERO,
 )
 from .market_models import InstrumentRules
+
+
+class OrderBelowMinimum(ValueError):
+    """Order cannot satisfy the exchange's minimum quantity or notional."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +110,8 @@ class MarketOrderPlanner:
                         state, rules, price
                     )
         else:
-            self._validate_quantity(quantity, rules, price)
+            # Full closes are reduce-only and exempt from MIN_NOTIONAL.
+            self._validate_quantity(quantity, rules, price, check_min_notional=False)
         target = state.tier_sold_qty + quantity
         return MarketOrderPlan(
             action=action,
@@ -121,9 +126,9 @@ class MarketOrderPlanner:
         rules: InstrumentRules,
         reference_price: Decimal,
     ) -> tuple[Action, Decimal]:
-        action = _FULL_CLOSE_BY_TIER[state.tier]
+        action = FULL_CLOSE_BY_TIER[state.tier]
         quantity = rules.market_quantity.align_down(state.qty)
-        cls._validate_quantity(quantity, rules, reference_price)
+        cls._validate_quantity(quantity, rules, reference_price, check_min_notional=False)
         if quantity != state.qty:
             raise ValueError(
                 "the complete remaining position is not aligned to the market quantity grid",
@@ -145,7 +150,7 @@ class MarketOrderPlanner:
     ) -> None:
         market_rules = rules.market_quantity
         if quantity <= ZERO:
-            raise ValueError(
+            raise OrderBelowMinimum(
                 "aligned market quantity is zero or below minQty",
             )
         if quantity > market_rules.max_qty:
@@ -155,7 +160,6 @@ class MarketOrderPlanner:
             )
         notional = quantity * reference_price
         if check_min_notional and cls._below_min_notional(notional, rules):
-            raise ValueError(
+            raise OrderBelowMinimum(
                 f"estimated market notional {notional} is below {rules.min_market_notional}",
             )
-_FULL_CLOSE_BY_TIER = {Tier.T2: Action.CLOSE_T2_FULL, Tier.T3: Action.CLOSE_T3_FULL}

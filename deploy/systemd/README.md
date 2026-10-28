@@ -40,12 +40,13 @@
    sudo install -o root -g root -m 0644 deploy/systemd/pnl-trader.service /etc/systemd/system/pnl-trader.service
    sudo systemctl daemon-reload
    sudo systemd-analyze verify /etc/systemd/system/pnl-trader.service
-   sudo -u pnl-trader env \
-     PNL_DATA_DIR=/var/lib/pnl-trader \
+   sudo systemd-run --wait --pipe --collect \
+     --property=User=pnl-trader \
+     --property=EnvironmentFile=/opt/pnl-accumulation-trading/.env \
      /opt/pnl-accumulation-trading/.venv/bin/pnl-trader validate-config
    ```
 
-标的池从 Binance `exchangeInfo` 动态筛选：USDT 报价和保证金、`PERPETUAL`、`TRADING`，且 `underlyingType=COIN` 或 `INDEX`。`validate-config` 只检查本地配置，不需要 Binance API 凭据。
+标的池从 Binance `exchangeInfo` 动态筛选：USDT 报价和保证金、`PERPETUAL`、`TRADING`，且 `underlyingType=COIN` 或 `INDEX`。`validate-config` 检查数据目录路径中已存在的部分是否为目录，以及 Binance API Key、Secret 是否已提供；不联网，不验证密钥有效性、账户权限或数据目录写入权限。
 
 预检通过后先停在这里，不要执行 `systemctl enable` 或 `systemctl start`。启动服务会连接主网并可能下单，须由项目负责人确认账户、现有持仓和自动筛选的标的范围后另行决定。
 

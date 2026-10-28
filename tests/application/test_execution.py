@@ -484,7 +484,7 @@ class ExecutionAcceptanceTests(unittest.TestCase):
                 )
                 self.assertEqual(applied.qty, D("0.6"))
                 self.assertEqual(applied.tier_sold_qty, D("0.4"))
-                self.assertEqual(applied.lifecycle, Lifecycle.OPEN)
+                self.assertEqual(applied.lifecycle, Lifecycle.CLOSING)
                 self.assertEqual(duplicate.status, IntentStatus.CANCELED)
                 self.assertEqual(store.load_symbol_state("BTCUSDT"), applied)
             finally:

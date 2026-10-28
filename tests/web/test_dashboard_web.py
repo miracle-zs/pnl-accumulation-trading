@@ -167,6 +167,106 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(resp.json()["today"]["realized_net"])
         self.assertEqual(resp.json()["today"]["other_fee_count"], 1)
 
+    async def test_missing_ledger_does_not_report_zero_metrics(self) -> None:
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            overview = (await client.get("/api/overview")).json()
+        self.assertEqual(overview["status"], "WAITING_DATA")
+        self.assertIsNone(overview["realized_cash"])
+        self.assertIsNone(overview["fill_count"])
+        self.assertIsNone(overview["active_positions_count"])
+
+    async def test_recent_fills_are_limited_separately_by_side(self) -> None:
+        self._init_sample_db()
+        with closing(sqlite3.connect(self._db_path)) as connection, connection:
+            connection.executemany(
+                "INSERT INTO trade_fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    ("ETHUSDT", f"buy-{i}", "BUY", "100", "1", "0", "0", "USDT", 1700000000001 + i, f"buy-{i}")
+                    for i in range(13)
+                ],
+            )
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            buys = (await client.get("/api/fills?limit=12&side=BUY")).json()
+            sells = (await client.get("/api/fills?limit=12&side=SELL")).json()
+            invalid = await client.get("/api/fills?side=INVALID")
+        self.assertEqual(len(buys), 12)
+        self.assertEqual(buys[0]["traded_at_ms"], 1700000000013)
+        self.assertTrue(all(fill["side"] == "BUY" for fill in buys))
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0]["symbol"], "BTCUSDT")
+        self.assertEqual(invalid.status_code, 422)
+
+    async def test_large_dashboard_responses_support_gzip(self) -> None:
+        self._init_sample_db()
+        with closing(sqlite3.connect(self._db_path)) as connection, connection:
+            connection.executemany(
+                "INSERT INTO symbol_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(f"TEST{i}USDT", 1, "OPEN", "1", "10", "1", "10", 0, 1700000000000) for i in range(100)],
+            )
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            compressed = await client.get("/api/positions", headers={"Accept-Encoding": "gzip"})
+            plain = await client.get("/api/positions", headers={"Accept-Encoding": "identity"})
+        self.assertEqual(compressed.headers["content-encoding"], "gzip")
+        self.assertNotIn("content-encoding", plain.headers)
+        self.assertEqual(compressed.json(), plain.json())
+        self.assertLess(int(compressed.headers["content-length"]), int(plain.headers["content-length"]))
+
+    async def test_net_profit_waits_for_close_fills(self) -> None:
+        self._init_sample_db()
+        with closing(sqlite3.connect(self._db_path)) as connection, connection:
+            connection.execute("INSERT INTO order_intents VALUES (?, ?, ?)", ("close-2", "CLOSE_T1", "FILLED"))
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            pending = (await client.get("/api/overview")).json()
+            self.assertEqual(pending["pending_close_fill_count"], 1)
+            self.assertIsNone(pending["realized_cash"])
+            with closing(sqlite3.connect(self._db_path)) as connection, connection:
+                connection.execute(
+                    "INSERT INTO trade_fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    ("ETHUSDT", "t-2", "SELL", "100", "1", "2", "0", "USDT", 1700000000001, "close-2"),
+                )
+            complete = (await client.get("/api/overview")).json()
+        self.assertEqual(complete["pending_close_fill_count"], 0)
+        self.assertAlmostEqual(complete["realized_cash"], 7.97)
+
+    async def test_equity_snapshot_marks_the_current_review_slot(self) -> None:
+        self._init_sample_db()
+        snapshot_ms = 1700000000000
+        next_slot_ms = snapshot_ms - snapshot_ms % 900_000 + 900_000
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            with patch("pnl_trader.web.service.time.time_ns", return_value=(next_slot_ms - 1) * 1_000_000):
+                current = (await client.get("/api/equity?period=24h")).json()
+            with patch("pnl_trader.web.service.time.time_ns", return_value=next_slot_ms * 1_000_000):
+                stale = (await client.get("/api/equity?period=24h")).json()
+        self.assertTrue(current["latest"]["is_current_slot"])
+        self.assertFalse(stale["latest"]["is_current_slot"])
+
+    async def test_pending_full_close_is_shown_as_an_active_position(self) -> None:
+        self._init_sample_db()
+        with closing(sqlite3.connect(self._db_path)) as connection, connection:
+            connection.execute(
+                "INSERT INTO symbol_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("ADAUSDT", 3, "CLOSING", "0.6", "10", "1", "10", 0, 1700000000001),
+            )
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            overview = (await client.get("/api/overview")).json()
+            distribution = (await client.get("/api/tier-distribution")).json()
+            positions = (await client.get("/api/positions")).json()
+
+        self.assertEqual(overview["active_positions_count"], 4)
+        self.assertEqual(distribution["total"], 4)
+        self.assertEqual(distribution["t3"], 1)
+        closing_position = next(position for position in positions if position["symbol"] == "ADAUSDT")
+        self.assertIn("待全平", closing_position["tier_label"])
+        self.assertIsNone(closing_position["tp_price"])
+        self.assertIsNone(closing_position["dca_price"])
+        self.assertIsNone(closing_position["writeoff_price"])
+
     async def test_today_uses_beijing_midnight(self) -> None:
         self._init_sample_db()
         beijing_midnight_ms = 1699977600000

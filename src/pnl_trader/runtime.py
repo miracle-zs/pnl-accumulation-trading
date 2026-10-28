@@ -50,10 +50,18 @@ def _required_environment(name: str) -> str:
 
 def validate_runtime_config(config: RuntimeConfig) -> dict[str, object]:
     """Validate local settings without network or database writes."""
+    require_secret("BINANCE_API_KEY")
+    require_secret("BINANCE_API_SECRET")
+    ancestor = config.data_dir
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    if not ancestor.is_dir():
+        raise ValueError(f"data directory path contains a non-directory: {ancestor}")
     return {
         "status": "valid",
         "mode": "Binance USDⓈ-M Futures",
         "data_dir": str(config.data_dir),
+        "checked": "required local settings only; exchange credentials and permissions are not verified",
     }
 
 
@@ -68,15 +76,7 @@ async def run_application(config: RuntimeConfig) -> None:
         with SQLiteStateStore(config.data_dir / "state.sqlite3") as store:
             timeout = httpx.Timeout(10.0, connect=5.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
-                try:
-                    serverchan_sendkey = optional_secret("SERVERCHAN_SENDKEY")
-                except ValueError as exc:
-                    logger.warning(
-                        "Server酱通知已停用（凭据不可用：%s）",
-                        type(exc).__name__,
-                    )
-                    serverchan_sendkey = None
-
+                serverchan_sendkey = optional_secret("SERVERCHAN_SENDKEY")
                 notifier = None
                 if serverchan_sendkey:
                     try:

@@ -4,12 +4,13 @@ import tempfile
 import unittest
 
 from pnl_trader.adapters.sqlite import SQLiteStateStore
+from pnl_trader.application.execution_models import IntentStatus, OrderIntent
 from pnl_trader.application.market_models import ExchangeInstrument
 from pnl_trader.application.position_models import ExchangePosition
 from pnl_trader.application.review_batch import ReconciledReviewBatchSource
 from pnl_trader.application.review_batch_models import ReviewSignal
 from pnl_trader.application.universe import UniverseCatalog
-from pnl_trader.domain import Action, Lifecycle
+from pnl_trader.domain import Action, ExecutionReceipt, Lifecycle, TradeFillRecord
 from tests.helpers import seed_buy_execution
 
 
@@ -17,6 +18,50 @@ D = Decimal
 
 
 class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_delisted_closing_position_is_cleared_only_after_exchange_settlement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteStateStore(Path(directory) / "state.sqlite3")
+            try:
+                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                opened = seed_buy_execution(
+                    store, idle, action=Action.OPEN_T1, quantity=D("1"),
+                    price=D("10"), intent_id="open-btc", timestamp_ms=200,
+                )
+                intent = OrderIntent(
+                    intent_id="partial-close", symbol="BTCUSDT", action=Action.CLOSE_T1,
+                    created_at_ms=250, target_cumulative_sold_qty=opened.tier_entry_qty,
+                )
+                store.create_order_intent(intent)
+                store.create_order_attempt(intent.intent_id, requested_qty=opened.qty)
+                fill = TradeFillRecord(
+                    symbol="BTCUSDT", exchange_trade_id="partial-fill", side="SELL",
+                    price=D("11"), qty=D("0.4"), realized_pnl=D("0.4"),
+                    commission=D("0"), commission_asset="USDT", traded_at_ms=260,
+                )
+                store.commit_confirmed_execution(
+                    intent_id=intent.intent_id,
+                    receipt=ExecutionReceipt(Action.CLOSE_T1, D("0.4"), D("4.4"), D("1")),
+                    fills=(fill,), expected_intent_status=IntentStatus.PENDING,
+                    terminal_status=IntentStatus.EXPIRED, updated_at_ms=260,
+                )
+                self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.CLOSING)
+
+                source = ReconciledReviewBatchSource(
+                    store=store, positions=_PositionSource(D("0.6")),
+                    signals=_DelistedSignalSource(), clock_ms=lambda: 300,
+                )
+                self.assertEqual((await source.load_review_batch(0)).candidates, ())
+                self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.CLOSING)
+
+                source = ReconciledReviewBatchSource(
+                    store=store, positions=_PositionSource(D("0")),
+                    signals=_DelistedSignalSource(), clock_ms=lambda: 400,
+                )
+                self.assertEqual((await source.load_review_batch(0)).candidates, ())
+                self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.IDLE)
+            finally:
+                store.close()
+
     async def test_settled_delisted_position_is_cleared_and_not_reviewed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")

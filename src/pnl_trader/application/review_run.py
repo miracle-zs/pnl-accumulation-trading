@@ -13,6 +13,7 @@ from typing import Callable, Mapping
 from ..domain.models import FULL_CLOSE_ACTIONS, Lifecycle
 from .execution import ExecutionCoordinator, ExecutionResult
 from .execution_models import IntentStatus
+from .order_planning import OrderBelowMinimum
 from .ports import (
     AccountEquitySnapshotPort,
     MarketPriceSnapshotPort,
@@ -145,6 +146,9 @@ class ReviewRunCoordinator:
                         )
                         counts[reopen_result.disposition.value] += 1
                         _log_execution_issue(candidate.symbol, reopen_result.execution)
+            except OrderBelowMinimum as exc:
+                logger.warning("symbol order below exchange minimum: symbol=%s reason=%s", candidate.symbol, exc)
+                counts["ERROR"] += 1
             except Exception:
                 logger.exception("symbol review failed: symbol=%s", candidate.symbol)
                 counts["ERROR"] += 1

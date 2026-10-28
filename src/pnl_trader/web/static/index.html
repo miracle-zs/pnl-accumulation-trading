@@ -108,7 +108,7 @@
     <!-- Card 2: Realized Cash -->
     <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
       <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>已实现净利润</span>
+        <span>成交净盈亏</span>
         <span id="kpi-fill-count" class="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">—</span>
       </div>
       <div class="my-2">
@@ -116,9 +116,10 @@
         <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
       <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
-        <span>今日已实现</span>
+        <span>今日成交净盈亏</span>
         <span id="kpi-today-pnl" class="font-mono text-slate-200">—</span>
       </div>
+      <p class="text-xs text-slate-400 mt-2">已扣成交手续费，不含资金费</p>
     </div>
 
     <!-- Card 3: Floating Unrealized -->
@@ -153,7 +154,7 @@
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         <div>
           <h2 class="text-sm font-semibold text-white">账户权益走势</h2>
-          <p class="text-xs text-slate-400 mt-0.5">每轮 15 分钟账户净值采样</p>
+          <p id="equity-snapshot-status" class="text-xs text-slate-400 mt-0.5">等待账户净值采样</p>
         </div>
 
         <!-- Period Toggle Buttons -->
@@ -285,7 +286,7 @@
             <th class="py-3 px-3">止盈触发价</th>
             <th class="py-3 px-3">补仓 / 注销线</th>
             <th class="py-3 px-3">持仓数量</th>
-            <th class="py-3 px-4 text-right">名义价值</th>
+            <th class="py-3 px-4 text-right" title="持仓数量 × 持仓均价">持仓成本</th>
           </tr>
         </thead>
         <tbody id="position-table-body" class="divide-y divide-slate-800/80 font-mono">
@@ -324,6 +325,7 @@
 
     <!-- View 3: Symbol Ranking -->
     <div id="view-ranking" class="hidden p-5">
+      <p class="text-xs text-slate-400 mb-3">按成交盈亏排序，未扣手续费和资金费</p>
       <div id="ranking-container" class="space-y-2 max-w-xl">
         <div class="text-slate-500 text-xs py-8 text-center">正在计算收益排行...</div>
       </div>
@@ -566,30 +568,38 @@
           fetch(`/api/equity?period=${currentPeriod}`),
           fetch('/api/tier-distribution'),
           fetch('/api/positions'),
-          fetch('/api/fills?limit=12'),
+          fetch('/api/fills?limit=12&side=BUY'),
+          fetch('/api/fills?limit=12&side=SELL'),
           fetch('/api/analytics')
         ]);
         if (responses.some(response => !response.ok)) {
           throw new Error('Dashboard API returned an unsuccessful response');
         }
-        const [overviewRes, equityRes, tierRes, posRes, fillsRes, analyticsRes] = responses;
+        const [overviewRes, equityRes, tierRes, posRes, buyFillsRes, sellFillsRes, analyticsRes] = responses;
 
+        let pendingCloseFills = null;
         if (overviewRes.ok) {
           const ov = await overviewRes.json();
-          ledgerAvailable = ov.status !== 'WAITING_DATA';
-          statusBadge.textContent = ledgerAvailable ? '只读本地账本' : '等待账本数据';
-          statusBadge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${ledgerAvailable ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`;
+          ledgerAvailable = ov.status === 'LOCAL_LEDGER_ONLY';
+          pendingCloseFills = ov.pending_close_fill_count;
+          statusBadge.textContent = !ledgerAvailable ? '等待账本数据' : pendingCloseFills > 0 ? `平仓明细待补录 ${pendingCloseFills} 笔` : '只读本地账本';
+          statusBadge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${ledgerAvailable && pendingCloseFills === 0 ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`;
           const realizedCash = ledgerAvailable ? ov.realized_cash : null;
           const realizedEl = document.getElementById('kpi-realized-cash');
           realizedEl.textContent = formatSignedUsd(realizedCash);
           realizedEl.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${realizedCash === null ? 'text-slate-400' : realizedCash >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
-          realizedEl.title = ov.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
+          realizedEl.title = pendingCloseFills > 0 ? '平仓明细待补录，净利润暂不可用' : ov.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
           document.getElementById('kpi-fill-count').textContent = ledgerAvailable ? `${ov.fill_count} 笔成交` : '—';
           document.getElementById('kpi-active-symbols').textContent = ledgerAvailable ? `${ov.active_positions_count} 币在持` : '—';
         }
 
         if (equityRes.ok) {
           const eq = await equityRes.json();
+          const snapshotStatus = document.getElementById('equity-snapshot-status');
+          snapshotStatus.textContent = eq.latest
+            ? `采样时间 ${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 本轮待更新'}`
+            : '等待账户净值采样';
+          snapshotStatus.className = `text-xs mt-0.5 ${eq.latest && !eq.latest.is_current_slot ? 'text-amber-400' : 'text-slate-400'}`;
           if (eq.latest) {
             document.getElementById('kpi-equity').textContent = `$${eq.latest.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
             document.getElementById('kpi-available').textContent = eq.latest.available_balance !== null ? `$${eq.latest.available_balance.toFixed(2)}` : '—';
@@ -626,13 +636,13 @@
           const an = await analyticsRes.json();
           if (an.today) {
             const todayPnl = document.getElementById('kpi-today-pnl');
-            const realizedNet = ledgerAvailable ? an.today.realized_net : null;
+            const realizedNet = ledgerAvailable && pendingCloseFills === 0 ? an.today.realized_net : null;
             todayPnl.textContent = formatSignedUsd(realizedNet);
-            todayPnl.title = an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
+            todayPnl.title = pendingCloseFills > 0 ? '平仓明细待补录，净利润暂不可用' : an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
             todayPnl.className = `font-mono ${realizedNet === null ? 'text-slate-400' : realizedNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
           }
           if (an.symbols) {
-            renderRanking(an.symbols);
+            renderRanking(an.symbols, pendingCloseFills);
           }
         }
 
@@ -667,9 +677,8 @@
           renderPositions();
         }
 
-        if (fillsRes.ok) {
-          const fills = await fillsRes.json();
-          renderFills(fills);
+        if (buyFillsRes.ok && sellFillsRes.ok) {
+          renderFills(await buyFillsRes.json(), await sellFillsRes.json());
         }
       } catch (err) {
         statusBadge.textContent = '数据刷新失败';
@@ -680,6 +689,11 @@
 
     function renderPositions() {
       const tbody = document.getElementById('position-table-body');
+      if (!ledgerAvailable) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-slate-400 font-sans">等待账本数据</td></tr>';
+        document.getElementById('position-summary-text').textContent = '在管持仓: —';
+        return;
+      }
       if (!allPositions || allPositions.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="py-12 text-center text-slate-500 font-sans">暂无本地持仓记录</td></tr>';
         document.getElementById('position-summary-text').textContent = '在管持仓: 0 币';
@@ -702,6 +716,7 @@
         if (p.tier === 2) badgeClass = p.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
         else if (p.tier === 3) badgeClass = p.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
 
+        const tpStr = p.tp_price === null ? '—' : `$${formatPrice(p.tp_price)}`;
         const dcaStr = p.dca_price ? `$${formatPrice(p.dca_price)} (-50%)` : '—';
         const woStr = p.writeoff_price ? `<span class="text-purple-400 font-bold">$${formatPrice(p.writeoff_price)} (5U注销)</span>` : dcaStr;
 
@@ -710,7 +725,7 @@
             <td class="py-3 px-4 font-bold text-white font-sans">${p.symbol}</td>
             <td class="py-3 px-3"><span class="${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans">${p.tier_label}</span></td>
             <td class="py-3 px-3 text-slate-300">$${formatPrice(p.avg_entry_price)}</td>
-            <td class="py-3 px-3 text-emerald-400 font-bold">$${formatPrice(p.tp_price)}</td>
+            <td class="py-3 px-3 text-emerald-400 font-bold">${tpStr}</td>
             <td class="py-3 px-3 text-slate-400">${woStr}</td>
             <td class="py-3 px-3 text-slate-300">${p.qty}</td>
             <td class="py-3 px-4 text-right text-slate-100 font-bold">$${p.entry_notional.toFixed(2)}</td>
@@ -726,25 +741,29 @@
       document.getElementById('position-summary-text').textContent = `显示 ${filtered.length} / ${allPositions.length} 个在管标的`;
     }
 
-    function renderFills(fills) {
-      const recentFills = Array.isArray(fills) ? fills : [];
+    function renderFills(buyFills, sellFills) {
       renderFillGroup(
         'buy-fills-list',
         'buy-fills-count',
-        recentFills.filter(fill => fill.side === 'BUY'),
+        buyFills,
         'BUY',
       );
       renderFillGroup(
         'sell-fills-list',
         'sell-fills-count',
-        recentFills.filter(fill => fill.side === 'SELL'),
+        sellFills,
         'SELL',
       );
     }
 
     function renderFillGroup(listId, countId, fills, side) {
       const list = document.getElementById(listId);
-      document.getElementById(countId).textContent = `${fills.length} 笔`;
+      if (!ledgerAvailable) {
+        document.getElementById(countId).textContent = '—';
+        list.innerHTML = '<div class="text-slate-400 text-xs py-6 text-center">等待账本数据</div>';
+        return;
+      }
+      document.getElementById(countId).textContent = `最近 ${fills.length} 笔`;
       if (fills.length === 0) {
         const emptyText = side === 'BUY' ? '暂无买入成交' : '暂无卖出成交';
         list.innerHTML = `<div class="text-slate-400 text-xs py-6 text-center">${emptyText}</div>`;
@@ -782,8 +801,13 @@
       }).join('');
     }
 
-    function renderRanking(symbols) {
+    function renderRanking(symbols, pendingCloseFills) {
       const container = document.getElementById('ranking-container');
+      if (!ledgerAvailable || pendingCloseFills > 0) {
+        const message = !ledgerAvailable ? '等待账本数据' : '平仓明细待补录，收益排名暂不可用';
+        container.innerHTML = `<div class="text-slate-400 text-xs py-8 text-center">${message}</div>`;
+        return;
+      }
       if (!symbols || symbols.length === 0) {
         container.innerHTML = '<div class="text-slate-500 text-xs py-8 text-center">暂无收益排名记录</div>';
         return;
