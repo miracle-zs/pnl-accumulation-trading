@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import time
 from typing import Any, Literal
 
 from fastapi import FastAPI, Query
@@ -10,6 +12,43 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from .service import DashboardQueryService
+
+
+def _trading_service_uptime_seconds() -> int | None:
+    """Read the trading service start time from systemd on the dashboard host."""
+
+    try:
+        result = subprocess.run(
+            (
+                "systemctl",
+                "show",
+                "pnl-trader.service",
+                "--property=ActiveState",
+                "--property=ExecMainStartTimestampMonotonic",
+            ),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    properties = dict(
+        line.split("=", 1)
+        for line in result.stdout.splitlines()
+        if "=" in line
+    )
+    if properties.get("ActiveState") != "active":
+        return None
+
+    try:
+        started_at_monotonic_us = int(properties["ExecMainStartTimestampMonotonic"])
+    except (KeyError, ValueError):
+        return None
+    if started_at_monotonic_us <= 0:
+        return None
+    return max(0, int(time.monotonic() - started_at_monotonic_us / 1_000_000))
 
 
 def create_app(data_dir: Path | str) -> FastAPI:
@@ -26,7 +65,9 @@ def create_app(data_dir: Path | str) -> FastAPI:
 
     @app.get("/api/overview")
     def get_overview() -> dict[str, Any]:
-        return service.get_overview()
+        overview = service.get_overview()
+        overview["trading_uptime_seconds"] = _trading_service_uptime_seconds()
+        return overview
 
     @app.get("/api/equity")
     def get_equity(
