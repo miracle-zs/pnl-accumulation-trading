@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PNL Trader · 15m 巡检量化终端</title>
+  <title>PNL Trader · 15分钟周期巡检量化终端</title>
   <link rel="stylesheet" href="tailwind.css">
   <style>
     :root {
@@ -53,6 +53,23 @@
       color: #38bdf8;
       border-color: #0284c7;
     }
+    .sortable-th {
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.15s ease;
+    }
+    .sortable-th:hover {
+      color: #f8fafc;
+    }
+    .sort-indicator {
+      display: inline-block;
+      margin-left: 4px;
+      font-size: 10px;
+      color: #64748b;
+    }
+    .sort-indicator.active {
+      color: #38bdf8;
+    }
   </style>
 </head>
 <body class="min-h-screen p-4 md:p-6 lg:p-8 flex flex-col gap-6 max-w-7xl mx-auto">
@@ -66,35 +83,37 @@
       <div>
         <div class="flex items-center gap-2.5">
           <h1 class="text-lg font-bold tracking-tight text-white">PNL Periodic Review Trader</h1>
-          <span id="system-status-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
-            只读本地账本
+          <span id="system-status-badge" title="只读监控 · 数据源自本地 SQLite 状态库" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+            ● 本地账本正常
           </span>
         </div>
-        <p class="text-xs text-slate-400 mt-0.5">Binance USDT-M · 每 15 分钟巡检</p>
+        <p class="text-xs text-slate-400 mt-0.5">币安 USDT 永续合约 · 15 分钟周期巡检</p>
       </div>
     </div>
 
     <!-- Quick Status & Actions -->
     <div class="flex items-center gap-2.5 flex-wrap">
       <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs">
-        <span class="text-slate-400">下次巡检:</span>
+        <span class="text-slate-400">下次巡检窗口:</span>
         <span id="countdown" class="font-mono text-emerald-400 font-semibold text-sm">--:--</span>
       </div>
       <div class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs">
         <span class="text-slate-400">运行时长:</span>
         <span id="trading-uptime" class="font-mono text-slate-200 font-semibold">—</span>
       </div>
-      <button onclick="fetchData()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 border border-slate-700">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-        刷新
+      <button id="btn-refresh" onclick="fetchData()" class="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 border border-slate-700">
+        <svg id="refresh-icon" class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+        </svg>
+        <span id="refresh-text">刷新</span>
       </button>
     </div>
   </header>
 
-  <!-- 4 Core Metric Cards (KPI Ribbon) -->
+  <!-- 4 Core Metric Cards (KPI Ribbon with Unified Structure) -->
   <section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="核心指标">
     <!-- Card 1: Total Equity -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors">
       <div class="flex items-center justify-between text-xs text-slate-400">
         <span>账户总权益</span>
         <span id="equity-change-badge" class="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">—</span>
@@ -104,15 +123,18 @@
         <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
       <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
-        <span>可用余额</span>
+        <span>可用资金</span>
         <span id="kpi-available" class="font-mono text-slate-200">—</span>
       </div>
     </div>
 
-    <!-- Card 2: Realized Cash -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+    <!-- Card 2: Realized Net Cash -->
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors">
       <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>成交净盈亏</span>
+        <div class="flex items-center gap-1">
+          <span>累计已实现净盈亏</span>
+          <span class="text-[10px] text-slate-500" title="已扣减交易手续费 · 未计合约资金费用">(已扣规费)</span>
+        </div>
         <span id="kpi-fill-count" class="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">—</span>
       </div>
       <div class="my-2">
@@ -120,40 +142,47 @@
         <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
       <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
-        <span>今日成交净盈亏</span>
+        <span>今日已实现</span>
         <span id="kpi-today-pnl" class="font-mono text-slate-200">—</span>
       </div>
-      <p class="text-xs text-slate-400 mt-2">已扣成交手续费，不含资金费</p>
     </div>
 
-    <!-- Card 3: Floating Unrealized -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+    <!-- Card 3: Floating Unrealized PnL -->
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors">
       <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>未结浮动盈亏</span>
+        <span>持仓浮动盈亏</span>
         <span id="kpi-active-symbols" class="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono">—</span>
       </div>
       <div class="my-2">
         <span class="text-2xl lg:text-3xl font-bold font-mono tracking-tight text-slate-200" id="kpi-unrealized-pnl">—</span>
         <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
+      <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
+        <span>持仓状态</span>
+        <span id="kpi-position-status" class="font-mono text-slate-300">—</span>
+      </div>
     </div>
 
     <!-- Card 4: Position Notional & Leverage -->
-    <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors">
       <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>持仓总额 / 杠杆</span>
+        <span>持仓名义总额</span>
         <span id="kpi-actual-leverage" class="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-mono">—</span>
       </div>
       <div class="my-2">
         <span class="text-2xl lg:text-3xl font-bold font-mono tracking-tight text-white" id="kpi-notional">—</span>
         <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
       </div>
+      <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
+        <span>保证金估算占用</span>
+        <span id="kpi-margin-ratio" class="font-mono text-slate-300">—</span>
+      </div>
     </div>
   </section>
 
-  <!-- Hero Section: High-Res Retina Chart (Left 2/3) + Tier & Risk Distribution (Right 1/3) -->
+  <!-- Hero Section: Dynamic Equity Chart (Left 2/3) + Tier & Risk Distribution (Right 1/3) -->
   <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    <!-- Chart: High-Resolution Retina HTML5 Canvas -->
+    <!-- Chart: High-Resolution Retina HTML5 Canvas with Crosshair -->
     <div class="lg:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
         <div>
@@ -170,13 +199,13 @@
       </div>
 
       <!-- High-DPI Canvas Shell with Relative Positioning for Crisp Tooltip -->
-      <div class="relative w-full h-64 sm:h-72" id="canvas-container">
+      <div class="relative w-full h-64 sm:h-72 touch-none" id="canvas-container">
         <canvas id="equity-canvas" class="w-full h-full block cursor-crosshair"></canvas>
-        <!-- Floating Hover Tooltip -->
-        <div id="chart-tooltip" class="absolute hidden pointer-events-none bg-slate-950/95 border border-slate-700/80 rounded-lg px-3 py-2 text-xs shadow-xl backdrop-blur-sm z-20">
+        <!-- Floating Hover Tooltip with Auto Boundary Flipping -->
+        <div id="chart-tooltip" class="absolute hidden pointer-events-none bg-slate-950/95 border border-slate-700/80 rounded-lg px-3 py-2 text-xs shadow-2xl backdrop-blur-md z-20 transition-all duration-75">
           <div id="tooltip-time" class="text-slate-400 font-mono text-[11px] mb-0.5">--</div>
           <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span id="tooltip-indicator" class="w-2 h-2 rounded-full bg-emerald-400"></span>
             <span class="text-slate-300">权益:</span>
             <span id="tooltip-val" class="font-bold font-mono text-white">--</span>
           </div>
@@ -189,21 +218,21 @@
       </div>
     </div>
 
-    <!-- Tier Structure & Option 1 Status -->
+    <!-- Tier Structure & Policy Status -->
     <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
       <div>
         <div class="flex items-center justify-between mb-1">
           <h2 class="text-sm font-semibold text-white">标的层级结构</h2>
-          <span id="tier-total-badge" class="text-xs text-slate-400 font-mono">— 币在管</span>
+          <span id="tier-total-badge" class="text-xs text-slate-400 font-mono">— 个在管标的</span>
         </div>
-        <p class="text-xs text-slate-400 mb-4">当前持仓在各阶梯的分布</p>
+        <p class="text-xs text-slate-400 mb-4">当前持仓在各阶梯的分布与流转状态</p>
 
-        <!-- Segmented Ratio Bar -->
+        <!-- Segmented Ratio Bar with Dividing Gaps -->
         <div class="w-full h-2.5 rounded-full bg-slate-950 overflow-hidden flex mb-5 border border-slate-800" id="tier-ratio-bar">
-          <div id="bar-t1" style="width: 0%;" class="bg-blue-500 h-full" title="T1 底仓"></div>
-          <div id="bar-t2" style="width: 0%;" class="bg-amber-500 h-full" title="T2 正常/半仓"></div>
-          <div id="bar-t3" style="width: 0%;" class="bg-rose-500 h-full" title="T3 深度承压"></div>
-          <div id="bar-t31" style="width: 0%;" class="bg-purple-500 h-full" title="T3 分批止盈"></div>
+          <div id="bar-t1" style="width: 0%;" class="bg-blue-500 h-full border-r border-slate-900/60 transition-all duration-300" title="T1 基础底仓"></div>
+          <div id="bar-t2" style="width: 0%;" class="bg-amber-500 h-full border-r border-slate-900/60 transition-all duration-300" title="T2 加仓阶段 (含 T2.1 半仓)"></div>
+          <div id="bar-t3" style="width: 0%;" class="bg-rose-500 h-full border-r border-slate-900/60 transition-all duration-300" title="T3 深度补仓 (高承压)"></div>
+          <div id="bar-t31" style="width: 0%;" class="bg-purple-500 h-full transition-all duration-300" title="T3 阶梯减仓 (T3.1 / T3.2 利润回收)"></div>
         </div>
 
         <!-- Tier Metrics List -->
@@ -211,7 +240,7 @@
           <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-              <span class="text-slate-300">T1 底仓 (10U)</span>
+              <span class="text-slate-300">T1 基础底仓</span>
             </div>
             <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t1">—</span>
           </div>
@@ -219,7 +248,7 @@
           <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-              <span class="text-slate-300">T2 正常/半仓 (15~30U)</span>
+              <span class="text-slate-300">T2 加仓阶段 (含 T2.1 半仓)</span>
             </div>
             <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t2">—</span>
           </div>
@@ -227,7 +256,7 @@
           <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-              <span class="text-slate-300">T3 深度承压 (90U)</span>
+              <span class="text-slate-300">T3 深度补仓 (高承压)</span>
             </div>
             <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t3">—</span>
           </div>
@@ -235,57 +264,65 @@
           <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/60 border border-slate-800/60">
             <div class="flex items-center gap-2">
               <span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
-              <span class="text-slate-300">T3.1 / T3.2 已分批提利</span>
+              <span class="text-slate-300">T3 阶梯减仓 (T3.1 / T3.2 利润回收)</span>
             </div>
             <span class="font-mono text-slate-100 font-semibold" id="tier-cnt-t31">—</span>
           </div>
         </div>
       </div>
 
-      <!-- Option 1 Status Footer -->
+      <!-- Policy Outflow Mechanism Footer -->
       <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
-        <span class="text-slate-400">T3 全平条件:</span>
-        <span class="font-mono text-purple-400 font-medium">残值 ≤ 5 USDT，全平后重开 T1</span>
+        <span class="text-slate-400">T3 出清机制:</span>
+        <span class="font-mono text-purple-400 font-medium">单币残值 ≤ 5 USDT 触发保本全平，并重开 T1 底仓循环</span>
       </div>
     </div>
   </section>
 
+  <!-- Risk and Strategy Analytics Section -->
   <section class="grid grid-cols-1 xl:grid-cols-3 gap-4" aria-label="账户风险与持仓分析">
-    <section class="xl:col-span-1 bg-slate-900/90 border border-slate-800 rounded-xl p-5">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <h2 class="text-base font-semibold text-white">权益回撤</h2>
-          <p id="drawdown-period" class="text-xs text-slate-400 mt-1">最近 7 天</p>
+    <section class="xl:col-span-1 bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+      <div>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-white">权益回撤</h2>
+            <p id="drawdown-period" class="text-xs text-slate-400 mt-1">最近 7 天</p>
+          </div>
+          <span class="text-[11px] text-slate-500">所选周期快照</span>
         </div>
-        <span class="text-[11px] text-slate-500">采样权益</span>
+        <div class="grid grid-cols-2 gap-4 mt-5">
+          <div>
+            <div class="text-xs text-slate-400">区间最大回撤</div>
+            <div id="max-drawdown" class="text-xl font-semibold font-mono text-rose-400 mt-1">—</div>
+            <div id="max-drawdown-pct" class="text-xs text-slate-400 font-mono mt-1">—</div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-400">当前回撤</div>
+            <div id="current-drawdown-pct" class="text-xl font-semibold font-mono text-amber-400 mt-1">—</div>
+            <div class="text-xs text-slate-500 mt-1">相对区间权益高点</div>
+          </div>
+        </div>
       </div>
-      <div class="grid grid-cols-2 gap-4 mt-5">
-        <div>
-          <div class="text-xs text-slate-400">区间最大回撤</div>
-          <div id="max-drawdown" class="text-xl font-semibold font-mono text-rose-400 mt-1">—</div>
-          <div id="max-drawdown-pct" class="text-xs text-slate-400 font-mono mt-1">—</div>
-        </div>
-        <div>
-          <div class="text-xs text-slate-400">当前回撤</div>
-          <div id="current-drawdown-pct" class="text-xl font-semibold font-mono text-amber-400 mt-1">—</div>
-          <div class="text-xs text-slate-500 mt-1">相对区间权益高点</div>
-        </div>
-      </div>
-      <p class="text-[11px] leading-relaxed text-slate-500 border-t border-slate-800 mt-4 pt-3">基于所选范围内的权益快照；充值和提现也会影响曲线。</p>
+      <p class="text-[11px] leading-relaxed text-slate-500 border-t border-slate-800 mt-4 pt-3">基于选定周期的净值快照计算；账户出入金可能导致曲线阶跃。</p>
     </section>
 
     <section class="xl:col-span-2 bg-slate-900/90 border border-slate-800 rounded-xl p-5">
       <div class="flex items-start justify-between gap-3 mb-3">
         <div>
           <h2 class="text-base font-semibold text-white">浮亏持仓</h2>
-          <p class="text-xs text-slate-400 mt-1">按最近一次巡检价格估算，最长显示 6 个</p>
+          <p class="text-xs text-slate-400 mt-1">按最近一轮巡检价格估算 · 浮亏排行 Top 6</p>
         </div>
         <span id="losers-count" class="text-xs text-slate-500 font-mono">—</span>
       </div>
       <div class="overflow-x-auto custom-scrollbar">
         <table class="w-full text-xs min-w-[420px]">
           <thead class="text-[11px] text-slate-500 border-b border-slate-800">
-            <tr><th class="text-left font-medium py-2">标的</th><th class="text-left font-medium py-2">层级</th><th class="text-right font-medium py-2">估算浮亏</th><th class="text-right font-medium py-2">价格采样</th></tr>
+            <tr>
+              <th class="text-left font-medium py-2">交易标的</th>
+              <th class="text-left font-medium py-2">持仓层级</th>
+              <th class="text-right font-medium py-2">估算浮亏</th>
+              <th class="text-right font-medium py-2">采样时间</th>
+            </tr>
           </thead>
           <tbody id="losers-list" class="divide-y divide-slate-800/70">
             <tr><td colspan="4" class="py-6 text-center text-slate-500">等待持仓数据</td></tr>
@@ -295,103 +332,122 @@
     </section>
   </section>
 
+  <!-- Execution Analysis Section -->
   <section class="grid grid-cols-1 lg:grid-cols-3 gap-4" aria-label="策略执行分析">
-    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <h2 class="text-base font-semibold text-white">阶梯持仓名义价值</h2>
-          <p class="text-xs text-slate-400 mt-1">按最近巡检价格估算，不等同保证金</p>
+    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+      <div>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-white">阶梯持仓名义价值</h2>
+            <p class="text-xs text-slate-400 mt-1">按最近巡检标记价估算 (名义敞口，非占用保证金)</p>
+          </div>
+          <span id="exposure-priced-count" class="text-[11px] text-slate-500 font-mono">—</span>
         </div>
-        <span id="exposure-priced-count" class="text-[11px] text-slate-500 font-mono">—</span>
-      </div>
-      <div id="tier-exposure-list" class="space-y-4 mt-5">
-        <div class="text-xs text-slate-500">等待持仓数据</div>
+        <div id="tier-exposure-list" class="space-y-4 mt-5">
+          <div class="text-xs text-slate-500">等待持仓数据</div>
+        </div>
       </div>
     </section>
 
-    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <h2 class="text-base font-semibold text-white">交易成本</h2>
-          <p class="text-xs text-slate-400 mt-1">最近 7 天 · 不含资金费</p>
+    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+      <div>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-white">交易成本</h2>
+            <p class="text-xs text-slate-400 mt-1">近 7 天交易规费 (未计资金费用)</p>
+          </div>
+        </div>
+        <div class="flex items-end justify-between mt-4 pb-3 border-b border-slate-800">
+          <div>
+            <div class="text-xs text-slate-400">USDT 规费累计</div>
+            <div id="weekly-commission" class="text-xl font-semibold font-mono text-white mt-1">—</div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-slate-400">成交笔数</div>
+            <div id="weekly-fill-count" class="text-sm font-mono text-slate-200 mt-1">—</div>
+          </div>
+        </div>
+        <div id="cost-days" class="space-y-2 mt-3">
+          <div class="text-xs text-slate-500">等待成交数据</div>
         </div>
       </div>
-      <div class="flex items-end justify-between mt-4 pb-3 border-b border-slate-800">
-        <div>
-          <div class="text-xs text-slate-400">USDT 手续费</div>
-          <div id="weekly-commission" class="text-xl font-semibold font-mono text-white mt-1">—</div>
-        </div>
-        <div class="text-right">
-          <div class="text-xs text-slate-400">成交笔数</div>
-          <div id="weekly-fill-count" class="text-sm font-mono text-slate-200 mt-1">—</div>
-        </div>
-      </div>
-      <div id="cost-days" class="space-y-2 mt-3">
-        <div class="text-xs text-slate-500">等待成交数据</div>
-      </div>
-      <p id="other-fees-note" class="hidden text-[11px] text-amber-400 mt-3"></p>
+      <p id="other-fees-note" class="hidden text-[11px] text-amber-400 mt-3 pt-2 border-t border-slate-800"></p>
     </section>
 
-    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <h2 class="text-base font-semibold text-white">执行异常</h2>
-          <p class="text-xs text-slate-400 mt-1">下次巡检成功处理后自动清除</p>
+    <section class="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+      <div>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-white">执行异常</h2>
+            <p class="text-xs text-slate-400 mt-1">下次巡检成功处理后自动清除</p>
+          </div>
+          <span id="execution-issue-count" class="text-xs text-slate-500 font-mono">—</span>
         </div>
-        <span id="execution-issue-count" class="text-xs text-slate-500 font-mono">—</span>
-      </div>
-      <div id="execution-issues" class="space-y-2 mt-4 max-h-56 overflow-y-auto custom-scrollbar">
-        <div class="text-xs text-slate-500 py-4 text-center">等待执行数据</div>
+        <div id="execution-issues" class="space-y-2 mt-4 max-h-56 overflow-y-auto custom-scrollbar">
+          <div class="text-xs text-slate-500 py-4 text-center">等待执行数据</div>
+        </div>
       </div>
     </section>
   </section>
 
   <!-- Lower Section: Position Matrix & Real-time Trades -->
-  <section class="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden">
+  <section class="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
     <!-- Header with Tabs and Filters -->
-    <div class="p-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <div class="p-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-950/40">
       <div class="flex items-center gap-2">
         <button type="button" onclick="switchView('positions')" id="tab-positions" aria-selected="true" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-800 border border-blue-500/50 transition-colors">
-          持仓监控大表
+          在管持仓监控
         </button>
         <button type="button" onclick="switchView('fills')" id="tab-fills" aria-selected="false" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white bg-slate-950 border border-slate-800 transition-colors">
-          最新成交流水
+          实时成交明细
         </button>
         <button type="button" onclick="switchView('ranking')" id="tab-ranking" aria-selected="false" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white bg-slate-950 border border-slate-800 transition-colors">
-          收益排行 Top 10
+          标的已实现收益榜
         </button>
       </div>
 
-      <!-- Filter Pills & Search for Positions -->
+      <!-- Filter Pills & Unified Search -->
       <div id="positions-toolbar" class="flex items-center gap-2.5 flex-wrap">
-        <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-xs">
+        <div id="tier-filter-group" class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-xs">
           <button onclick="filterTier('ALL')" id="filter-all" class="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium">全部</button>
           <button onclick="filterTier('T1')" id="filter-t1" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T1</button>
           <button onclick="filterTier('T2')" id="filter-t2" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T2</button>
           <button onclick="filterTier('T3')" id="filter-t3" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white">T3</button>
         </div>
 
-        <input type="text" id="symbol-search" oninput="searchSymbols()" placeholder="搜索代币 (如 BTC, SOL)..." class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-44">
+        <input type="text" id="symbol-search" oninput="handleSearchInput()" placeholder="搜索标的 (如 BTC, SOL)..." class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 w-44">
       </div>
     </div>
 
-    <!-- View 1: Positions Table -->
+    <!-- View 1: Positions Table (9 Columns with Sortable Headers) -->
     <div id="view-positions" class="overflow-x-auto custom-scrollbar max-h-96">
-      <table class="w-full text-left text-xs">
-        <thead class="bg-slate-950/80 text-slate-400 uppercase tracking-wider text-[11px] sticky top-0 z-10 border-b border-slate-800 font-mono">
+      <table class="w-full text-left text-xs min-w-[760px]">
+        <thead class="bg-slate-950/90 text-slate-400 uppercase tracking-wider text-[11px] sticky top-0 z-10 border-b border-slate-800 font-mono">
           <tr>
-            <th class="py-3 px-4">代币 / 合约</th>
-            <th class="py-3 px-3">当前层级</th>
+            <th class="py-3 px-4 sortable-th" onclick="handleSort('symbol')">
+              交易标的 <span class="sort-indicator" id="sort-symbol">↕</span>
+            </th>
+            <th class="py-3 px-3 sortable-th" onclick="handleSort('tier')">
+              持仓层级 <span class="sort-indicator" id="sort-tier">↕</span>
+            </th>
             <th class="py-3 px-3">持仓均价</th>
+            <th class="py-3 px-3 sortable-th" onclick="handleSort('scan_price')">
+              最新标记价 <span class="sort-indicator" id="sort-scan_price">↕</span>
+            </th>
             <th class="py-3 px-3">止盈触发价</th>
-            <th class="py-3 px-3">补仓 / 注销线</th>
+            <th class="py-3 px-3">补仓线 / 止损出清线</th>
             <th class="py-3 px-3">持仓数量</th>
-            <th class="py-3 px-4 text-right" title="持仓数量 × 持仓均价">持仓成本</th>
+            <th class="py-3 px-4 text-right sortable-th" onclick="handleSort('entry_notional')" title="持仓数量 × 持仓均价">
+              持仓成本 (USDT) <span class="sort-indicator" id="sort-entry_notional">↕</span>
+            </th>
+            <th class="py-3 px-4 text-right sortable-th" onclick="handleSort('estimated_unrealized_pnl')">
+              估算浮动盈亏 <span class="sort-indicator" id="sort-estimated_unrealized_pnl">↕</span>
+            </th>
           </tr>
         </thead>
         <tbody id="position-table-body" class="divide-y divide-slate-800/80 font-mono">
           <tr>
-            <td colspan="7" class="py-12 text-center text-slate-500 font-sans">
+            <td colspan="9" class="py-12 text-center text-slate-500 font-sans">
               正在同步本地持仓数据...
             </td>
           </tr>
@@ -404,7 +460,7 @@
       <div id="fills-container" class="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
         <section aria-labelledby="buy-fills-heading">
           <div class="flex items-center justify-between gap-3 pb-3 border-b border-slate-800">
-            <h3 id="buy-fills-heading" class="text-sm font-semibold text-blue-400">买入</h3>
+            <h3 id="buy-fills-heading" class="text-sm font-semibold text-blue-400">多头买入 / 补仓明细</h3>
             <span id="buy-fills-count" class="text-xs text-blue-300 font-mono tabular-nums">0 笔</span>
           </div>
           <div id="buy-fills-list" class="divide-y divide-slate-800/80">
@@ -413,7 +469,7 @@
         </section>
         <section aria-labelledby="sell-fills-heading">
           <div class="flex items-center justify-between gap-3 pb-3 border-b border-slate-800">
-            <h3 id="sell-fills-heading" class="text-sm font-semibold text-rose-400">卖出</h3>
+            <h3 id="sell-fills-heading" class="text-sm font-semibold text-rose-400">平仓 / 止盈卖出明细</h3>
             <span id="sell-fills-count" class="text-xs text-rose-300 font-mono tabular-nums">0 笔</span>
           </div>
           <div id="sell-fills-list" class="divide-y divide-slate-800/80">
@@ -425,7 +481,7 @@
 
     <!-- View 3: Symbol Ranking -->
     <div id="view-ranking" class="hidden p-5">
-      <p class="text-xs text-slate-400 mb-3">按成交盈亏排序，未扣手续费和资金费</p>
+      <p class="text-xs text-slate-400 mb-3">按标的累计已实现毛盈亏排序 (未扣减单币手续费与资金费)</p>
       <div id="ranking-container" class="space-y-2 max-w-xl">
         <div class="text-slate-500 text-xs py-8 text-center">正在计算收益排行...</div>
       </div>
@@ -435,25 +491,13 @@
     <div id="position-footer" class="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 px-4 font-mono">
       <div id="position-summary-text">等待同步...</div>
       <div class="flex items-center gap-3">
-        <span>Binance 活跃 COIN / INDEX / RWA 永续池</span>
+        <span>币安全市场永续合约池 (Crypto / Index / RWA)</span>
       </div>
     </div>
   </section>
 
   <script>
-    // 15-minute countdown clock
-    function updateCountdown() {
-      const now = new Date();
-      const mins = now.getMinutes();
-      const secs = now.getSeconds();
-      const remainingMins = 14 - (mins % 15);
-      const remainingSecs = 59 - secs;
-      const str = `${String(remainingMins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
-      document.getElementById('countdown').textContent = str;
-    }
-    setInterval(updateCountdown, 1000);
-    updateCountdown();
-
+    // State variables
     let allPositions = [];
     let currentTierFilter = 'ALL';
     let currentPeriod = '7d';
@@ -461,6 +505,42 @@
     let ledgerAvailable = false;
     let tradingUptimeBaseSeconds = null;
     let tradingUptimeUpdatedAt = 0;
+    let currentView = 'positions';
+    let rawBuyFills = [];
+    let rawSellFills = [];
+
+    // Sorting state for positions table
+    let currentSortKey = 'tier';
+    let currentSortDirection = 'desc'; // 'asc' or 'desc'
+
+    // 15-minute countdown clock with periodic auto-sync trigger
+    let isReviewingPhase = false;
+    function updateCountdown() {
+      const now = new Date();
+      const mins = now.getMinutes();
+      const secs = now.getSeconds();
+      const remainingMins = 14 - (mins % 15);
+      const remainingSecs = 59 - secs;
+      const countdownEl = document.getElementById('countdown');
+
+      if (remainingMins === 0 && remainingSecs <= 3) {
+        countdownEl.textContent = '巡检同步中...';
+        countdownEl.className = 'font-mono text-amber-400 font-semibold text-xs animate-pulse';
+        if (!isReviewingPhase && remainingSecs === 0) {
+          isReviewingPhase = true;
+          setTimeout(() => {
+            fetchData();
+            isReviewingPhase = false;
+          }, 3500);
+        }
+      } else {
+        const str = `${String(remainingMins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
+        countdownEl.textContent = str;
+        countdownEl.className = 'font-mono text-emerald-400 font-semibold text-sm';
+      }
+    }
+    setInterval(updateCountdown, 1000);
+    updateCountdown();
 
     function renderTradingUptime() {
       const uptimeEl = document.getElementById('trading-uptime');
@@ -476,7 +556,6 @@
       const minutes = totalMinutes % 60;
       uptimeEl.textContent = `${days}天 ${hours}小时 ${minutes}分`;
     }
-
     setInterval(renderTradingUptime, 1000);
 
     function formatSignedUsd(value) {
@@ -502,14 +581,13 @@
       return amount.toLocaleString('en-US', {maximumFractionDigits: fractionDigits});
     }
 
-    // --- High-Resolution Retina HTML5 Canvas Chart ---
+    // --- Dynamic High-Resolution Retina HTML5 Canvas Chart with Crosshair ---
     function renderRetinaChart(points) {
       const canvas = document.getElementById('equity-canvas');
       const container = document.getElementById('canvas-container');
       const rect = container.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
 
-      // Set internal dimensions scaled by DPR for razor-sharp rendering on Retina
       canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
 
@@ -557,6 +635,18 @@
         paddingLeft + ((points[idx].captured_at_ms - firstTimestamp) / timeRange) * plotW;
       const getY = (val) => paddingTop + plotH - ((val - minVal) / (maxVal - minVal)) * plotH;
 
+      // Determine palette: Green if overall change >= 0, Rose if drawdown
+      const isPositive = points[points.length - 1].equity >= points[0].equity;
+      const themeColor = isPositive ? '#10b981' : '#f43f5e';
+      const shadowColor = isPositive ? 'rgba(16, 185, 129, 0.4)' : 'rgba(244, 63, 94, 0.4)';
+      const gradColorTop = isPositive ? 'rgba(16, 185, 129, 0.22)' : 'rgba(244, 63, 94, 0.22)';
+      const gradColorBottom = isPositive ? 'rgba(16, 185, 129, 0.0)' : 'rgba(244, 63, 94, 0.0)';
+
+      const tooltipIndicator = document.getElementById('tooltip-indicator');
+      if (tooltipIndicator) {
+        tooltipIndicator.className = `w-2 h-2 rounded-full ${isPositive ? 'bg-emerald-400' : 'bg-rose-400'}`;
+      }
+
       // Draw horizontal grid lines & labels
       ctx.lineWidth = 1;
       ctx.strokeStyle = 'rgba(30, 41, 59, 0.7)';
@@ -577,6 +667,19 @@
         ctx.fillText('$' + val.toFixed(0), paddingLeft - 10, y + 4);
       }
 
+      // Draw vertical time grid lines (3 ticks)
+      ctx.save();
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = 'rgba(30, 41, 59, 0.5)';
+      for (let i = 1; i <= 3; i++) {
+        const tickX = paddingLeft + (plotW * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(tickX, paddingTop);
+        ctx.lineTo(tickX, paddingTop + plotH);
+        ctx.stroke();
+      }
+      ctx.restore();
+
       // Smooth Curve using Catmull-Rom / Bezier
       ctx.save();
       ctx.beginPath();
@@ -593,10 +696,10 @@
 
       // Stroke Line
       ctx.lineWidth = 2.5;
-      ctx.strokeStyle = '#10b981';
+      ctx.strokeStyle = themeColor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.shadowColor = 'rgba(16, 185, 129, 0.4)';
+      ctx.shadowColor = shadowColor;
       ctx.shadowBlur = 8;
       ctx.stroke();
 
@@ -609,8 +712,8 @@
       ctx.closePath();
 
       const grad = ctx.createLinearGradient(0, paddingTop, 0, bottomY);
-      grad.addColorStop(0, 'rgba(16, 185, 129, 0.22)');
-      grad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+      grad.addColorStop(0, gradColorTop);
+      grad.addColorStop(1, gradColorBottom);
       ctx.fillStyle = grad;
       ctx.shadowBlur = 0;
       ctx.fill();
@@ -621,7 +724,7 @@
       const curY = getY(points[points.length - 1].equity);
       ctx.beginPath();
       ctx.arc(curX, curY, 4.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#10b981';
+      ctx.fillStyle = themeColor;
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#ffffff';
@@ -633,21 +736,26 @@
       document.getElementById('chart-start-time').textContent = d0.toLocaleDateString() + ' ' + d0.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
       document.getElementById('chart-latest-time').textContent = d1.toLocaleDateString() + ' ' + d1.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
-      // Attach crosshair listener
-      setupCanvasHover(canvas, points, getX, getY, minVal, maxVal);
+      // Attach crosshair listener with Pointer Events (Supports Touch and Mouse)
+      setupCanvasHover(canvas, points, getX, getY, minVal, maxVal, themeColor);
     }
 
     // Interactive Hover Crosshair & Tooltip
-    function setupCanvasHover(canvas, points, getX, getY, minVal, maxVal) {
+    function setupCanvasHover(canvas, points, getX, getY, minVal, maxVal, themeColor) {
       const tooltip = document.getElementById('chart-tooltip');
-      const container = document.getElementById('canvas-container');
 
-      canvas.onmousemove = function(e) {
+      function handlePointerMove(e) {
         const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
         const paddingLeft = 65;
         const paddingRight = 20;
+        const paddingTop = 20;
+        const paddingBottom = 30;
         const plotW = rect.width - paddingLeft - paddingRight;
+        const plotH = rect.height - paddingTop - paddingBottom;
 
         if (mouseX < paddingLeft || mouseX > rect.width - paddingRight) {
           tooltip.classList.add('hidden');
@@ -674,16 +782,27 @@
         const targetY = getY(p.equity);
 
         tooltip.classList.remove('hidden');
-        tooltip.style.left = `${Math.min(rect.width - 140, Math.max(10, targetX - 50))}px`;
-        tooltip.style.top = `${Math.max(10, targetY - 55)}px`;
+        tooltip.style.left = `${Math.min(rect.width - 150, Math.max(10, targetX - 50))}px`;
+
+        // Anti-clipping: Flip tooltip to bottom if target point is in the top 60px
+        if (targetY < 65) {
+          tooltip.style.top = `${targetY + 16}px`;
+        } else {
+          tooltip.style.top = `${targetY - 55}px`;
+        }
 
         document.getElementById('tooltip-time').textContent = new Date(p.captured_at_ms).toLocaleString([], {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
         document.getElementById('tooltip-val').textContent = `$${p.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-      };
+      }
 
-      canvas.onmouseleave = function() {
+      function handlePointerLeave() {
         tooltip.classList.add('hidden');
-      };
+      }
+
+      canvas.onpointermove = handlePointerMove;
+      canvas.onpointerleave = handlePointerLeave;
+      canvas.onpointerdown = handlePointerMove;
+      canvas.onpointerup = handlePointerLeave;
     }
 
     // Window resize handler for Retina canvas
@@ -702,6 +821,13 @@
         return;
       }
       refreshInProgress = true;
+
+      // Animate refresh button
+      const refreshIcon = document.getElementById('refresh-icon');
+      const refreshText = document.getElementById('refresh-text');
+      if (refreshIcon) refreshIcon.classList.add('animate-spin');
+      if (refreshText) refreshText.textContent = '刷新中...';
+
       const statusBadge = document.getElementById('system-status-badge');
       try {
         const responses = await Promise.all([
@@ -728,15 +854,27 @@
           renderTradingUptime();
           ledgerAvailable = ov.status === 'LOCAL_LEDGER_ONLY';
           pendingCloseFills = ov.pending_close_fill_count;
-          statusBadge.textContent = !ledgerAvailable ? '等待账本数据' : pendingCloseFills > 0 ? `平仓明细待补录 ${pendingCloseFills} 笔` : '只读本地账本';
-          statusBadge.className = `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${ledgerAvailable && pendingCloseFills === 0 ? 'bg-slate-800 text-slate-300 border-slate-700' : 'bg-amber-500/10 text-amber-300 border-amber-500/30'}`;
+
+          if (!ledgerAvailable) {
+            statusBadge.textContent = '等待账本数据';
+            statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30';
+          } else if (pendingCloseFills > 0) {
+            statusBadge.textContent = `平仓流水待对账 ${pendingCloseFills} 笔`;
+            statusBadge.title = '等待币安撮合流水归档，暂缓统计净利润';
+            statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30';
+          } else {
+            statusBadge.textContent = '● 本地账本正常';
+            statusBadge.title = '只读监控 · 数据源自本地 SQLite 状态库';
+            statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+          }
+
           const realizedCash = ledgerAvailable ? ov.realized_cash : null;
           const realizedEl = document.getElementById('kpi-realized-cash');
           realizedEl.textContent = formatSignedUsd(realizedCash);
           realizedEl.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${realizedCash === null ? 'text-slate-400' : realizedCash >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
           realizedEl.title = pendingCloseFills > 0 ? '平仓明细待补录，净利润暂不可用' : ov.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
           document.getElementById('kpi-fill-count').textContent = ledgerAvailable ? `${ov.fill_count} 笔成交` : '—';
-          document.getElementById('kpi-active-symbols').textContent = ledgerAvailable ? `${ov.active_positions_count} 币在持` : '—';
+          document.getElementById('kpi-active-symbols').textContent = ledgerAvailable ? `${ov.active_positions_count} 个在管标的` : '—';
         }
 
         if (equityRes.ok) {
@@ -744,14 +882,25 @@
           renderDrawdown(eq);
           const snapshotStatus = document.getElementById('equity-snapshot-status');
           snapshotStatus.textContent = eq.latest
-            ? `采样时间 ${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 本轮待更新'}`
+            ? `采样时间：${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 等待下一轮快照'}`
             : '等待账户净值采样';
           snapshotStatus.className = `text-xs mt-0.5 ${eq.latest && !eq.latest.is_current_slot ? 'text-amber-400' : 'text-slate-400'}`;
+
           if (eq.latest) {
             document.getElementById('kpi-equity').textContent = `$${eq.latest.equity.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
             document.getElementById('kpi-available').textContent = eq.latest.available_balance !== null ? `$${eq.latest.available_balance.toFixed(2)}` : '—';
             document.getElementById('kpi-notional').textContent = eq.latest.position_notional !== null ? `$${eq.latest.position_notional.toFixed(2)}` : '—';
-            document.getElementById('kpi-actual-leverage').textContent = eq.latest.leverage !== null ? `${eq.latest.leverage.toFixed(2)}x` : '—';
+            document.getElementById('kpi-actual-leverage').textContent = eq.latest.leverage !== null ? `实际杠杆 ${eq.latest.leverage.toFixed(2)}x` : '实际杠杆 —';
+
+            // Card 4 margin ratio estimation
+            const marginRatioEl = document.getElementById('kpi-margin-ratio');
+            if (eq.latest.equity > 0 && eq.latest.available_balance !== null) {
+              const usedMargin = Math.max(0, eq.latest.equity - eq.latest.available_balance);
+              const usedPct = (usedMargin / eq.latest.equity) * 100;
+              marginRatioEl.textContent = `${usedPct.toFixed(1)}% ($${usedMargin.toFixed(0)})`;
+            } else {
+              marginRatioEl.textContent = '—';
+            }
 
             const unpnl = eq.latest.unrealized_pnl;
             const unEl = document.getElementById('kpi-unrealized-pnl');
@@ -761,8 +910,9 @@
             document.getElementById('kpi-equity').textContent = '—';
             document.getElementById('kpi-available').textContent = '—';
             document.getElementById('kpi-notional').textContent = '—';
-            document.getElementById('kpi-actual-leverage').textContent = '—';
+            document.getElementById('kpi-actual-leverage').textContent = '实际杠杆 —';
             document.getElementById('kpi-unrealized-pnl').textContent = '—';
+            document.getElementById('kpi-margin-ratio').textContent = '—';
           }
 
           const badge = document.getElementById('equity-change-badge');
@@ -804,7 +954,7 @@
             document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
             document.getElementById('tier-cnt-t3').textContent = `${td.t3} 币`;
             document.getElementById('tier-cnt-t31').textContent = `${td.t31 + td.t32} 币`;
-            document.getElementById('tier-total-badge').textContent = `${td.total} 币在管`;
+            document.getElementById('tier-total-badge').textContent = `${td.total} 个在管标的`;
 
             const total = td.total || 1;
             document.getElementById('bar-t1').style.width = `${(td.t1 / total) * 100}%`;
@@ -816,7 +966,7 @@
             document.getElementById('tier-cnt-t2').textContent = '—';
             document.getElementById('tier-cnt-t3').textContent = '—';
             document.getElementById('tier-cnt-t31').textContent = '—';
-            document.getElementById('tier-total-badge').textContent = '— 币在管';
+            document.getElementById('tier-total-badge').textContent = '— 个在管标的';
             ['bar-t1', 'bar-t2', 'bar-t3', 'bar-t31'].forEach(id => {
               document.getElementById(id).style.width = '0%';
             });
@@ -827,10 +977,13 @@
           allPositions = await posRes.json();
           renderPositions();
           renderLosingPositions(allPositions);
+          updatePositionStatusKpi(allPositions);
         }
 
         if (buyFillsRes.ok && sellFillsRes.ok) {
-          renderFills(await buyFillsRes.json(), await sellFillsRes.json());
+          rawBuyFills = await buyFillsRes.json();
+          rawSellFills = await sellFillsRes.json();
+          renderFills(rawBuyFills, rawSellFills);
         }
       } catch (err) {
         statusBadge.textContent = '数据刷新失败';
@@ -838,6 +991,9 @@
         console.warn("API poll notice:", err);
       } finally {
         refreshInProgress = false;
+        if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+        if (refreshText) refreshText.textContent = '刷新';
+
         if (refreshQueued) {
           refreshQueued = false;
           void fetchData();
@@ -864,21 +1020,65 @@
       container.replaceChildren(createNode('div', className, message));
     }
 
+    // Card 3 Position distribution status (e.g. 3 浮盈 · 5 浮亏)
+    function updatePositionStatusKpi(positions) {
+      const statusEl = document.getElementById('kpi-position-status');
+      if (!ledgerAvailable || !positions || positions.length === 0) {
+        statusEl.textContent = '暂无持仓';
+        return;
+      }
+      const priced = positions.filter(p => Number.isFinite(p.estimated_unrealized_pnl));
+      if (priced.length === 0) {
+        statusEl.textContent = '价格采样中...';
+        return;
+      }
+      const profitCount = priced.filter(p => p.estimated_unrealized_pnl > 0).length;
+      const lossCount = priced.filter(p => p.estimated_unrealized_pnl < 0).length;
+      statusEl.textContent = `${profitCount} 浮盈 · ${lossCount} 浮亏`;
+      statusEl.className = `font-mono ${lossCount > 0 ? 'text-amber-300' : 'text-emerald-400'}`;
+    }
+
+    // Sorting Handler
+    function handleSort(key) {
+      if (currentSortKey === key) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentSortKey = key;
+        currentSortDirection = 'desc';
+      }
+      renderPositions();
+    }
+
+    function updateSortIndicators() {
+      ['symbol', 'tier', 'scan_price', 'entry_notional', 'estimated_unrealized_pnl'].forEach(k => {
+        const el = document.getElementById('sort-' + k);
+        if (!el) return;
+        if (k === currentSortKey) {
+          el.textContent = currentSortDirection === 'asc' ? '▲' : '▼';
+          el.className = 'sort-indicator active';
+        } else {
+          el.textContent = '↕';
+          el.className = 'sort-indicator';
+        }
+      });
+    }
+
     function renderPositions() {
+      updateSortIndicators();
       const tbody = document.getElementById('position-table-body');
       if (!ledgerAvailable) {
-        showTableMessage(tbody, 7, 'py-12 text-center text-slate-400 font-sans', '等待账本数据');
+        showTableMessage(tbody, 9, 'py-12 text-center text-slate-400 font-sans', '等待账本数据');
         document.getElementById('position-summary-text').textContent = '在管持仓: —';
         return;
       }
       if (!allPositions || allPositions.length === 0) {
-        showTableMessage(tbody, 7, 'py-12 text-center text-slate-500 font-sans', '暂无本地持仓记录');
-        document.getElementById('position-summary-text').textContent = '在管持仓: 0 币';
+        showTableMessage(tbody, 9, 'py-12 text-center text-slate-500 font-sans', '暂无在管持仓记录');
+        document.getElementById('position-summary-text').textContent = '在管持仓: 0 个标的';
         return;
       }
 
-      const query = (document.getElementById('symbol-search').value || '').toUpperCase();
-      const filtered = allPositions.filter(p => {
+      const query = (document.getElementById('symbol-search').value || '').trim().toUpperCase();
+      let filtered = allPositions.filter(p => {
         const matchesQuery = p.symbol.includes(query);
         let matchesTier = true;
         if (currentTierFilter === 'T1') matchesTier = (p.tier === 1);
@@ -887,13 +1087,49 @@
         return matchesQuery && matchesTier;
       });
 
+      // Sort logic
+      filtered.sort((a, b) => {
+        let valA = a[currentSortKey];
+        let valB = b[currentSortKey];
+
+        if (valA === null || valA === undefined) valA = -Infinity;
+        if (valB === null || valB === undefined) valB = -Infinity;
+
+        if (typeof valA === 'string') {
+          return currentSortDirection === 'asc'
+            ? valA.localeCompare(valB)
+            : valB.localeCompare(valA);
+        }
+        return currentSortDirection === 'asc' ? valA - valB : valB - valA;
+      });
+
       const rows = filtered.map(p => {
         let badgeClass = 'badge-t1';
         if (p.tier === 2) badgeClass = p.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
         else if (p.tier === 3) badgeClass = p.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
 
         const tpStr = p.tp_price === null ? '—' : `$${formatPrice(p.tp_price)}`;
-        const dcaStr = p.dca_price ? `$${formatPrice(p.dca_price)} (-50%)` : '—';
+        const scanPriceStr = p.scan_price !== null && p.scan_price !== undefined ? `$${formatPrice(p.scan_price)}` : '—';
+
+        // Unrealized PnL cell with percentage
+        let unpnlCell = createNode('td', 'py-3 px-4 text-right');
+        if (p.estimated_unrealized_pnl !== null && p.estimated_unrealized_pnl !== undefined) {
+          const pnlVal = Number(p.estimated_unrealized_pnl);
+          const pnlPct = p.avg_entry_price > 0 && p.scan_price
+            ? ((p.scan_price - p.avg_entry_price) / p.avg_entry_price * 100)
+            : 0;
+          const pnlClass = pnlVal > 0 ? 'text-emerald-400' : pnlVal < 0 ? 'text-rose-400' : 'text-slate-300';
+          const sign = pnlVal > 0 ? '+' : '';
+          const pctStr = `${sign}${pnlPct.toFixed(2)}%`;
+
+          const amountSpan = createNode('span', `font-bold ${pnlClass}`, formatSignedUsd(pnlVal));
+          const pctSpan = createNode('span', `text-[10px] ml-1 opacity-80 font-normal ${pnlClass}`, `(${pctStr})`);
+          unpnlCell.append(amountSpan, pctSpan);
+        } else {
+          unpnlCell.textContent = '—';
+          unpnlCell.className = 'py-3 px-4 text-right text-slate-500';
+        }
+
         const row = createNode('tr', 'hover:bg-slate-800/50 transition-colors');
         row.append(
           createNode('td', 'py-3 px-4 font-bold text-white font-sans', p.symbol),
@@ -902,20 +1138,26 @@
         tierCell.append(createNode('span', `${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans`, p.tier_label));
         row.append(tierCell);
         row.append(createNode('td', 'py-3 px-3 text-slate-300', `$${formatPrice(p.avg_entry_price)}`));
+        row.append(createNode('td', 'py-3 px-3 text-slate-200 font-medium', scanPriceStr));
         row.append(createNode('td', 'py-3 px-3 text-emerald-400 font-bold', tpStr));
+
         const riskCell = createNode('td', 'py-3 px-3 text-slate-400');
         if (p.writeoff_price) {
-          riskCell.append(createNode('span', 'text-purple-400 font-bold', `$${formatPrice(p.writeoff_price)} (5U注销)`));
+          riskCell.append(createNode('span', 'text-purple-400 font-semibold', `$${formatPrice(p.writeoff_price)} (出清)`));
+        } else if (p.dca_price) {
+          riskCell.append(createNode('span', 'text-amber-400/90 font-mono', `$${formatPrice(p.dca_price)} (-50%)`));
         } else {
-          riskCell.textContent = dcaStr;
+          riskCell.textContent = '—';
         }
         row.append(riskCell);
         row.append(createNode('td', 'py-3 px-3 text-slate-300', p.qty));
         row.append(createNode('td', 'py-3 px-4 text-right text-slate-100 font-bold', `$${p.entry_notional.toFixed(2)}`));
+        row.append(unpnlCell);
         return row;
       });
+
       if (rows.length === 0) {
-        showTableMessage(tbody, 7, 'py-8 text-center text-slate-500 font-sans', '没有符合当前搜索或层级筛选的持仓');
+        showTableMessage(tbody, 9, 'py-8 text-center text-slate-500 font-sans', '无符合当前层级或搜索条件的持仓标的');
         document.getElementById('position-summary-text').textContent = `显示 0 / ${allPositions.length} 个在管标的`;
         return;
       }
@@ -924,16 +1166,20 @@
     }
 
     function renderFills(buyFills, sellFills) {
+      const query = (document.getElementById('symbol-search').value || '').trim().toUpperCase();
+      const filteredBuys = query ? buyFills.filter(f => f.symbol.includes(query)) : buyFills;
+      const filteredSells = query ? sellFills.filter(f => f.symbol.includes(query)) : sellFills;
+
       renderFillGroup(
         'buy-fills-list',
         'buy-fills-count',
-        buyFills,
+        filteredBuys,
         'BUY',
       );
       renderFillGroup(
         'sell-fills-list',
         'sell-fills-count',
-        sellFills,
+        filteredSells,
         'SELL',
       );
     }
@@ -972,8 +1218,8 @@
         : '等待价格采样';
       if (losses.length === 0) {
         const message = pricedPositions.length > 0
-          ? '当前没有浮亏持仓'
-          : '持仓价格将在下一轮巡检后显示';
+          ? '当前无浮亏持仓标的'
+          : '持仓标记价格将在下一轮巡检后显示';
         showTableMessage(body, 4, 'py-6 text-center text-slate-500', message);
         return;
       }
@@ -985,7 +1231,7 @@
         row.append(
           createNode('td', 'py-2.5 text-white font-medium', position.symbol),
           createNode('td', 'py-2.5 text-slate-400', position.tier_label),
-          createNode('td', 'py-2.5 text-right font-mono text-rose-400', formatSignedUsd(position.estimated_unrealized_pnl)),
+          createNode('td', 'py-2.5 text-right font-mono text-rose-400 font-semibold', formatSignedUsd(position.estimated_unrealized_pnl)),
           createNode('td', 'py-2.5 text-right font-mono text-slate-500', sampledAt),
         );
         return row;
@@ -1002,9 +1248,9 @@
       }
       document.getElementById('exposure-priced-count').textContent = `${exposure.priced_positions}/${exposure.total_positions} 已估值`;
       const tiers = [
-        {key: 't1', label: 'T1'},
-        {key: 't2', label: 'T2'},
-        {key: 't3', label: 'T3'},
+        {key: 't1', label: 'T1 基础底仓'},
+        {key: 't2', label: 'T2 加仓阶段'},
+        {key: 't3', label: 'T3 深度补仓'},
       ];
       const rows = tiers.map(tier => {
         const amount = Number(exposure[tier.key] || 0);
@@ -1027,7 +1273,7 @@
       });
       const total = createNode('div', 'flex justify-between border-t border-slate-800 pt-3 text-xs');
       total.append(
-        createNode('span', 'text-slate-400', '已估值名义价值'),
+        createNode('span', 'text-slate-400', '已估值名义总敞口'),
         createNode('span', 'font-mono font-semibold text-white', formatUsd(exposure.total)),
       );
       container.replaceChildren(...rows, total);
@@ -1042,13 +1288,13 @@
       const pendingCloseFills = Number(costs.pending_close_fill_count || 0);
       const otherFeesNote = document.getElementById('other-fees-note');
       const warnings = [];
-      if (otherFees > 0) warnings.push(`${otherFees} 笔成交使用非 USDT 手续费资产，未折算进手续费总额。`);
-      if (pendingCloseFills > 0) warnings.push(`${pendingCloseFills} 笔平仓成交待补录，手续费统计可能不完整。`);
+      if (otherFees > 0) warnings.push(`存在 ${otherFees} 笔非 USDT 手续费抵扣（如 BNB 折扣），未折算入规费总额。`);
+      if (pendingCloseFills > 0) warnings.push(`存在 ${pendingCloseFills} 笔平仓成交待对账，规费统计可能不完整。`);
       otherFeesNote.textContent = warnings.join(' ');
       otherFeesNote.classList.toggle('hidden', warnings.length === 0);
       const days = costs.days || [];
       if (days.length === 0) {
-        showMessage(rows, 'text-xs text-slate-500 py-2', '最近 7 天暂无成交');
+        showMessage(rows, 'text-xs text-slate-500 py-2', '最近 7 天暂无成交记录');
         return;
       }
       const dayRows = days.slice(-7).reverse().map(day => {
@@ -1068,18 +1314,18 @@
     function renderExecutionIssues(issues) {
       const container = document.getElementById('execution-issues');
       const labels = {
-        PRICE_MISSING: '缺少价格',
-        LEVERAGE_UNAVAILABLE: '杠杆不可用',
-        INTENT_CONFLICT: '订单状态冲突',
-        ORDER_PENDING: '订单待确认',
-        ORDER_PARTIALLY_FILLED: '部分成交待处理',
-        ORDER_BELOW_MINIMUM: '低于下单门槛',
-        REVIEW_ERROR: '巡检异常',
-        REVIEW_RUN_ERROR: '整轮巡检失败',
-        ORDER_UNKNOWN: '订单结果未知',
-        ORDER_REJECTED: '订单被拒',
-        ORDER_CANCELED: '订单已取消',
-        ORDER_EXPIRED: '订单已过期',
+        PRICE_MISSING: '行情标记价缺失',
+        LEVERAGE_UNAVAILABLE: '合约杠杆不可用',
+        INTENT_CONFLICT: '委托意图状态冲突',
+        ORDER_PENDING: '委托等待成交回报',
+        ORDER_PARTIALLY_FILLED: '部分成交挂起',
+        ORDER_BELOW_MINIMUM: '未达最小下单名义额',
+        REVIEW_ERROR: '单币巡检异常',
+        REVIEW_RUN_ERROR: '全局巡检批处理失败',
+        ORDER_UNKNOWN: '委托结果未决 (需对账)',
+        ORDER_REJECTED: '币安拒绝委托 (Rejected)',
+        ORDER_CANCELED: '委托已撤销',
+        ORDER_EXPIRED: '委托已过期 (Expired)',
       };
       if (!ledgerAvailable) {
         document.getElementById('execution-issue-count').textContent = '等待账本';
@@ -1089,7 +1335,7 @@
       const currentIssues = issues || [];
       document.getElementById('execution-issue-count').textContent = `${currentIssues.length} 项`;
       if (currentIssues.length === 0) {
-        showMessage(container, 'text-xs text-emerald-400/80 py-4 text-center', '当前没有未解决异常');
+        showMessage(container, 'text-xs text-emerald-400/90 py-4 text-center', '系统运行正常，无待处理异常');
         return;
       }
       container.replaceChildren(...currentIssues.map(issue => {
@@ -1125,7 +1371,7 @@
       }
       document.getElementById(countId).textContent = `最近 ${fills.length} 笔`;
       if (fills.length === 0) {
-        const emptyText = side === 'BUY' ? '暂无买入成交' : '暂无卖出成交';
+        const emptyText = side === 'BUY' ? '暂无买入成交明细' : '暂无卖出成交明细';
         showMessage(list, 'text-slate-400 text-xs py-6 text-center', emptyText);
         return;
       }
@@ -1137,7 +1383,7 @@
         const amount = isBuy
           ? formatUsd(Number(fill.price) * Number(fill.qty))
           : formatSignedUsd(fill.realized_pnl);
-        const amountLabel = isBuy ? '成交额' : '已实现盈亏';
+        const amountLabel = isBuy ? '成交额' : '已实现净盈亏';
         const pnl = Number(fill.realized_pnl);
         const amountClass = isBuy
           ? 'text-slate-200'
@@ -1149,7 +1395,7 @@
         const identity = createNode('div', 'min-w-0');
         identity.append(
           createNode('p', 'font-semibold text-white truncate', fill.symbol),
-          createNode('p', 'text-slate-400 text-[11px] mt-1 font-mono tabular-nums', `$${formatPrice(fill.price)} · 数量 ${formatPrice(fill.qty)}`),
+          createNode('p', 'text-slate-400 text-[11px] mt-1 font-mono tabular-nums', `单价: $${formatPrice(fill.price)} │ 数量: ${formatPrice(fill.qty)}`),
         );
         const details = createNode('div', 'shrink-0 text-right');
         const timeNode = createNode('time', 'block mt-1 text-[10px] text-slate-500 font-mono tabular-nums', time);
@@ -1168,7 +1414,7 @@
     function renderRanking(symbols, pendingCloseFills) {
       const container = document.getElementById('ranking-container');
       if (!ledgerAvailable || pendingCloseFills > 0) {
-        const message = !ledgerAvailable ? '等待账本数据' : '平仓明细待补录，收益排名暂不可用';
+        const message = !ledgerAvailable ? '等待账本数据' : '平仓流水待对账，收益排名暂不可用';
         showMessage(container, 'text-slate-400 text-xs py-8 text-center', message);
         return;
       }
@@ -1191,6 +1437,7 @@
     }
 
     function switchView(view) {
+      currentView = view;
       ['positions', 'fills', 'ranking'].forEach(v => {
         const btn = document.getElementById(`tab-${v}`);
         const el = document.getElementById(`view-${v}`);
@@ -1204,8 +1451,15 @@
           el.classList.add('hidden');
         }
       });
-      document.getElementById('positions-toolbar').style.display = (view === 'positions') ? 'flex' : 'none';
+
+      // Toolbar visibility
+      document.getElementById('tier-filter-group').style.display = (view === 'positions') ? 'inline-flex' : 'none';
+      document.getElementById('positions-toolbar').style.display = (view === 'positions' || view === 'fills') ? 'flex' : 'none';
       document.getElementById('position-footer').classList.toggle('hidden', view !== 'positions');
+
+      if (view === 'fills') {
+        renderFills(rawBuyFills, rawSellFills);
+      }
     }
 
     function selectPeriod(p) {
@@ -1231,11 +1485,15 @@
       renderPositions();
     }
 
-    function searchSymbols() {
-      renderPositions();
+    function handleSearchInput() {
+      if (currentView === 'positions') {
+        renderPositions();
+      } else if (currentView === 'fills') {
+        renderFills(rawBuyFills, rawSellFills);
+      }
     }
 
-    // Data changes after each 15-minute review; refresh every 30 seconds.
+    // Initial load
     fetchData();
     setInterval(fetchData, 30000);
   </script>
