@@ -83,8 +83,8 @@
       <div>
         <div class="flex items-center gap-2.5">
           <h1 class="text-lg font-bold tracking-tight text-white">PNL Periodic Review Trader</h1>
-          <span id="system-status-badge" title="只读监控 · 数据源自本地 SQLite 状态库" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
-            ● 本地账本正常
+          <span id="system-status-badge" title="只读监控 · 数据源自本地 SQLite 状态库" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+            只读本地账本
           </span>
         </div>
         <p class="text-xs text-slate-400 mt-0.5">币安 USDT 永续合约 · 15 分钟周期巡检</p>
@@ -172,10 +172,6 @@
       <div class="my-2">
         <span class="text-2xl lg:text-3xl font-bold font-mono tracking-tight text-white" id="kpi-notional">—</span>
         <span class="text-xs text-slate-400 ml-1 font-mono">USDT</span>
-      </div>
-      <div class="text-xs text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
-        <span>保证金估算占用</span>
-        <span id="kpi-margin-ratio" class="font-mono text-slate-300">—</span>
       </div>
     </div>
   </section>
@@ -274,7 +270,7 @@
       <!-- Policy Outflow Mechanism Footer -->
       <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
         <span class="text-slate-400">T3 出清机制:</span>
-        <span class="font-mono text-purple-400 font-medium">单币残值 ≤ 5 USDT 触发保本全平，并重开 T1 底仓循环</span>
+        <span class="font-mono text-purple-400 font-medium">单币残值 ≤ 5 USDT 时全平，并重开 T1</span>
       </div>
     </div>
   </section>
@@ -339,7 +335,7 @@
         <div class="flex items-start justify-between gap-3">
           <div>
             <h2 class="text-base font-semibold text-white">阶梯持仓名义价值</h2>
-            <p class="text-xs text-slate-400 mt-1">按最近巡检标记价估算 (名义敞口，非占用保证金)</p>
+            <p class="text-xs text-slate-400 mt-1">按最近巡检价格估算 (名义敞口，非占用保证金)</p>
           </div>
           <span id="exposure-priced-count" class="text-[11px] text-slate-500 font-mono">—</span>
         </div>
@@ -432,7 +428,7 @@
             </th>
             <th class="py-3 px-3">持仓均价</th>
             <th class="py-3 px-3 sortable-th" onclick="handleSort('scan_price')">
-              最新标记价 <span class="sort-indicator" id="sort-scan_price">↕</span>
+              最近巡检价格 <span class="sort-indicator" id="sort-scan_price">↕</span>
             </th>
             <th class="py-3 px-3">止盈触发价</th>
             <th class="py-3 px-3">补仓线 / 止损出清线</th>
@@ -513,30 +509,19 @@
     let currentSortKey = 'tier';
     let currentSortDirection = 'desc'; // 'asc' or 'desc'
 
-    // 15-minute countdown clock with periodic auto-sync trigger
-    let isReviewingPhase = false;
+    // Refresh after crossing a 15-minute boundary.
+    let lastReviewSlot = Math.floor(Date.now() / 900000);
     function updateCountdown() {
-      const now = new Date();
-      const mins = now.getMinutes();
-      const secs = now.getSeconds();
-      const remainingMins = 14 - (mins % 15);
-      const remainingSecs = 59 - secs;
-      const countdownEl = document.getElementById('countdown');
-
-      if (remainingMins === 0 && remainingSecs <= 3) {
-        countdownEl.textContent = '巡检同步中...';
-        countdownEl.className = 'font-mono text-amber-400 font-semibold text-xs animate-pulse';
-        if (!isReviewingPhase && remainingSecs === 0) {
-          isReviewingPhase = true;
-          setTimeout(() => {
-            fetchData();
-            isReviewingPhase = false;
-          }, 3500);
-        }
-      } else {
-        const str = `${String(remainingMins).padStart(2, '0')}:${String(remainingSecs).padStart(2, '0')}`;
-        countdownEl.textContent = str;
-        countdownEl.className = 'font-mono text-emerald-400 font-semibold text-sm';
+      const now = Date.now();
+      const slot = Math.floor(now / 900000);
+      const remainingSeconds = Math.ceil(((slot + 1) * 900000 - now) / 1000);
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = remainingSeconds % 60;
+      document.getElementById('countdown').textContent =
+        `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      if (slot !== lastReviewSlot) {
+        lastReviewSlot = slot;
+        setTimeout(fetchData, 3500);
       }
     }
     setInterval(updateCountdown, 1000);
@@ -863,9 +848,9 @@
             statusBadge.title = '等待币安撮合流水归档，暂缓统计净利润';
             statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30';
           } else {
-            statusBadge.textContent = '● 本地账本正常';
+            statusBadge.textContent = '只读本地账本';
             statusBadge.title = '只读监控 · 数据源自本地 SQLite 状态库';
-            statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+            statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700';
           }
 
           const realizedCash = ledgerAvailable ? ov.realized_cash : null;
@@ -892,16 +877,6 @@
             document.getElementById('kpi-notional').textContent = eq.latest.position_notional !== null ? `$${eq.latest.position_notional.toFixed(2)}` : '—';
             document.getElementById('kpi-actual-leverage').textContent = eq.latest.leverage !== null ? `实际杠杆 ${eq.latest.leverage.toFixed(2)}x` : '实际杠杆 —';
 
-            // Card 4 margin ratio estimation
-            const marginRatioEl = document.getElementById('kpi-margin-ratio');
-            if (eq.latest.equity > 0 && eq.latest.available_balance !== null) {
-              const usedMargin = Math.max(0, eq.latest.equity - eq.latest.available_balance);
-              const usedPct = (usedMargin / eq.latest.equity) * 100;
-              marginRatioEl.textContent = `${usedPct.toFixed(1)}% ($${usedMargin.toFixed(0)})`;
-            } else {
-              marginRatioEl.textContent = '—';
-            }
-
             const unpnl = eq.latest.unrealized_pnl;
             const unEl = document.getElementById('kpi-unrealized-pnl');
             unEl.textContent = formatSignedUsd(unpnl);
@@ -912,7 +887,6 @@
             document.getElementById('kpi-notional').textContent = '—';
             document.getElementById('kpi-actual-leverage').textContent = '实际杠杆 —';
             document.getElementById('kpi-unrealized-pnl').textContent = '—';
-            document.getElementById('kpi-margin-ratio').textContent = '—';
           }
 
           const badge = document.getElementById('equity-change-badge');
@@ -1219,7 +1193,7 @@
       if (losses.length === 0) {
         const message = pricedPositions.length > 0
           ? '当前无浮亏持仓标的'
-          : '持仓标记价格将在下一轮巡检后显示';
+          : '持仓价格将在下一轮巡检后显示';
         showTableMessage(body, 4, 'py-6 text-center text-slate-500', message);
         return;
       }
@@ -1314,7 +1288,7 @@
     function renderExecutionIssues(issues) {
       const container = document.getElementById('execution-issues');
       const labels = {
-        PRICE_MISSING: '行情标记价缺失',
+        PRICE_MISSING: '行情价格缺失',
         LEVERAGE_UNAVAILABLE: '合约杠杆不可用',
         INTENT_CONFLICT: '委托意图状态冲突',
         ORDER_PENDING: '委托等待成交回报',
