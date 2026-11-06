@@ -157,7 +157,6 @@ class BinanceFuturesGateway:
             if not isinstance(row, dict):
                 raise BinanceProtocolError(f"exchangeInfo row {index} must be an object")
             symbol = _required_text(row.get("symbol"), "symbol")
-            base_asset = _required_text(row.get("baseAsset"), "baseAsset")
             quote_asset = _required_text(row.get("quoteAsset"), "quoteAsset")
             margin_asset = _required_text(row.get("marginAsset"), "marginAsset")
             contract_type = _required_text(row.get("contractType"), "contractType")
@@ -185,7 +184,6 @@ class BinanceFuturesGateway:
             instruments.append(
                 ExchangeInstrument(
                     symbol=symbol,
-                    base_asset=base_asset,
                     quote_asset=quote_asset,
                     margin_asset=margin_asset,
                     contract_type=contract_type,

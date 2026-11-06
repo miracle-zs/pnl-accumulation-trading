@@ -55,7 +55,6 @@ class ExchangeInstrument:
     """ExchangeInfo metadata for one contract, with optional usable order rules."""
 
     symbol: str
-    base_asset: str
     quote_asset: str
     margin_asset: str
     contract_type: str

@@ -213,11 +213,11 @@ class DashboardQueryService:
 
         if not self._db_path.is_file():
             return {
-                "today": {"realized_net": 0.0, "commission": 0.0, "fill_count": 0, "other_fee_count": 0,
-                          "pending_close_fill_count": 0},
+                "today": {"realized_net": None, "commission": None, "fill_count": None, "other_fee_count": None,
+                          "pending_close_fill_count": None},
                 "symbols": [],
-                "costs": {"commission_usdt": 0.0, "fill_count": 0, "other_fee_count": 0,
-                          "pending_close_fill_count": 0, "days": []},
+                "costs": {"commission_usdt": None, "fill_count": None, "other_fee_count": None,
+                          "pending_close_fill_count": None, "days": []},
                 "execution_issues": [],
             }
         now_ms = time.time_ns() // 1_000_000
@@ -483,7 +483,7 @@ class DashboardQueryService:
             cur.execute(f"""
                 SELECT symbol, side, price,
                        qty, realized_pnl, commission, commission_asset, traded_at_ms
-                FROM trade_fills
+                FROM trade_fills INDEXED BY trade_fills_by_time
                 {where}
                 ORDER BY traded_at_ms DESC
                 LIMIT ?

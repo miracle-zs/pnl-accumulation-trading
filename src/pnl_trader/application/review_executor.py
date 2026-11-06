@@ -38,7 +38,6 @@ class SymbolReviewResult:
     disposition: ReviewDisposition
     plan: MarketOrderPlan | None = None
     execution: ExecutionResult | None = None
-    price: Decimal | None = None
 
 
 class SymbolReviewExecutor:
@@ -122,7 +121,6 @@ class SymbolReviewExecutor:
             disposition=ReviewDisposition.EXECUTION,
             plan=plan,
             execution=execution_result,
-            price=price,
         )
 
     async def _ensure_symbol_leverage(self, symbol: str, slot_start_ms: int) -> bool:

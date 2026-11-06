@@ -13,7 +13,7 @@ DATA_DIR = Path("data")
 KLINES_15M_DIR = DATA_DIR / "klines_15m"
 KLINES_15M_DIR.mkdir(parents=True, exist_ok=True)
 
-OUT_FILE = DATA_DIR / "cache_15m_all_crypto.npz"
+OUT_FILE = DATA_DIR / "cache_15m_all_crypto_missing_preserved.npz"
 
 # Load all 630 pure crypto active symbols
 SYMBOLS = json.loads((DATA_DIR / "pure_crypto_active_symbols.json").read_text())
@@ -28,8 +28,8 @@ def process_symbol_month(task):
         try:
             d = np.load(local_path)
             return sym, d["times"], d["ohlc"]
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(f"invalid cached data: {local_path}") from exc
 
     url = f"https://data.binance.vision/data/futures/um/monthly/klines/{sym}/15m/{sym}-15m-{month}.zip"
     try:
@@ -41,8 +41,11 @@ def process_symbol_month(task):
             ohlc = df.iloc[:, 1:5].astype(np.float64).values
             np.savez_compressed(local_path, times=times, ohlc=ohlc)
             return sym, times, ohlc
-    except Exception:
-        pass
+        if r.status_code == 404:
+            return sym, None, None
+        r.raise_for_status()
+    except Exception as exc:
+        raise RuntimeError(f"failed to fetch {sym} {month}") from exc
     return sym, None, None
 
 def get_full_15m_matrix():
@@ -110,16 +113,6 @@ def get_full_15m_matrix():
                 data_indices.append(di)
         if row_indices:
             bars[row_indices, si, :] = s_ohlc[data_indices, :]
-
-    # Forward fill NaNs for symbols that started trading earlier or had short maintenance
-    for si in range(len(val_syms)):
-        col = bars[:, si, 3]
-        valid_idx = np.where(~np.isnan(col))[0]
-        if len(valid_idx) > 0:
-            first = valid_idx[0]
-            for b in range(first + 1, num_bars):
-                if np.isnan(bars[b, si, 3]):
-                    bars[b, si, :] = bars[b - 1, si, 3]
 
     timestamps = [str(pd.to_datetime(t, unit="ms")) for t in common_times]
     np.savez_compressed(OUT_FILE, bars=bars, symbols=val_syms, timestamps=timestamps)

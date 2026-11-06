@@ -98,7 +98,6 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                 (
                     ExchangeInstrument(
                         symbol="BTCUSDT",
-                        base_asset="BTC",
                         quote_asset="USDT",
                         margin_asset="USDT",
                         contract_type="PERPETUAL",

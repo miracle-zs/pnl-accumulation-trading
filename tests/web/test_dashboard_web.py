@@ -54,6 +54,8 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 PRIMARY KEY (symbol, exchange_trade_id)
             );
 
+            CREATE INDEX trade_fills_by_time ON trade_fills(traded_at_ms);
+
             CREATE TABLE order_intents (
                 intent_id TEXT PRIMARY KEY,
                 action TEXT NOT NULL,
@@ -185,6 +187,9 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         app = create_app(data_dir=self._data_dir)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             overview = (await client.get("/api/overview")).json()
+            analytics = (await client.get("/api/analytics")).json()
+        self.assertIsNone(analytics["today"]["realized_net"])
+        self.assertIsNone(analytics["costs"]["commission_usdt"])
         self.assertEqual(overview["status"], "WAITING_DATA")
         self.assertIsNone(overview["realized_cash"])
         self.assertIsNone(overview["fill_count"])

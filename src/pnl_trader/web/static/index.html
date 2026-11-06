@@ -551,12 +551,14 @@
     }
 
     function formatUsd(value) {
+      if (value === null || value === undefined) return '—';
       const amount = Number(value);
       if (!Number.isFinite(amount)) return '—';
       return `$${amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     }
 
     function formatPrice(value) {
+      if (value === null || value === undefined) return '—';
       const amount = Number(value);
       if (!Number.isFinite(amount)) return '—';
       if (amount === 0) return '0';
@@ -607,8 +609,9 @@
       let minVal = Math.min(...values);
       let maxVal = Math.max(...values);
       if (minVal === maxVal) {
-        minVal *= 0.95;
-        maxVal *= 1.05;
+        const padding = Math.max(Math.abs(minVal) * 0.05, 1);
+        minVal -= padding;
+        maxVal += padding;
       }
       const valRange = maxVal - minVal;
       minVal -= valRange * 0.08;
@@ -722,25 +725,19 @@
       document.getElementById('chart-latest-time').textContent = d1.toLocaleDateString() + ' ' + d1.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
       // Attach crosshair listener with Pointer Events (Supports Touch and Mouse)
-      setupCanvasHover(canvas, points, getX, getY, minVal, maxVal, themeColor);
+      setupCanvasHover(canvas, points, getX, getY);
     }
 
     // Interactive Hover Crosshair & Tooltip
-    function setupCanvasHover(canvas, points, getX, getY, minVal, maxVal, themeColor) {
+    function setupCanvasHover(canvas, points, getX, getY) {
       const tooltip = document.getElementById('chart-tooltip');
 
       function handlePointerMove(e) {
         const rect = canvas.getBoundingClientRect();
-        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-        const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
-        const mouseX = clientX - rect.left;
-        const mouseY = clientY - rect.top;
+        const mouseX = e.clientX - rect.left;
         const paddingLeft = 65;
         const paddingRight = 20;
-        const paddingTop = 20;
-        const paddingBottom = 30;
         const plotW = rect.width - paddingLeft - paddingRight;
-        const plotH = rect.height - paddingTop - paddingBottom;
 
         if (mouseX < paddingLeft || mouseX > rect.width - paddingRight) {
           tooltip.classList.add('hidden');
@@ -830,7 +827,7 @@
         const [overviewRes, equityRes, tierRes, posRes, buyFillsRes, sellFillsRes, analyticsRes] = responses;
 
         let pendingCloseFills = null;
-        if (overviewRes.ok) {
+        {
           const ov = await overviewRes.json();
           tradingUptimeBaseSeconds = Number.isFinite(ov.trading_uptime_seconds)
             ? ov.trading_uptime_seconds
@@ -862,7 +859,7 @@
           document.getElementById('kpi-active-symbols').textContent = ledgerAvailable ? `${ov.active_positions_count} 个在管标的` : '—';
         }
 
-        if (equityRes.ok) {
+        {
           const eq = await equityRes.json();
           renderDrawdown(eq);
           const snapshotStatus = document.getElementById('equity-snapshot-status');
@@ -903,7 +900,7 @@
           renderRetinaChart(chartHistoryPoints);
         }
 
-        if (analyticsRes.ok) {
+        {
           const an = await analyticsRes.json();
           if (an.today) {
             const todayPnl = document.getElementById('kpi-today-pnl');
@@ -920,7 +917,7 @@
           renderExecutionIssues(an.execution_issues);
         }
 
-        if (tierRes.ok) {
+        {
           const td = await tierRes.json();
           renderTierExposure(td.exposure);
           if (ledgerAvailable) {
@@ -947,14 +944,14 @@
           }
         }
 
-        if (posRes.ok) {
+        {
           allPositions = await posRes.json();
           renderPositions();
           renderLosingPositions(allPositions);
           updatePositionStatusKpi(allPositions);
         }
 
-        if (buyFillsRes.ok && sellFillsRes.ok) {
+        {
           rawBuyFills = await buyFillsRes.json();
           rawSellFills = await sellFillsRes.json();
           renderFills(rawBuyFills, rawSellFills);
@@ -1255,6 +1252,13 @@
 
     function renderCosts(costs) {
       const rows = document.getElementById('cost-days');
+      if (!ledgerAvailable) {
+        document.getElementById('weekly-commission').textContent = '—';
+        document.getElementById('weekly-fill-count').textContent = '—';
+        document.getElementById('other-fees-note').classList.add('hidden');
+        showMessage(rows, 'text-xs text-slate-500 py-2', '等待账本数据');
+        return;
+      }
       if (!costs) return;
       document.getElementById('weekly-commission').textContent = formatUsd(costs.commission_usdt);
       document.getElementById('weekly-fill-count').textContent = `${costs.fill_count} 笔`;
@@ -1357,7 +1361,7 @@
         const amount = isBuy
           ? formatUsd(Number(fill.price) * Number(fill.qty))
           : formatSignedUsd(fill.realized_pnl);
-        const amountLabel = isBuy ? '成交额' : '已实现净盈亏';
+        const amountLabel = isBuy ? '成交额' : '已实现毛盈亏';
         const pnl = Number(fill.realized_pnl);
         const amountClass = isBuy
           ? 'text-slate-200'

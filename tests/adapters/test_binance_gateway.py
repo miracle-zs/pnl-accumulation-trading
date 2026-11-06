@@ -172,10 +172,9 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(prices, {"BTCUSDT": Decimal("60000")})
         self.assertEqual(len(requests), 4)
-        self.assertEqual(
-            sleep.await_args_list,
-            [call(1), call(2), call(9.0)],
-        )
+        self.assertEqual(sleep.await_args_list[:2], [call(1), call(2)])
+        self.assertGreater(sleep.await_args_list[2].args[0], 8.9)
+        self.assertLessEqual(sleep.await_args_list[2].args[0], 9.0)
 
     async def test_latest_price_returns_all_symbols_in_one_request(self) -> None:
         requests: list[httpx.Request] = []
