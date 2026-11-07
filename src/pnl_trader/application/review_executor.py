@@ -9,11 +9,11 @@ import logging
 from uuid import NAMESPACE_URL, uuid5
 
 from ..domain.models import BUY_ACTIONS, Action, Lifecycle, Observation
-from ..domain.policy import StrategyPolicy
+from ..domain.policy import decide_strategy
 from .execution import ExecutionCoordinator, ExecutionResult
 from .exchange_errors import UnsupportedLeverageError
 from .execution_models import IntentStatus, OrderIntent
-from .order_planning import MarketOrderPlan, MarketOrderPlanner
+from .order_planning import MarketOrderPlan, plan_market_order
 from .ports import ExchangeGatewayPort, StateStorePort
 from .store_errors import (
     ActiveIntentConflict,
@@ -53,9 +53,7 @@ class SymbolReviewExecutor:
         self._store = store
         self._exchange = exchange
         self._execution = execution
-        self._policy = StrategyPolicy()
-        self._planner = MarketOrderPlanner()
-        self._symbol_leverages: dict[str, int] = {}
+        self._configured_leverage_symbols: set[str] = set()
         self._unsupported_leverage_slots: dict[str, int] = {}
 
     async def review_symbol(
@@ -84,12 +82,12 @@ class SymbolReviewExecutor:
             admitted=admitted,
             price=price,
         )
-        decision = self._policy.decide(state, observation)
+        decision = decide_strategy(state, observation)
         if decision.action is Action.HOLD:
             return SymbolReviewResult(disposition=ReviewDisposition.NO_ACTION)
 
         rules = await self._exchange.get_instrument_rules(symbol)
-        plan = self._planner.plan(decision, state, rules, price)
+        plan = plan_market_order(decision, state, rules, price)
 
         if plan.action in BUY_ACTIONS and not await self._ensure_symbol_leverage(
             symbol, slot_start_ms
@@ -124,7 +122,7 @@ class SymbolReviewExecutor:
         )
 
     async def _ensure_symbol_leverage(self, symbol: str, slot_start_ms: int) -> bool:
-        if symbol in self._symbol_leverages:
+        if symbol in self._configured_leverage_symbols:
             return True
         if self._unsupported_leverage_slots.get(symbol) == slot_start_ms:
             return False
@@ -140,7 +138,7 @@ class SymbolReviewExecutor:
                 )
                 continue
 
-            self._symbol_leverages[symbol] = actual_leverage
+            self._configured_leverage_symbols.add(symbol)
             logger.info(
                 "configured Binance leverage: symbol=%s leverage=%sx",
                 symbol,

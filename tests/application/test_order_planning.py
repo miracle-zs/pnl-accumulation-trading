@@ -2,9 +2,9 @@ from decimal import Decimal
 import unittest
 
 from pnl_trader.application.market_models import InstrumentRules, MarketQuantityRules
-from pnl_trader.application.order_planning import MarketOrderPlanner
+from pnl_trader.application.order_planning import plan_market_order
 from pnl_trader.domain import (
-    Action, Decision, Lifecycle, Observation, StrategyPolicy, SymbolState, Tier,
+    Action, Decision, Lifecycle, Observation, SymbolState, Tier, decide_strategy,
 )
 
 
@@ -27,15 +27,14 @@ def market_rules(*, max_qty: str = "1000", min_notional: str = "5") -> Instrumen
     )
 
 
-class MarketOrderPlannerTests(unittest.TestCase):
+class MarketOrderPlanningTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.planner = MarketOrderPlanner()
         self.rules = market_rules()
 
     def test_buy_quantity_is_floored_without_exceeding_the_notional_budget(self) -> None:
         state = SymbolState(symbol="TESTUSDT")
 
-        plan = self.planner.plan(
+        plan = plan_market_order(
             Decision(Action.OPEN_T1, buy_notional=D("10")),
             state,
             self.rules,
@@ -48,7 +47,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
 
     def test_buy_below_symbol_minimum_notional_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "below 20"):
-            self.planner.plan(
+            plan_market_order(
                 Decision(Action.OPEN_T1, buy_notional=D("10")),
                 SymbolState(symbol="TESTUSDT"),
                 market_rules(min_notional="20"),
@@ -69,11 +68,11 @@ class MarketOrderPlannerTests(unittest.TestCase):
                     completed_batches=batches,
                 )
                 price = D("1.6")
-                decision = StrategyPolicy().decide(
+                decision = decide_strategy(
                     state, Observation(admitted=True, price=price)
                 )
 
-                plan = self.planner.plan(decision, state, self.rules, price)
+                plan = plan_market_order(decision, state, self.rules, price)
 
                 self.assertEqual(plan.action, Action.CLOSE_T3_FULL)
                 self.assertEqual(plan.quantity, state.qty)
@@ -86,12 +85,12 @@ class MarketOrderPlannerTests(unittest.TestCase):
             qty=D("3"), avg_entry_price=D("10"), tier_entry_qty=D("3"),
             tier_anchor_price=D("5"),
         )
-        decision = StrategyPolicy().decide(
+        decision = decide_strategy(
             state, Observation(admitted=True, price=D("1.6"))
         )
 
         with self.assertRaisesRegex(ValueError, "exceeds market maxQty"):
-            self.planner.plan(decision, state, market_rules(max_qty="2"), D("1.6"))
+            plan_market_order(decision, state, market_rules(max_qty="2"), D("1.6"))
 
     def test_subminimum_take_profit_batch_merges_to_full_close(self) -> None:
         state = SymbolState(
@@ -104,7 +103,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
             tier_anchor_price=D("50"),
         )
 
-        plan = self.planner.plan(
+        plan = plan_market_order(
             Decision(Action.CLOSE_T2_BATCH1, close_qty=D("0.25")),
             state,
             self.rules,
@@ -127,7 +126,7 @@ class MarketOrderPlannerTests(unittest.TestCase):
             tier_anchor_price=D("50"),
         )
 
-        plan = self.planner.plan(
+        plan = plan_market_order(
             Decision(Action.CLOSE_T2_BATCH1, close_qty=D("0.25")),
             state,
             self.rules,

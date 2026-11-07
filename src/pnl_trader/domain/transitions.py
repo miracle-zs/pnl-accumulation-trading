@@ -73,6 +73,11 @@ def apply_confirmed_execution(
 
     if receipt.filled_qty < ZERO or receipt.quote_qty < ZERO:
         raise InvalidExecution("fill quantities must be non-negative")
+    validate_execution_intent(
+        state,
+        receipt.action,
+        receipt.target_cumulative_sold_qty,
+    )
     if receipt.filled_qty == ZERO:
         if receipt.quote_qty != ZERO:
             raise InvalidExecution("a zero-quantity result must have zero quote quantity")
@@ -80,11 +85,6 @@ def apply_confirmed_execution(
     if receipt.quote_qty <= ZERO:
         raise InvalidExecution("a positive fill must have positive quote quantity")
 
-    validate_execution_intent(
-        state,
-        receipt.action,
-        receipt.target_cumulative_sold_qty,
-    )
     if receipt.action in BUY_ACTION_TIERS:
         return _apply_buy(state, receipt, BUY_ACTION_TIERS[receipt.action])
     return _apply_sell(state, receipt)

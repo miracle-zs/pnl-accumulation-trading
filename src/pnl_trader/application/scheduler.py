@@ -7,8 +7,17 @@ from datetime import UTC, datetime
 import logging
 import time
 
+from apscheduler.events import (
+    EVENT_JOB_ERROR,
+    EVENT_JOB_EXECUTED,
+    EVENT_JOB_MISSED,
+    EVENT_JOB_SUBMITTED,
+    JobExecutionEvent,
+    JobSubmissionEvent,
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from ..clock import current_epoch_ms
 from .ports import AlertNotifierPort
 from .review_run import ReviewRunCoordinator
 
@@ -31,6 +40,29 @@ class PeriodicReviewScheduler:
 
     async def run_until_stopped(self, stop_event: asyncio.Event) -> None:
         scheduler = AsyncIOScheduler(timezone=UTC)
+        pending_runs = 0
+        runs_finished = asyncio.Event()
+        runs_finished.set()
+
+        def track_pending_runs(event: JobExecutionEvent | JobSubmissionEvent) -> None:
+            nonlocal pending_runs
+            if isinstance(event, JobSubmissionEvent):
+                pending_runs += len(event.scheduled_run_times)
+                runs_finished.clear()
+            else:
+                if pending_runs <= 0:
+                    raise RuntimeError("scheduler completed a review that was not submitted")
+                pending_runs -= 1
+                if pending_runs == 0:
+                    runs_finished.set()
+
+        scheduler.add_listener(
+            track_pending_runs,
+            EVENT_JOB_SUBMITTED
+            | EVENT_JOB_EXECUTED
+            | EVENT_JOB_ERROR
+            | EVENT_JOB_MISSED,
+        )
         scheduler.add_job(
             self._run_review_slot,
             trigger="cron",
@@ -43,11 +75,14 @@ class PeriodicReviewScheduler:
         try:
             await stop_event.wait()
         finally:
+            scheduler.pause()
+            # APScheduler 3.x cancels active asyncio jobs on shutdown; drain them first.
+            await runs_finished.wait()
             scheduler.shutdown()
             logger.info("15-minute review scheduler stopped")
 
     async def _run_review_slot(self) -> None:
-        now_ms = time.time_ns() // 1_000_000
+        now_ms = current_epoch_ms()
         slot_start_ms = now_ms - now_ms % 900_000 - 900_000
         started_ns = time.monotonic_ns()
         try:
@@ -68,32 +103,34 @@ class PeriodicReviewScheduler:
                 slot_start_ms,
                 (time.monotonic_ns() - started_ns) / 1_000_000,
             )
-            if self._notifier is None or self._failure_alert_sent:
-                return
-
-            slot_time = datetime.fromtimestamp(slot_start_ms / 1_000, tz=UTC)
-            exception_text = str(exc).replace("\n", " ")
-            if exception_text.startswith((
-                "position mismatch for ",
-                "exchange position for ",
-                "exchange activity for ",
-                "short position detected for ",
-            )):
-                reason = exception_text[:500]
-            else:
-                reason = type(exc).__name__
-            body = (
-                f"巡检时段（UTC）：{slot_time.isoformat()}\n\n"
-                "本轮已停止，后续时段仍会继续尝试。\n\n"
-                f"异常：{reason}\n\n"
-                "请查看交易服务日志。"
-            )
-            try:
-                await self._notifier.send(title="15分钟交易巡检失败", body=body)
-            except Exception as notify_error:
-                logger.error(
-                    "Server酱通知发送失败（%s）",
-                    type(notify_error).__name__,
+            if self._notifier is not None and not self._failure_alert_sent:
+                slot_time = datetime.fromtimestamp(slot_start_ms / 1_000, tz=UTC)
+                exception_text = str(exc).replace("\n", " ")
+                if exception_text.startswith((
+                    "position mismatch for ",
+                    "exchange position for ",
+                    "exchange activity for ",
+                    "short position detected for ",
+                )):
+                    reason = exception_text[:500]
+                else:
+                    reason = type(exc).__name__
+                body = (
+                    f"巡检时段（UTC）：{slot_time.isoformat()}\n\n"
+                    "本轮已停止，后续时段仍会继续尝试。\n\n"
+                    f"异常：{reason}\n\n"
+                    "请查看交易服务日志。"
                 )
-            else:
-                self._failure_alert_sent = True
+                try:
+                    await self._notifier.send(
+                        title="15分钟交易巡检失败",
+                        body=body,
+                    )
+                except Exception as notify_error:
+                    logger.error(
+                        "Server酱通知发送失败（%s）",
+                        type(notify_error).__name__,
+                    )
+                else:
+                    self._failure_alert_sent = True
+            raise

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from .market_models import ExchangeInstrument
 from .ports import ExchangeInstrumentCatalogPort
 from .review_batch_models import ReviewSignal
 
@@ -32,12 +31,25 @@ class UniverseCatalog:
         *,
         managed_symbols: tuple[str, ...],
     ) -> tuple[ReviewSignal, ...]:
+        """Return eligibility for entry candidates and symbols already in the ledger."""
+
         instruments = await self._exchange_info.get_exchange_info_snapshot()
         instruments_by_symbol = {instrument.symbol: instrument for instrument in instruments}
+        if len(instruments_by_symbol) != len(instruments):
+            raise RuntimeError("exchangeInfo contains duplicate symbols")
         eligible_symbols = {
             instrument.symbol
             for instrument in instruments
-            if self._is_eligible(instrument)
+            if (
+                instrument.quote_asset == "USDT"
+                and instrument.margin_asset == "USDT"
+                and instrument.contract_type == "PERPETUAL"
+                and instrument.status == "TRADING"
+                and (
+                    instrument.underlying_type in {"COIN", "INDEX"}
+                    or "RWA" in instrument.underlying_sub_types
+                )
+            )
         }
         symbols_to_review = set(managed_symbols)
         symbols_to_review.update(eligible_symbols)
@@ -52,16 +64,4 @@ class UniverseCatalog:
                 ),
             )
             for symbol in symbols_to_review
-        )
-
-    def _is_eligible(self, instrument: ExchangeInstrument) -> bool:
-        if instrument.quote_asset != "USDT" or instrument.margin_asset != "USDT":
-            return False
-        if instrument.contract_type != "PERPETUAL":
-            return False
-        if instrument.status != "TRADING":
-            return False
-        return (
-            instrument.underlying_type in {"COIN", "INDEX"}
-            or "RWA" in instrument.underlying_sub_types
         )

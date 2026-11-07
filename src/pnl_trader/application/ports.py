@@ -18,6 +18,7 @@ from .execution_models import (
     ExchangeOrderSnapshot,
     IntentStatus,
     MarketOrderRequest,
+    OrderSide,
     OrderIntent,
     PersistedOrderIntent,
     SubmissionResult,
@@ -129,7 +130,7 @@ class ExchangeGatewayPort(Protocol):
         self,
         symbol: str,
         order_snapshot: ExchangeOrderSnapshot,
-        order_side: str,
+        order_side: OrderSide,
     ) -> tuple[TradeFillRecord, ...]: ...
 
 

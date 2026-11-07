@@ -50,7 +50,7 @@ def main() -> None:
         try:
             config = RuntimeConfig.from_environment()
             result = validate_runtime_config(config)
-        except Exception as exc:
+        except ValueError as exc:
             logging.getLogger(__name__).error(
                 "runtime configuration validation failed (%s): %s",
                 type(exc).__name__,
@@ -71,10 +71,8 @@ def main() -> None:
             uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
         except KeyboardInterrupt:
             print("\nDashboard stopped.")
-        except Exception as exc:
-            logging.getLogger(__name__).error(
-                "Failed to start web dashboard (%s): %s", type(exc).__name__, exc
-            )
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to start web dashboard")
             raise SystemExit(1) from None
         return
     if args.command == "run":

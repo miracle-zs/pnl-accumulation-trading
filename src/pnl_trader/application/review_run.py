@@ -7,20 +7,29 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 import logging
-import time
 from typing import Callable, Mapping
 
+from ..clock import current_epoch_ms
 from ..domain.models import FULL_CLOSE_ACTIONS, Lifecycle
 from .execution import ExecutionCoordinator, ExecutionResult
+from .exchange_errors import (
+    ExchangeAccessError,
+    ExchangeOperationError,
+    ExchangeResponseError,
+)
 from .execution_models import IntentStatus
-from .order_planning import OrderBelowMinimum
+from .order_planning import OrderBelowMinimum, OrderRuleUnavailable
 from .ports import (
     AccountEquitySnapshotPort,
     MarketPriceSnapshotPort,
     ReviewBatchSourcePort,
     StateStorePort,
 )
-from .review_executor import SymbolReviewExecutor, SymbolReviewResult
+from .review_executor import (
+    ReviewDisposition,
+    SymbolReviewExecutor,
+    SymbolReviewResult,
+)
 from .review_run_models import ReviewBatch
 
 
@@ -47,25 +56,6 @@ def _log_execution_issue(symbol: str, result: ExecutionResult | None) -> None:
     )
 
 
-def _save_execution_issue(
-    store: StateStorePort,
-    *,
-    symbol: str,
-    result: ExecutionResult | None,
-    occurred_at_ms: int,
-) -> bool:
-    if result is None or result.status not in _EXECUTION_ISSUE_STATUSES:
-        return True
-    detail = result.detail or f"订单状态：{result.status.value}"
-    store.record_dashboard_issue(
-        symbol=symbol,
-        category=f"ORDER_{result.status.value}",
-        detail=detail,
-        occurred_at_ms=occurred_at_ms,
-    )
-    return False
-
-
 def _save_review_result_issue(
     store: StateStorePort,
     *,
@@ -73,38 +63,46 @@ def _save_review_result_issue(
     result: SymbolReviewResult,
     occurred_at_ms: int,
 ) -> bool:
-    disposition = result.disposition.value
-    if disposition == "LEVERAGE_UNAVAILABLE":
+    disposition = result.disposition
+    if disposition is ReviewDisposition.LEVERAGE_UNAVAILABLE:
         store.record_dashboard_issue(
             symbol=symbol,
-            category=disposition,
+            category=disposition.value,
             detail="币安不支持 10x、5x 或 3x 杠杆，已跳过开仓",
             occurred_at_ms=occurred_at_ms,
         )
         return False
-    elif disposition == "INTENT_CONFLICT":
+    if disposition is ReviewDisposition.INTENT_CONFLICT:
         store.record_dashboard_issue(
             symbol=symbol,
-            category=disposition,
+            category=disposition.value,
             detail="本地订单意图与策略状态冲突",
             occurred_at_ms=occurred_at_ms,
         )
         return False
-    elif disposition == "ORDER_PENDING":
+    if disposition is ReviewDisposition.ORDER_PENDING:
         store.record_dashboard_issue(
             symbol=symbol,
-            category=disposition,
+            category=disposition.value,
             detail="上一笔订单仍在等待币安确认",
             occurred_at_ms=occurred_at_ms,
         )
         return False
-    else:
-        return _save_execution_issue(
-            store,
-            symbol=symbol,
-            result=result.execution,
-            occurred_at_ms=occurred_at_ms,
-        )
+    if disposition is ReviewDisposition.NO_ACTION:
+        return True
+    execution = result.execution
+    if execution is None:
+        raise RuntimeError(f"{disposition.value} result is missing its execution")
+    if execution.status not in _EXECUTION_ISSUE_STATUSES:
+        return True
+    detail = execution.detail or f"订单状态：{execution.status.value}"
+    store.record_dashboard_issue(
+        symbol=symbol,
+        category=f"ORDER_{execution.status.value}",
+        detail=detail,
+        occurred_at_ms=occurred_at_ms,
+    )
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +131,7 @@ class ReviewRunCoordinator:
         self._batch_source = batch_source
         self._market_prices = market_prices
         self._account_equity = account_equity
-        self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
+        self._clock_ms = current_epoch_ms if clock_ms is None else clock_ms
 
     async def run_slot(
         self,
@@ -154,10 +152,7 @@ class ReviewRunCoordinator:
                 logger.exception("failed to save whole-run dashboard issue")
             raise
 
-        try:
-            self._store.clear_dashboard_issues(("系统",))
-        except Exception:
-            logger.exception("failed to clear whole-run dashboard issue")
+        self._store.clear_dashboard_issues(("系统",))
         return result
 
     async def _run_slot(
@@ -178,33 +173,32 @@ class ReviewRunCoordinator:
             for state in self._store.list_symbol_states()
             if state.lifecycle in {Lifecycle.OPEN, Lifecycle.CLOSING}
         }
-        try:
-            self._store.record_market_prices(
-                {symbol: price for symbol, price in latest_prices.items() if symbol in open_symbols},
-                captured_at_ms=price_captured_at_ms,
-            )
-        except Exception as exc:
-            logger.warning(
-                "dashboard price sample unavailable; review finished: %s",
-                type(exc).__name__,
-            )
-        await self._record_account_equity_snapshot()
+        self._store.record_market_prices(
+            {
+                symbol: price
+                for symbol, price in latest_prices.items()
+                if symbol in open_symbols
+            },
+            captured_at_ms=price_captured_at_ms,
+        )
+        if self._account_equity is not None:
+            try:
+                snapshot = await self._account_equity.get_account_snapshot()
+            except (
+                ExchangeAccessError,
+                ExchangeOperationError,
+                ExchangeResponseError,
+            ) as exc:
+                logger.warning(
+                    "account equity snapshot unavailable; review finished: %s",
+                    type(exc).__name__,
+                )
+            else:
+                self._store.record_account_equity_snapshot(
+                    captured_at_ms=self._clock_ms(),
+                    snapshot=snapshot,
+                )
         return result
-
-    async def _record_account_equity_snapshot(self) -> None:
-        if self._account_equity is None:
-            return
-        try:
-            snapshot = await self._account_equity.get_account_snapshot()
-            self._store.record_account_equity_snapshot(
-                captured_at_ms=self._clock_ms(),
-                snapshot=snapshot,
-            )
-        except Exception as exc:
-            logger.warning(
-                "account equity snapshot unavailable; review finished: %s",
-                type(exc).__name__,
-            )
 
     async def _run_batch(
         self,
@@ -282,9 +276,13 @@ class ReviewRunCoordinator:
                     occurred_at_ms=self._clock_ms(),
                 )
                 counts["ERROR"] += 1
-            except Exception:
+            except (OrderRuleUnavailable, ExchangeOperationError) as exc:
                 resolved_symbols.discard(candidate.symbol)
-                logger.exception("symbol review failed: symbol=%s", candidate.symbol)
+                logger.warning(
+                    "symbol review operation failed: symbol=%s reason=%s",
+                    candidate.symbol,
+                    exc,
+                )
                 self._store.record_dashboard_issue(
                     symbol=candidate.symbol,
                     category="REVIEW_ERROR",

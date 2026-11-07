@@ -6,9 +6,8 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
-import time
-from typing import Any
 
+from ..clock import current_epoch_ms
 from ..domain.models import FULL_CLOSE_ACTIONS
 from ..domain.policy import (
     DCA_DROP,
@@ -41,7 +40,7 @@ class DashboardQueryService:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
 
-    def get_overview(self) -> dict[str, Any]:
+    def get_overview(self) -> dict[str, object]:
         if not self._db_path.is_file():
             return {
                 "status": "WAITING_DATA",
@@ -115,7 +114,7 @@ class DashboardQueryService:
                 "last_fill_at_ms": last_fill_at_ms,
             }
 
-    def get_equity_history(self, period: str) -> dict[str, Any]:
+    def get_equity_history(self, period: str) -> dict[str, object]:
         period_ms = _EQUITY_PERIOD_MS[period]
         if not self._db_path.is_file():
             return {
@@ -129,7 +128,7 @@ class DashboardQueryService:
                 "current_drawdown_pct": None,
             }
 
-        now_ms = time.time_ns() // 1_000_000
+        now_ms = current_epoch_ms()
         with closing(_get_readonly_connection(self._db_path)) as conn:
             cur = conn.cursor()
             cur.execute(
@@ -208,7 +207,7 @@ class DashboardQueryService:
             "current_drawdown_pct": current_drawdown_pct,
         }
 
-    def get_analytics(self) -> dict[str, Any]:
+    def get_analytics(self) -> dict[str, object]:
         """Summarize strategy fills for the current Beijing day and by symbol."""
 
         if not self._db_path.is_file():
@@ -220,7 +219,7 @@ class DashboardQueryService:
                           "pending_close_fill_count": None, "days": []},
                 "execution_issues": [],
             }
-        now_ms = time.time_ns() // 1_000_000
+        now_ms = current_epoch_ms()
         day_ms = 24 * 60 * 60 * 1_000
         now_beijing = datetime.fromtimestamp(now_ms / 1_000, tz=_BEIJING_TIMEZONE)
         today_start = now_beijing.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -322,7 +321,7 @@ class DashboardQueryService:
             ],
         }
 
-    def get_tier_distribution(self) -> dict[str, Any]:
+    def get_tier_distribution(self) -> dict[str, object]:
         if not self._db_path.is_file():
             return {
                 "t1": 0, "t2": 0, "t21": 0, "t3": 0, "t31": 0,
@@ -385,7 +384,7 @@ class DashboardQueryService:
             dist["exposure"] = exposure
             return dist
 
-    def get_positions(self) -> list[dict[str, Any]]:
+    def get_positions(self) -> list[dict[str, object]]:
         if not self._db_path.is_file():
             return []
 
@@ -472,7 +471,9 @@ class DashboardQueryService:
                 })
             return results
 
-    def get_recent_fills(self, limit: int, side: str | None = None) -> list[dict[str, Any]]:
+    def get_recent_fills(
+        self, limit: int, side: str | None = None
+    ) -> list[dict[str, object]]:
         if not self._db_path.is_file():
             return []
 

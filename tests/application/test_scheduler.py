@@ -21,7 +21,7 @@ class PeriodicReviewSchedulerTests(unittest.IsolatedAsyncioTestCase):
     async def test_quarter_hour_trigger_uses_the_preceding_slot_id(self) -> None:
         review_runs = _ReviewRuns([ReviewRunResult(candidate_count=0, result_counts=())])
         scheduler = PeriodicReviewScheduler(review_runs=review_runs)
-        with patch("pnl_trader.application.scheduler.time.time_ns", return_value=900_000_000_000):
+        with patch("pnl_trader.clock.time.time_ns", return_value=900_000_000_000):
             await scheduler._run_review_slot()
         self.assertEqual(review_runs.slots, [0])
 
@@ -42,13 +42,16 @@ class PeriodicReviewSchedulerTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertLogs("pnl_trader.application.scheduler", level="ERROR"):
             with patch(
-                "pnl_trader.application.scheduler.time.time_ns",
+                "pnl_trader.clock.time.time_ns",
                 return_value=900_005_000_000,
             ):
+                with self.assertRaisesRegex(RuntimeError, "position mismatch"):
+                    await scheduler._run_review_slot()
+                with self.assertRaisesRegex(RuntimeError, "position mismatch"):
+                    await scheduler._run_review_slot()
                 await scheduler._run_review_slot()
-                await scheduler._run_review_slot()
-                await scheduler._run_review_slot()
-                await scheduler._run_review_slot()
+                with self.assertRaisesRegex(RuntimeError, "position mismatch"):
+                    await scheduler._run_review_slot()
 
         self.assertEqual(len(notifier.messages), 2)
         title, body = notifier.messages[0]

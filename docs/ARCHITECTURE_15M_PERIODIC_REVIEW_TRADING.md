@@ -73,7 +73,7 @@ SQLite 保留执行闭环所需的记录：
 - `account_equity_snapshots`：每轮策略处理结束后读取的账户权益、未实现盈亏、可用余额和持仓总价值，只供看板展示。
 - `latest_symbol_prices`、`dashboard_issues`：看板需要的最近价格和未解决异常，不参与策略决策。
 
-数据库 schema v24 支持从 v21、v22、v23 顺序升级。`trade_fills_by_side_symbol_pnl` 覆盖看板的标的收益排行查询；看板 Tailwind 样式在发布前编译成本地静态 CSS，不依赖外部 CDN。
+数据库 schema v25 支持从 v21、v22、v23、v24 顺序升级。`trade_fills_by_side_symbol_pnl` 覆盖看板的标的收益排行查询；`filled_order_intents_by_action_and_time` 覆盖已完成订单及平仓明细补录查询；看板 Tailwind 样式在发布前编译成本地静态 CSS，不依赖外部 CDN。
 
 本轮仓位只在内存中用于核对本系统管理的持仓；策略下单准入不读取账户资产或保证金快照。账户权益采集失败只记日志，不阻断本轮交易。
 

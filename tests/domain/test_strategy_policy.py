@@ -7,10 +7,10 @@ from pnl_trader.domain import (
     InvalidExecution,
     Lifecycle,
     Observation,
-    StrategyPolicy,
     SymbolState,
     Tier,
     apply_confirmed_execution,
+    decide_strategy,
 )
 
 
@@ -39,11 +39,8 @@ def open_state(
 
 
 class StrategyPolicyTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.policy = StrategyPolicy()
-
     def decide(self, state: SymbolState, price: str, *, admitted: bool = False):
-        return self.policy.decide(
+        return decide_strategy(
             state,
             Observation(admitted=admitted, price=D(price)),
         )
@@ -273,7 +270,7 @@ class ConfirmedExecutionTransitionTests(unittest.TestCase):
 
                 self.assertEqual(partial.lifecycle, Lifecycle.CLOSING)
                 for admitted in (False, True):
-                    decision = StrategyPolicy().decide(
+                    decision = decide_strategy(
                         partial, Observation(admitted=admitted, price=D("2"))
                     )
                     self.assertEqual(decision.action, action)

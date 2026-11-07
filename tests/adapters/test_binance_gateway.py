@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, call, patch
 
 import httpx
 
-from pnl_trader.adapters.binance.gateway import BinanceFuturesGateway, BinanceProtocolError
+from pnl_trader.adapters.binance.gateway import BinanceFuturesGateway
 from pnl_trader.application.execution_models import (
     ExchangeOrderStatus,
     MarketOrderRequest,
@@ -49,7 +49,7 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
             gateway = BinanceFuturesGateway(client=client, api_key="test-key", api_secret="test-secret")
-            with self.assertRaises(BinanceProtocolError):
+            with self.assertRaises(KeyError):
                 await gateway.get_account_snapshot()
 
     async def test_market_order_is_signed_and_uses_reduce_only_market_request(self) -> None:

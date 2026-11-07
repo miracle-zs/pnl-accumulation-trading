@@ -34,19 +34,14 @@ class RuntimeConfig:
     @classmethod
     def from_environment(cls) -> RuntimeConfig:
         """Load local runtime values."""
-        data_dir = Path(_required_environment("PNL_DATA_DIR")).expanduser().resolve()
+        data_dir_value = os.environ.get("PNL_DATA_DIR", "").strip()
+        if not data_dir_value:
+            raise ValueError("required environment variable PNL_DATA_DIR is missing")
+        data_dir = Path(data_dir_value).expanduser().resolve()
 
         return cls(
             data_dir=data_dir,
         )
-
-
-def _required_environment(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise ValueError(f"required environment variable {name} is missing")
-    return value
-
 
 def validate_runtime_config(config: RuntimeConfig) -> dict[str, object]:
     """Validate local settings without network or database writes."""
@@ -77,19 +72,15 @@ async def run_application(config: RuntimeConfig) -> None:
             timeout = httpx.Timeout(10.0, connect=5.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
                 serverchan_sendkey = optional_secret("SERVERCHAN_SENDKEY")
-                notifier = None
-                if serverchan_sendkey:
-                    try:
-                        notifier = ServerChanNotifier(
-                            client=client,
-                            sendkey=serverchan_sendkey,
-                        )
-                    except ValueError as exc:
-                        logger.warning(
-                            "Server酱通知已停用（SendKey 无效：%s）",
-                            type(exc).__name__,
-                        )
-                else:
+                notifier = (
+                    ServerChanNotifier(
+                        client=client,
+                        sendkey=serverchan_sendkey,
+                    )
+                    if serverchan_sendkey is not None
+                    else None
+                )
+                if notifier is None:
                     logger.warning(
                         "SERVERCHAN_SENDKEY 未设置，整轮失败通知已停用"
                     )

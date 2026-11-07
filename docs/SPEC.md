@@ -10,9 +10,9 @@ Furthermore, operating up to 200 concurrent symbols on Binance USDT-M encounters
 
 ## Solution
 
-A production-grade, 7x24 autonomous event-driven execution daemon for Binance USDT-M that implements the mathematically validated **"Tier 3 Capped + Market Value Devaluation Recycling + Option A (Static Maker Orders)"** architecture. 
+A production-grade, 7x24 autonomous event-driven execution daemon for Binance USDT-M that implements the **"Tier 3 Capped + Market Value Devaluation Recycling + Static Maker Orders"** architecture.
 
-The system operates with invariant notional sizing (Tier 1 = 10U, Tier 2 = 20U, Tier 3 = 60U, 10x leverage) and holds pending take-profit orders statically on the exchange orderbook without premature break-even stops. When catastrophic altcoin depreciation occurs (-96.5%+), a devaluation recycling mechanism deploys a micro-cycle of 20U/60U to capture high-volatility oversold bounces with fresh entry take-profit targets. 
+The system operates with invariant notional sizing (Tier 1 = 10U, Tier 2 = 20U, Tier 3 = 60U, 10x leverage) and holds pending take-profit orders statically on the exchange orderbook. When catastrophic altcoin depreciation occurs (-96.5%+), a devaluation recycling mechanism deploys a micro-cycle of 20U/60U to capture high-volatility oversold bounces with fresh entry take-profit targets.
 
 All orders are native Binance Limit orders (utilizing only 4%-6% of the account-wide 10,000 order limit). The system persists transactional state to an embedded SQLite database in WAL mode, reconciles state across WebSocket drops using single-call global REST endpoints, falls back to native Binance volume metrics if CoinMarketCap fails, and dispatches real-time alerts via ServerChan/Bark.
 
@@ -24,13 +24,13 @@ All orders are native Binance Limit orders (utilizing only 4%-6% of the account-
 4. As a quant trader, I want the bot to recalculate the weighted average cost price when Tier 2 fills, so that subsequent take-profit thresholds accurately reflect blended inventory cost.
 5. As a quant trader, I want the bot to split Tier 2 take-profit into two equal 50% limit sell orders at +20% and +50% above the blended average price, so that half the position banks quick profit while the remaining half captures extended trend-reversal gains.
 6. As a quant trader, I want the bot to place a Tier 3 limit buy order at -50% below the Tier 2 buy price with 60 USDT notional, so that secondary severe drops are met with disciplined, capped scaling.
-7. As a quant trader, I want Tier 2 take-profit limit orders to remain static on the exchange without trailing break-even stops (Option A), so that normal post-bounce retests do not prematurely wash out high-margin runners.
+7. As a quant trader, I want Tier 2 take-profit limit orders to remain static on the exchange, so that normal post-bounce retests do not prematurely wash out high-margin runners.
 8. As a quant trader, I want the bot to cancel pending Tier 2 take-profit limit orders immediately when Tier 3 executes, so that stale resting orders do not create naked short positions.
 9. As a quant trader, I want the bot to split Tier 3 into three 1/3 limit sell orders at +20%, +50%, and +100% above the new blended average price, so that massive oversold rebounds capture high-payoff profits.
 10. As a risk manager, I want standard DCA additions to hard-cap at Tier 3 (90 USDT cumulative notional), so that single-symbol exposure is strictly bounded and account margin can never be overwhelmed.
 11. As a risk manager, I want the bot to monitor the real-time market value of Tier 3 positions, so that deeply underwater positions are tracked for devaluation recycling.
 12. As a quant trader, I want the bot to trigger a 20 USDT recycled buy only when Tier 3 position market value falls below 5.0 USDT, so that capital is redeployed only after extreme (-96.5%+) value attrition.
-13. As a quant trader, I want recycled additions to post bottom fresh pulse take-profit orders at +20% and +50% calculated strictly from the fresh buy price, so that dead-cat bounces are harvested immediately without waiting for historical break-even.
+13. As a quant trader, I want recycled additions to post bottom fresh pulse take-profit orders at +20% and +50% calculated strictly from the fresh buy price, so that rebounds are harvested without relying on the original entry price.
 14. As a risk manager, I want devaluation recycling to cap at a maximum of 1 full cycle (20U + 60U), so that terminal delisting coins do not indefinitely absorb capital.
 15. As a quant trader, I want the bot to hold contracts through delisting announcements until final exchange delivery settlement, so that late-stage short squeezes are not missed due to panic selling.
 16. As an operator, I want the bot to continue DCA execution even if the exchange cuts leverage to 1x or 2x on a delisting coin (provided free margin permits), so that the recovery grid remains unbroken.
@@ -87,7 +87,6 @@ def apply_trade_fill(state, fill_slot, fill_side, fill_price, fill_qty):
 ### 4. Architectural Constraints & Policies (ADR Alignments)
 
 - **ADR 0001 & ADR 0006**: Devaluation recycling triggered at $\le 5.0\text{ USDT}$ market value. Delisting leverage reductions will not abort pending DCA orders if account margin allows.
-- **ADR 0002**: Option A strictly enforced. No break-even stop logic exists on partial take-profit fills.
 - **ADR 0003**: All orders placed as native Binance `LIMIT` orders (`timeInForce: GTC`), utilizing account-wide capacity.
 - **ADR 0008**: WebSocket disconnection triggers a single `GET /fapi/v1/openOrders` and `GET /fapi/v1/positionRisk` to sync state without per-symbol polling.
 - **ADR 0009**: Minimum notional check evaluates `price * qty >= 5.0`. If $< 5.0$, remaining batches collapse into a single 100% order.
@@ -104,7 +103,7 @@ A single high-level seam—**the `ExchangeGateway` interface**—is tested. Unit
   - Tests Tier 1 fill $\rightarrow$ verifies placement of Tier 1 TP and Tier 2 Buy.
   - Tests Tier 2 DCA fill $\rightarrow$ verifies cancellation of old TP, placement of two 50% TPs (+20%, +50%), and Tier 3 Buy.
   - Tests Tier 3 DCA fill $\rightarrow$ verifies placement of three 1/3 TPs (+20%, +50%, +100%).
-  - Tests Option A behavior: 1st TP fill $\rightarrow$ subsequent price drop $\rightarrow$ verifies remaining TP order stays active on orderbook without break-even cancellation.
+  - Tests partial take-profit behavior: after the first TP fill and a subsequent price drop, the remaining TP order stays active on the orderbook.
 - **`test_devaluation_recycling.py`**:
   - Tests deep drawdown simulation $\rightarrow$ position market value drops below 5U $\rightarrow$ verifies placement of 20U recycled buy.
   - Tests recycled buy fill $\rightarrow$ verifies placement of fresh pulse TP orders (+20%, +50% from fresh buy price).
@@ -116,7 +115,7 @@ A single high-level seam—**the `ExchangeGateway` interface**—is tested. Unit
   - Mocks CMC 500 error $\rightarrow$ verifies automatic fallback to Binance 24h ticker volume ranking.
 
 ### 3. Prior Art
-Built on the proven vectorized simulation harness in `research/strategy_final.py` which demonstrated +286.78% return, -54.06% max drawdown, and 0 liquidations across 6,552 hourly candles on 200 Binance USDT-M symbols.
+The historical simulator result (+286.78% return, -54.06% max drawdown, and 0 liquidations across 6,552 hourly candles on 200 Binance USDT-M symbols) used the current candle close before matching that candle's orders and did not enforce low-only buys/high-only sells. Treat those metrics as invalid; corrected results were not recalculated before the research scripts were removed.
 
 ## Out of Scope
 
@@ -128,4 +127,4 @@ Built on the proven vectorized simulation harness in `research/strategy_final.py
 ## Further Notes
 
 - Target environment: Python 3.11+ running under Linux / macOS as a `systemd` or `pm2` daemon process.
-- Configuration: API keys and credentials managed via `.env` (`BINANCE_API_KEY`, `BINANCE_API_SECRET`, `SERVERCHAN_KEY`, `CMC_API_KEY`).
+- Configuration: API keys and credentials managed via `.env` (`BINANCE_API_KEY`, `BINANCE_API_SECRET`, optional `SERVERCHAN_SENDKEY`).

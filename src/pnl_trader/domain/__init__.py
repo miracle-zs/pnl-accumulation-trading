@@ -11,7 +11,7 @@ from .models import (
     Tier,
     TradeFillRecord,
 )
-from .policy import StrategyPolicy
+from .policy import decide_strategy
 from .transitions import apply_confirmed_execution
 
 __all__ = [
@@ -21,7 +21,7 @@ __all__ = [
     "InvalidExecution",
     "Lifecycle",
     "Observation",
-    "StrategyPolicy",
+    "decide_strategy",
     "SymbolState",
     "Tier",
     "TradeFillRecord",

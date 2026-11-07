@@ -9,6 +9,10 @@ from pnl_trader.application.market_models import ExchangeInstrument
 from pnl_trader.application.position_models import ExchangePosition
 from pnl_trader.application.review_batch import ReconciledReviewBatchSource
 from pnl_trader.application.review_batch_models import ReviewSignal
+from pnl_trader.application.review_run_models import (
+    ReviewCandidate,
+    ReviewPriority,
+)
 from pnl_trader.application.universe import UniverseCatalog
 from pnl_trader.domain import Action, ExecutionReceipt, Lifecycle, TradeFillRecord
 from tests.helpers import seed_buy_execution
@@ -50,7 +54,15 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                     store=store, positions=_PositionSource(D("0.6")),
                     signals=_DelistedSignalSource(), clock_ms=lambda: 300,
                 )
-                self.assertEqual((await source.load_review_batch(0)).candidates, ())
+                batch = await source.load_review_batch(0)
+                self.assertEqual(
+                    batch.candidates,
+                    (
+                        ReviewCandidate(
+                            "BTCUSDT", admitted=False, priority=ReviewPriority.POSITION
+                        ),
+                    ),
+                )
                 self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.CLOSING)
 
                 source = ReconciledReviewBatchSource(
@@ -140,7 +152,14 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                 batch = await source.load_review_batch(0)
 
                 self.assertEqual(store.load_symbol_state("BTCUSDT"), opened)
-                self.assertEqual(batch.candidates, ())
+                self.assertEqual(
+                    batch.candidates,
+                    (
+                        ReviewCandidate(
+                            "BTCUSDT", admitted=False, priority=ReviewPriority.POSITION
+                        ),
+                    ),
+                )
             finally:
                 store.close()
 

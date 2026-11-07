@@ -14,7 +14,7 @@ import logging
 import time
 from collections import deque
 from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Mapping
+from typing import Callable, Mapping
 from urllib.parse import urlencode
 
 import httpx
@@ -24,16 +24,24 @@ from ...application.execution_models import (
     ExchangeOrderSnapshot,
     ExchangeOrderStatus,
     MarketOrderRequest,
+    OrderSide,
     SubmissionCertainty,
     SubmissionResult,
 )
-from ...application.exchange_errors import UnsupportedLeverageError
+from ...application.exchange_errors import (
+    ExchangeAccessError,
+    ExchangeOperationError,
+    ExchangeResponseError,
+    InstrumentRulesUnavailableError,
+    UnsupportedLeverageError,
+)
 from ...application.market_models import (
     ExchangeInstrument,
     InstrumentRules,
     MarketQuantityRules,
 )
 from ...application.position_models import ExchangePosition
+from ...clock import current_epoch_ms
 from ...domain.models import TradeFillRecord, ZERO
 
 
@@ -51,7 +59,7 @@ ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS = (0.25, 0.5, 1.0)
 logger = logging.getLogger(__name__)
 
 
-class BinanceApiError(RuntimeError):
+class BinanceApiError(ExchangeOperationError):
     def __init__(self, status_code: int, code: int, message: str) -> None:
         self.status_code = status_code
         self.code = code
@@ -64,12 +72,12 @@ class BinanceApiError(RuntimeError):
             return False
         if self.code in {-1003, -1008}:
             return False
-        if self.code in {-1000, -1001, -1006, -1007, -1016}:
-            return True
         if self.status_code == 503:
             message = self.message.lower()
             if "service unavailable" in message or "internal error; unable to process" in message:
                 return False
+            return True
+        if self.code in {-1000, -1001, -1006, -1007, -1016}:
             return True
         return (
             self.status_code == 408
@@ -77,7 +85,7 @@ class BinanceApiError(RuntimeError):
         )
 
 
-class BinanceProtocolError(RuntimeError):
+class BinanceProtocolError(ExchangeResponseError):
     """The exchange response could not be interpreted safely."""
 
 
@@ -97,8 +105,9 @@ class BinanceFuturesGateway:
         self._client = client
         self._api_key = api_key
         self._api_secret = api_secret.encode("utf-8")
-        self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
+        self._clock_ms = current_epoch_ms if clock_ms is None else clock_ms
         self._exchange_info_cache: tuple[int, tuple[ExchangeInstrument, ...]] | None = None
+        self._exchange_info_by_symbol: dict[str, ExchangeInstrument] = {}
         self._orders_in_last_10_seconds: deque[float] = deque()
         self._orders_in_last_minute: deque[float] = deque()
         self._request_weight_pause_until = 0.0
@@ -120,9 +129,9 @@ class BinanceFuturesGateway:
 
         if not isinstance(payload, dict):
             raise BinanceProtocolError("leverage response must be an object")
-        if payload.get("symbol") != symbol:
+        if payload["symbol"] != symbol:
             raise BinanceProtocolError("leverage response does not match the requested symbol")
-        actual_leverage = _integer(payload.get("leverage"), "leverage")
+        actual_leverage = _integer(payload["leverage"], "leverage")
         if actual_leverage != leverage:
             raise BinanceProtocolError(
                 f"Binance confirmed {actual_leverage}x for {symbol}, requested {leverage}x"
@@ -130,12 +139,16 @@ class BinanceFuturesGateway:
         return actual_leverage
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
-        instruments = await self.get_exchange_info_snapshot()
-        instrument = next((item for item in instruments if item.symbol == symbol), None)
+        await self.get_exchange_info_snapshot()
+        instrument = self._exchange_info_by_symbol.get(symbol)
         if instrument is None:
-            raise LookupError(f"exchangeInfo does not contain {symbol}")
+            raise InstrumentRulesUnavailableError(
+                f"exchangeInfo does not contain {symbol}"
+            )
         if instrument.rules is None:
-            raise LookupError(f"exchangeInfo does not contain usable market rules for {symbol}")
+            raise InstrumentRulesUnavailableError(
+                f"exchangeInfo does not contain usable market rules for {symbol}"
+            )
         return instrument.rules
 
     async def get_exchange_info_snapshot(self) -> tuple[ExchangeInstrument, ...]:
@@ -147,22 +160,25 @@ class BinanceFuturesGateway:
             return cached[1]
 
         payload = await self._request_json("GET", "/fapi/v1/exchangeInfo")
-        if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
+        if not isinstance(payload, dict):
+            raise BinanceProtocolError("exchangeInfo response must be an object")
+        symbols = payload["symbols"]
+        if not isinstance(symbols, list):
             raise BinanceProtocolError("exchangeInfo response is missing its symbols list")
-        if not payload["symbols"]:
+        if not symbols:
             raise BinanceProtocolError("exchangeInfo returned an empty symbols list")
 
         instruments: list[ExchangeInstrument] = []
-        for index, row in enumerate(payload["symbols"]):
+        for index, row in enumerate(symbols):
             if not isinstance(row, dict):
                 raise BinanceProtocolError(f"exchangeInfo row {index} must be an object")
-            symbol = _required_text(row.get("symbol"), "symbol")
-            quote_asset = _required_text(row.get("quoteAsset"), "quoteAsset")
-            margin_asset = _required_text(row.get("marginAsset"), "marginAsset")
-            contract_type = _required_text(row.get("contractType"), "contractType")
-            status = _required_text(row.get("status"), "status")
-            underlying_type = _required_text(row.get("underlyingType"), "underlyingType")
-            raw_underlying_sub_types = row.get("underlyingSubType", [])
+            symbol = _required_text(row["symbol"], "symbol")
+            quote_asset = _required_text(row["quoteAsset"], "quoteAsset")
+            margin_asset = _required_text(row["marginAsset"], "marginAsset")
+            contract_type = _required_text(row["contractType"], "contractType")
+            status = _required_text(row["status"], "status")
+            underlying_type = _required_text(row["underlyingType"], "underlyingType")
+            raw_underlying_sub_types = row["underlyingSubType"]
             if not isinstance(raw_underlying_sub_types, list) or any(
                 not isinstance(value, str) or not value
                 for value in raw_underlying_sub_types
@@ -196,6 +212,7 @@ class BinanceFuturesGateway:
 
         loaded_at_ms = self._clock_ms()
         result = tuple(instruments)
+        self._exchange_info_by_symbol = {item.symbol: item for item in result}
         self._exchange_info_cache = (loaded_at_ms, result)
         return result
 
@@ -212,10 +229,10 @@ class BinanceFuturesGateway:
         for row in payload:
             if not isinstance(row, dict):
                 raise BinanceProtocolError("ticker price row must be an object")
-            symbol = _required_text(row.get("symbol"), "symbol")
+            symbol = _required_text(row["symbol"], "symbol")
             if symbol in prices:
                 raise BinanceProtocolError("ticker price response contains duplicate symbols")
-            price = _decimal(row.get("price"), "price")
+            price = _decimal(row["price"], "price")
             if price <= ZERO:
                 raise BinanceProtocolError("ticker price must be positive")
             prices[symbol] = price
@@ -237,17 +254,15 @@ class BinanceFuturesGateway:
         for index, row in enumerate(payload):
             if not isinstance(row, dict):
                 raise BinanceProtocolError(f"positionRisk row {index} must be an object")
-            symbol = row.get("symbol")
-            position_side = row.get("positionSide")
-            if not isinstance(symbol, str) or not symbol:
-                raise BinanceProtocolError(f"positionRisk row {index} has no symbol")
-            if not isinstance(position_side, str) or not position_side:
-                raise BinanceProtocolError(f"positionRisk row {index} has no positionSide")
+            symbol = _required_text(row["symbol"], f"positionRisk row {index} symbol")
+            position_side = _required_text(
+                row["positionSide"], f"positionRisk row {index} positionSide"
+            )
             positions.append(
                 ExchangePosition(
                     symbol=symbol,
                     position_side=position_side,
-                    position_amt=_decimal(row.get("positionAmt"), "positionAmt"),
+                    position_amt=_decimal(row["positionAmt"], "positionAmt"),
                 )
             )
         return tuple(positions)
@@ -262,18 +277,18 @@ class BinanceFuturesGateway:
         )
         if not isinstance(payload, dict):
             raise BinanceProtocolError("account response must be an object")
-        positions = payload.get("positions")
+        positions = payload["positions"]
         if not isinstance(positions, list):
             raise BinanceProtocolError("account response must contain positions")
         notionals = []
         for row in positions:
             if not isinstance(row, dict):
                 raise BinanceProtocolError("account position must be an object")
-            notionals.append(abs(_decimal(row.get("notional"), "notional")))
+            notionals.append(abs(_decimal(row["notional"], "notional")))
         return AccountSnapshot(
-            equity=_decimal(payload.get("totalMarginBalance"), "totalMarginBalance"),
-            unrealized_pnl=_decimal(payload.get("totalUnrealizedProfit"), "totalUnrealizedProfit"),
-            available_balance=_decimal(payload.get("availableBalance"), "availableBalance"),
+            equity=_decimal(payload["totalMarginBalance"], "totalMarginBalance"),
+            unrealized_pnl=_decimal(payload["totalUnrealizedProfit"], "totalUnrealizedProfit"),
+            available_balance=_decimal(payload["availableBalance"], "availableBalance"),
             position_notional=sum(notionals, ZERO),
         )
 
@@ -282,7 +297,7 @@ class BinanceFuturesGateway:
             "symbol": request.symbol,
             "side": request.side,
             "type": "MARKET",
-            "quantity": _format_decimal(request.quantity),
+            "quantity": format(request.quantity, "f"),
             "newClientOrderId": request.client_order_id,
             "reduceOnly": str(request.side == "SELL").lower(),
             "newOrderRespType": "RESULT",
@@ -299,6 +314,8 @@ class BinanceFuturesGateway:
                 signed=True,
             )
             order = _parse_order_snapshot(payload, require_cumulative_quote=False)
+        except ExchangeAccessError:
+            raise
         except BinanceApiError as exc:
             certainty = (
                 SubmissionCertainty.UNKNOWN
@@ -306,18 +323,15 @@ class BinanceFuturesGateway:
                 else SubmissionCertainty.REJECTED
             )
             return SubmissionResult(certainty, detail=str(exc))
+        except ExchangeOperationError as exc:
+            return SubmissionResult(
+                SubmissionCertainty.UNKNOWN,
+                detail=f"submit result could not be confirmed ({exc}); lookup required",
+            )
         except BinanceProtocolError as exc:
             return SubmissionResult(
                 SubmissionCertainty.UNKNOWN,
                 detail=f"submit response could not be confirmed ({exc}); lookup required",
-            )
-        except Exception as exc:
-            return SubmissionResult(
-                SubmissionCertainty.UNKNOWN,
-                detail=(
-                    f"submit response could not be confirmed ({type(exc).__name__}); "
-                    "lookup required"
-                ),
             )
 
         if order.status is ExchangeOrderStatus.REJECTED:
@@ -402,7 +416,7 @@ class BinanceFuturesGateway:
             raise
         if not isinstance(payload, dict):
             raise BinanceProtocolError("query order response must be an object")
-        if payload.get("symbol") != symbol or payload.get("clientOrderId") != client_order_id:
+        if payload["symbol"] != symbol or payload["clientOrderId"] != client_order_id:
             raise BinanceProtocolError("query order response does not match the requested order")
         return _parse_order_snapshot(payload)
 
@@ -410,7 +424,7 @@ class BinanceFuturesGateway:
         self,
         symbol: str,
         order_snapshot: ExchangeOrderSnapshot,
-        order_side: str,
+        order_side: OrderSide,
     ) -> tuple[TradeFillRecord, ...]:
         order_id = order_snapshot.exchange_order_id
         params = {"symbol": symbol, "orderId": order_id, "limit": "1000"}
@@ -442,7 +456,6 @@ class BinanceFuturesGateway:
             await asyncio.sleep(
                 ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS[attempt]
             )
-        raise AssertionError("unreachable order fill reconciliation state")
 
     async def _request_json(
         self,
@@ -451,7 +464,7 @@ class BinanceFuturesGateway:
         *,
         params: Mapping[str, str] | None = None,
         signed: bool = False,
-    ) -> Any:
+    ) -> object:
         """Send a REST request and validate its JSON response.
 
         Idempotent reads retry transport failures, server errors, and rate limits
@@ -492,18 +505,18 @@ class BinanceFuturesGateway:
                     params=attempt_params,
                     headers=headers,
                 )
-            except httpx.TransportError:
+            except httpx.TransportError as exc:
                 if attempt + 1 >= max_attempts:
-                    raise
+                    raise ExchangeOperationError(
+                        f"Binance {method} {path} transport failed after "
+                        f"{attempt + 1} attempts ({type(exc).__name__})"
+                    ) from exc
                 await asyncio.sleep(1 << attempt)
                 continue
 
             used_weight = response.headers.get("X-MBX-USED-WEIGHT-1M")
             if path != "/fapi/v2/ticker/price" and used_weight is not None:
-                try:
-                    observed_weight = int(used_weight)
-                except ValueError:
-                    observed_weight = 0
+                observed_weight = int(used_weight)
                 if observed_weight >= REQUEST_WEIGHT_PAUSE_AT_1M:
                     self._request_weight_pause_until = max(
                         self._request_weight_pause_until,
@@ -550,6 +563,11 @@ class BinanceFuturesGateway:
                 continue
             break
 
+        if response.status_code in {401, 403, 418}:
+            raise ExchangeAccessError(
+                f"Binance denied {method} {path}: HTTP {response.status_code}"
+            )
+
         try:
             payload = response.json()
         except ValueError as exc:
@@ -563,11 +581,15 @@ class BinanceFuturesGateway:
             code = payload["code"]
             if isinstance(code, bool) or not isinstance(code, int):
                 raise BinanceProtocolError("code is not an integer")
+            if code in {-1002, -1022, -2014, -2015}:
+                raise ExchangeAccessError(
+                    f"Binance denied {method} {path}: code={code}"
+                )
             if response.status_code >= 400 or code < 0:
                 raise BinanceApiError(
                     response.status_code,
                     code,
-                    _required_text(payload.get("msg"), "msg"),
+                    _required_text(payload["msg"], "msg"),
                 )
         elif response.status_code >= 400:
             raise BinanceProtocolError("error response is missing code")
@@ -575,7 +597,7 @@ class BinanceFuturesGateway:
 
 
 def _parse_instrument_rules(
-    row: Mapping[str, Any],
+    row: Mapping[str, object],
     *,
     symbol: str,
     contract_type: str,
@@ -583,25 +605,30 @@ def _parse_instrument_rules(
     quote_asset: str,
     margin_asset: str,
 ) -> InstrumentRules:
-    filters = row.get("filters")
+    filters = row["filters"]
     if not isinstance(filters, list):
         raise BinanceProtocolError("exchangeInfo symbol is missing filters")
-    by_type = {
-        item.get("filterType"): item
-        for item in filters
-        if isinstance(item, dict) and isinstance(item.get("filterType"), str)
-    }
+    by_type: dict[str, dict[str, object]] = {}
+    for item in filters:
+        if not isinstance(item, dict):
+            raise BinanceProtocolError("exchangeInfo filter must be an object")
+        filter_type = _required_text(item["filterType"], "filterType")
+        if filter_type in by_type:
+            raise BinanceProtocolError(
+                f"{symbol} has duplicate {filter_type} filters"
+            )
+        by_type[filter_type] = item
     market_filter = by_type.get("MARKET_LOT_SIZE")
     if not isinstance(market_filter, dict):
         raise BinanceProtocolError(f"{symbol} has no MARKET_LOT_SIZE filter")
 
-    min_qty = _decimal(market_filter.get("minQty"), "minQty")
-    max_qty = _decimal(market_filter.get("maxQty"), "maxQty")
-    step_size = _decimal(market_filter.get("stepSize"), "stepSize")
+    min_qty = _decimal(market_filter["minQty"], "minQty")
+    max_qty = _decimal(market_filter["maxQty"], "maxQty")
+    step_size = _decimal(market_filter["stepSize"], "stepSize")
     notional_filter = by_type.get("MIN_NOTIONAL")
     if not isinstance(notional_filter, dict):
         raise BinanceProtocolError(f"{symbol} has no MIN_NOTIONAL filter")
-    min_market_notional = _decimal(notional_filter.get("notional"), "notional")
+    min_market_notional = _decimal(notional_filter["notional"], "notional")
 
     return InstrumentRules(
         symbol=symbol,
@@ -619,62 +646,62 @@ def _parse_instrument_rules(
 
 
 def _parse_order_snapshot(
-    payload: Any,
+    payload: object,
     *,
     require_cumulative_quote: bool = True,
 ) -> ExchangeOrderSnapshot:
     if not isinstance(payload, dict):
         raise BinanceProtocolError("order response must be an object")
-    raw_status = _required_text(payload.get("status"), "status")
+    raw_status = _required_text(payload["status"], "status")
     try:
         status = ExchangeOrderStatus(raw_status)
     except ValueError as exc:
         raise BinanceProtocolError(f"unsupported order status {raw_status!r}") from exc
-    executed_qty = _decimal(payload.get("executedQty"), "executedQty")
+    executed_qty = _decimal(payload["executedQty"], "executedQty")
     if "cumQuote" not in payload and not require_cumulative_quote:
         cumulative_quote = None
     else:
-        cumulative_quote = _decimal(payload.get("cumQuote"), "cumQuote")
+        cumulative_quote = _decimal(payload["cumQuote"], "cumQuote")
     return ExchangeOrderSnapshot(
         status=status,
         executed_qty=executed_qty,
         cumulative_quote=cumulative_quote,
-        exchange_order_id=str(_integer(payload.get("orderId"), "orderId")),
+        exchange_order_id=str(_integer(payload["orderId"], "orderId")),
     )
 
 
 def _parse_trade_fill(
-    row: Mapping[str, Any],
+    row: Mapping[str, object],
     symbol: str,
-    order_side: str,
+    order_side: OrderSide,
     expected_order_id: str,
 ) -> TradeFillRecord:
     if not isinstance(row, dict):
         raise BinanceProtocolError("userTrades row must be an object")
-    exchange_order_id = str(_integer(row.get("orderId"), "orderId"))
+    exchange_order_id = str(_integer(row["orderId"], "orderId"))
     if exchange_order_id != expected_order_id:
         raise BinanceProtocolError("userTrades returned a fill for a different order")
-    side = _required_text(row.get("side"), "side")
+    side = _required_text(row["side"], "side")
     if side != order_side:
         raise BinanceProtocolError("userTrades fill side does not match its order")
-    trade_symbol = row.get("symbol")
+    trade_symbol = row["symbol"]
     if trade_symbol != symbol:
         raise BinanceProtocolError("userTrades returned a fill for a different symbol")
-    commission_asset = _required_text(row.get("commissionAsset"), "commissionAsset")
+    commission_asset = _required_text(row["commissionAsset"], "commissionAsset")
     return TradeFillRecord(
         symbol=symbol,
-        exchange_trade_id=str(_integer(row.get("id"), "id")),
+        exchange_trade_id=str(_integer(row["id"], "id")),
         side=side,
-        price=_decimal(row.get("price"), "price"),
-        qty=_decimal(row.get("qty"), "qty"),
-        realized_pnl=_decimal(row.get("realizedPnl"), "realizedPnl"),
-        commission=_decimal(row.get("commission"), "commission"),
+        price=_decimal(row["price"], "price"),
+        qty=_decimal(row["qty"], "qty"),
+        realized_pnl=_decimal(row["realizedPnl"], "realizedPnl"),
+        commission=_decimal(row["commission"], "commission"),
         commission_asset=commission_asset,
-        traded_at_ms=_integer(row.get("time"), "time"),
+        traded_at_ms=_integer(row["time"], "time"),
     )
 
 
-def _decimal(value: Any, field: str) -> Decimal:
+def _decimal(value: object, field: str) -> Decimal:
     if not isinstance(value, str) or not value:
         raise BinanceProtocolError(f"{field} must be a decimal string")
     try:
@@ -686,19 +713,15 @@ def _decimal(value: Any, field: str) -> Decimal:
     return result
 
 
-def _required_text(value: Any, field: str) -> str:
+def _required_text(value: object, field: str) -> str:
     if not isinstance(value, str) or not value:
         raise BinanceProtocolError(f"{field} must be a non-empty string")
     return value
 
 
-def _integer(value: Any, field: str) -> int:
+def _integer(value: object, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise BinanceProtocolError(f"{field} is not an integer")
     if value < 0:
         raise BinanceProtocolError(f"{field} must be non-negative")
     return value
-
-
-def _format_decimal(value: Decimal) -> str:
-    return format(value, "f")

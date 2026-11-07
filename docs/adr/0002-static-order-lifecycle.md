@@ -1,3 +1,3 @@
-# 0002. Static Order Lifecycle (Option A) over Break-even Stop (Option B)
+# 0002. Static Order Lifecycle (Historical)
 
-To maximize capture of high-payoff mean-reversion bounces (+50%), we keep partial take-profit limit orders open on the exchange without trailing break-even stops. Backtests across 200 Binance USDT-M symbols revealed that break-even stops were triggered 142 times by normal re-tests, cutting high-margin runners short and reducing net return from +285.0% to +233.5% without improving maximum drawdown (-54.1%).
+This record describes the earlier event-driven strategy, which left partially filled take-profit limit orders on Binance. It is retained as historical context and does not describe the current 15-minute periodic market-order strategy.

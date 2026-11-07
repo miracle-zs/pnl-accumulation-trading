@@ -87,13 +87,12 @@ class SymbolState:
     def __post_init__(self) -> None:
         if not self.symbol:
             raise ValueError("symbol must not be empty")
-        for name in (
-            "qty",
-            "avg_entry_price",
-            "tier_entry_qty",
-            "tier_anchor_price",
+        for name, value in (
+            ("qty", self.qty),
+            ("avg_entry_price", self.avg_entry_price),
+            ("tier_entry_qty", self.tier_entry_qty),
+            ("tier_anchor_price", self.tier_anchor_price),
         ):
-            value = getattr(self, name)
             if not isinstance(value, Decimal):
                 raise TypeError(f"{name} must be Decimal")
             if not value.is_finite():
@@ -141,6 +140,10 @@ class Observation:
     price: Decimal
 
     def __post_init__(self) -> None:
+        if not isinstance(self.price, Decimal):
+            raise TypeError("price must be Decimal")
+        if not self.price.is_finite():
+            raise ValueError("price must be finite")
         if self.price <= ZERO:
             raise ValueError("price must be positive")
 

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Callable
 
-from ..domain.models import BUY_ACTIONS, Action, Lifecycle, SymbolState, ZERO
+from ..clock import current_epoch_ms
+from ..domain.models import BUY_ACTIONS, Lifecycle, SymbolState, ZERO
 from .execution_models import PersistedOrderIntent
 from .position_models import ExchangePosition
 from .review_run_models import ReviewBatch, ReviewCandidate, ReviewPriority
@@ -30,8 +30,9 @@ class ReconciledReviewBatchSource:
     """Compose input snapshots and fail closed on unexplained exchange state.
 
     The signal source owns universe eligibility and returns a signal for every
-    managed position and pending order, even when that symbol is no longer
-    eligible for a new entry.
+    locally stored symbol, including idle symbols, and every eligible entry
+    candidate. This lets the batch clear issues for symbols that leave the
+    active universe without reviewing them as trade candidates.
     """
 
     def __init__(
@@ -45,7 +46,7 @@ class ReconciledReviewBatchSource:
         self._store = store
         self._positions = positions
         self._signals = signals
-        self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
+        self._clock_ms = current_epoch_ms if clock_ms is None else clock_ms
 
     async def load_review_batch(
         self,
@@ -59,11 +60,13 @@ class ReconciledReviewBatchSource:
             if state.lifecycle in _MANAGED_LIFECYCLES
         }
         managed_symbols.update(intents_by_symbol)
+        tracked_symbols = set(states)
+        tracked_symbols.update(managed_symbols)
 
         position_snapshot, signals = await asyncio.gather(
             self._positions.get_position_snapshot(),
             self._signals.load_review_signals(
-                managed_symbols=tuple(managed_symbols),
+                managed_symbols=tuple(tracked_symbols),
             ),
         )
         now_ms = self._clock_ms()
@@ -73,8 +76,13 @@ class ReconciledReviewBatchSource:
         delisted_symbols = {
             symbol for symbol, signal in signals_by_symbol.items() if signal.delisted
         }
+        inactive_symbols = {
+            symbol
+            for symbol, signal in signals_by_symbol.items()
+            if signal.delisted or (not signal.admitted and symbol not in managed_symbols)
+        }
+        self._store.clear_dashboard_issues(tuple(sorted(inactive_symbols)))
         for symbol in delisted_symbols:
-            self._store.clear_dashboard_issues((symbol,))
             state = states.get(symbol)
             position = positions_by_symbol.get(symbol)
             if (
@@ -94,12 +102,13 @@ class ReconciledReviewBatchSource:
         candidate_symbols = {
             symbol
             for symbol, signal in signals_by_symbol.items()
-            if not signal.delisted
+            if not signal.delisted and (signal.admitted or symbol in managed_symbols)
         }
         candidate_symbols.update(
             symbol for symbol, position in positions_by_symbol.items()
-            if position.position_amt != ZERO and symbol not in delisted_symbols
+            if position.position_amt != ZERO
         )
+        candidate_symbols.update(intents_by_symbol)
 
         candidates: list[ReviewCandidate] = []
         for symbol in candidate_symbols:
@@ -137,6 +146,10 @@ class ReconciledReviewBatchSource:
             if position.position_side != "BOTH":
                 raise RuntimeError(
                     f"{position.symbol} uses unsupported position side {position.position_side}"
+                )
+            if position.symbol in result:
+                raise RuntimeError(
+                    f"position snapshot contains duplicate rows for {position.symbol}"
                 )
             if position.position_amt < ZERO:
                 raise RuntimeError(f"short position detected for {position.symbol}")

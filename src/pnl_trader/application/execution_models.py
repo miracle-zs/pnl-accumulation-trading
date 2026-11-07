@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
+from typing import Literal
 
 from ..domain.models import BUY_ACTIONS, CLOSE_ACTIONS, Action, ZERO
+
+OrderSide = Literal["BUY", "SELL"]
 
 
 class IntentStatus(str, Enum):
@@ -29,9 +32,10 @@ class OrderIntent:
     target_cumulative_sold_qty: Decimal | None = None
 
     def __post_init__(self) -> None:
-        for name in ("intent_id", "symbol"):
-            if not getattr(self, name):
-                raise ValueError(f"{name} must not be empty")
+        if not self.intent_id:
+            raise ValueError("intent_id must not be empty")
+        if not self.symbol:
+            raise ValueError("symbol must not be empty")
         target = self.target_cumulative_sold_qty
         if target is not None and not isinstance(target, Decimal):
             raise TypeError("target_cumulative_sold_qty must be Decimal or None")
@@ -59,7 +63,7 @@ class PersistedOrderIntent:
 @dataclass(frozen=True, slots=True)
 class MarketOrderRequest:
     symbol: str
-    side: str
+    side: OrderSide
     quantity: Decimal
     client_order_id: str
 

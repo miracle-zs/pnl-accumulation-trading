@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Callable, cast
+from typing import Callable
 
+from ..clock import current_epoch_ms
 from ..domain.models import BUY_ACTIONS, FULL_CLOSE_ACTIONS, ExecutionReceipt, TradeFillRecord, ZERO
+from .exchange_errors import (
+    ExchangeAccessError,
+    ExchangeOperationError,
+    ExchangeResponseError,
+)
 from .execution_models import (
     ExchangeOrderSnapshot,
     ExchangeOrderStatus,
@@ -50,7 +55,7 @@ class ExecutionCoordinator:
     ) -> None:
         self._store = store
         self._exchange = exchange
-        self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
+        self._clock_ms = current_epoch_ms if clock_ms is None else clock_ms
 
     async def execute_prepared(
         self,
@@ -97,7 +102,16 @@ class ExecutionCoordinator:
         await self._exchange.reserve_order_submission()
         self._store.create_order_attempt(intent.intent_id, requested_qty=requested_qty)
 
-        submission = await self._exchange.submit_market_order(request)
+        try:
+            submission = await self._exchange.submit_market_order(request)
+        except ExchangeAccessError as exc:
+            self._apply_no_fill(
+                intent,
+                expected=IntentStatus.PENDING,
+                terminal_status=IntentStatus.REJECTED,
+                detail=str(exc),
+            )
+            raise
 
         if submission.certainty is SubmissionCertainty.UNKNOWN:
             self._move_to_unknown(intent.intent_id, IntentStatus.PENDING)
@@ -113,7 +127,9 @@ class ExecutionCoordinator:
                 terminal_status=IntentStatus.REJECTED,
                 detail=submission.detail,
             )
-        order = cast(ExchangeOrderSnapshot, submission.order)
+        order = submission.order
+        if order is None:
+            raise RuntimeError("accepted order submission has no order snapshot")
         return await self._consume_order_snapshot(
             intent,
             requested_qty,
@@ -135,24 +151,44 @@ class ExecutionCoordinator:
                 order = await self._exchange.lookup_order(
                     record.intent.symbol, record.intent.intent_id
                 )
-                if (
-                    order is None
-                    or order.status is not ExchangeOrderStatus.FILLED
-                    or order.executed_qty != record.requested_qty
-                ):
-                    raise RuntimeError("confirmed close order could not be verified")
-                fills = await self._exchange.list_order_fills(
-                    record.intent.symbol, order, "SELL"
-                )
-                _validate_order_fills(order, fills)
-                self._store.record_full_close_fills(record.intent.intent_id, fills)
-            except Exception as exc:
+            except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
                 logger.warning(
                     "full-close fills still unavailable: symbol=%s intent_id=%s error=%s",
                     record.intent.symbol,
                     record.intent.intent_id,
                     type(exc).__name__,
                 )
+                continue
+            if (
+                order is None
+                or order.status is not ExchangeOrderStatus.FILLED
+                or order.executed_qty != record.requested_qty
+            ):
+                logger.warning(
+                    "full-close fills still unavailable: symbol=%s intent_id=%s error=ORDER_NOT_CONFIRMED",
+                    record.intent.symbol,
+                    record.intent.intent_id,
+                )
+                continue
+            try:
+                fills = await self._exchange.list_order_fills(
+                    record.intent.symbol, order, "SELL"
+                )
+                _validate_order_fills(order, fills)
+            except (
+                ExchangeOperationError,
+                ExchangeResponseError,
+                IntentConflict,
+                TimeoutError,
+            ) as exc:
+                logger.warning(
+                    "full-close fills still unavailable: symbol=%s intent_id=%s error=%s",
+                    record.intent.symbol,
+                    record.intent.intent_id,
+                    type(exc).__name__,
+                )
+                continue
+            self._store.record_full_close_fills(record.intent.intent_id, fills)
 
     async def _recover_record(self, record: PersistedOrderIntent) -> None:
         if record.status is IntentStatus.PREPARED:
@@ -167,7 +203,7 @@ class ExecutionCoordinator:
                 record.intent.symbol,
                 record.intent.intent_id,
             )
-        except Exception as exc:
+        except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
             order = None
             lookup_error = type(exc).__name__
 
@@ -249,7 +285,7 @@ class ExecutionCoordinator:
                 order,
                 "BUY" if intent.action in BUY_ACTIONS else "SELL",
             )
-        except Exception as exc:
+        except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
             self._move_to_unknown(intent.intent_id, expected_status)
             return ExecutionResult(
                 intent_id=intent.intent_id,

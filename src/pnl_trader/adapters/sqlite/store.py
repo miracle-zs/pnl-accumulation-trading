@@ -33,7 +33,7 @@ from ...domain.models import (
 from ...domain.transitions import apply_confirmed_execution, validate_execution_intent
 
 
-_SCHEMA_VERSION = 24
+_SCHEMA_VERSION = 25
 _DASHBOARD_ANALYTICS_SCHEMA = """
 CREATE TABLE latest_symbol_prices (
     symbol TEXT PRIMARY KEY,
@@ -48,7 +48,7 @@ CREATE TABLE dashboard_issues (
     occurred_at_ms INTEGER NOT NULL
 );
 """
-_SCHEMA = """
+_BASE_SCHEMA = """
 CREATE TABLE symbol_states (
     symbol TEXT NOT NULL,
     tier INTEGER NOT NULL CHECK (tier BETWEEN 0 AND 3),
@@ -77,6 +77,10 @@ CREATE UNIQUE INDEX one_active_intent_per_symbol
 ON order_intents (symbol)
 WHERE status IN ('PREPARED', 'PENDING', 'UNKNOWN', 'PARTIALLY_FILLED');
 
+CREATE INDEX filled_order_intents_by_action_and_time
+ON order_intents (action, full_close_confirmed_at_ms, created_at_ms)
+WHERE status = 'FILLED';
+
 CREATE TABLE trade_fills (
     symbol TEXT NOT NULL,
     exchange_trade_id TEXT NOT NULL,
@@ -103,20 +107,8 @@ CREATE TABLE account_equity_snapshots (
     position_notional TEXT
 );
 
-CREATE TABLE latest_symbol_prices (
-    symbol TEXT PRIMARY KEY,
-    price TEXT NOT NULL,
-    captured_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE dashboard_issues (
-    symbol TEXT PRIMARY KEY,
-    category TEXT NOT NULL,
-    detail TEXT NOT NULL,
-    occurred_at_ms INTEGER NOT NULL
-);
-
 """
+_SCHEMA = _BASE_SCHEMA + _DASHBOARD_ANALYTICS_SCHEMA
 
 _ALLOWED_TRANSITIONS = {
     "PREPARED": {"CANCELED"},
@@ -171,11 +163,10 @@ class SQLiteStateStore:
         self._connection.execute("BEGIN IMMEDIATE")
         try:
             yield self._connection
+            self._connection.commit()
         except BaseException:
             self._connection.rollback()
             raise
-        else:
-            self._connection.commit()
 
     def _initialize_schema(self) -> None:
         schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
@@ -203,6 +194,15 @@ class SQLiteStateStore:
                 connection.execute(
                     "CREATE INDEX trade_fills_by_side_symbol_pnl "
                     "ON trade_fills(side, symbol, realized_pnl)"
+                )
+                connection.execute("PRAGMA user_version = 24")
+            schema_version = 24
+        if schema_version == 24:
+            with self._transaction() as connection:
+                connection.execute(
+                    "CREATE INDEX filled_order_intents_by_action_and_time "
+                    "ON order_intents(action, full_close_confirmed_at_ms, created_at_ms) "
+                    "WHERE status = 'FILLED'"
                 )
                 connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             return
@@ -260,20 +260,10 @@ class SQLiteStateStore:
         captured_at_ms: int,
     ) -> None:
         with self._transaction() as connection:
-            if prices:
-                placeholders = ", ".join("?" for _ in prices)
-                connection.execute(
-                    f"DELETE FROM latest_symbol_prices WHERE symbol NOT IN ({placeholders})",
-                    tuple(prices),
-                )
-            else:
-                connection.execute("DELETE FROM latest_symbol_prices")
+            connection.execute("DELETE FROM latest_symbol_prices")
             connection.executemany(
                 """INSERT INTO latest_symbol_prices (symbol, price, captured_at_ms)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(symbol) DO UPDATE SET
-                       price = excluded.price,
-                       captured_at_ms = excluded.captured_at_ms""",
+                   VALUES (?, ?, ?)""",
                 ((symbol, str(price), captured_at_ms) for symbol, price in prices.items()),
             )
 
@@ -387,11 +377,22 @@ class SQLiteStateStore:
         """Reserve one symbol's execution slot; exact duplicate calls are harmless."""
 
         with self._transaction() as connection:
+            target_cumulative_sold_qty = (
+                None
+                if intent.target_cumulative_sold_qty is None
+                else str(intent.target_cumulative_sold_qty)
+            )
             by_id = connection.execute(
                 "SELECT * FROM order_intents WHERE intent_id = ?", (intent.intent_id,)
             ).fetchone()
             if by_id is not None:
-                if not self._intent_matches(by_id, intent):
+                if not (
+                    by_id["symbol"] == intent.symbol
+                    and by_id["action"] == intent.action.value
+                    and by_id["target_cumulative_sold_qty"]
+                    == target_cumulative_sold_qty
+                    and by_id["created_at_ms"] == intent.created_at_ms
+                ):
                     raise IntentConflict("intent_id was already used for different parameters")
                 return
 
@@ -421,7 +422,7 @@ class SQLiteStateStore:
                         intent.intent_id,
                         intent.symbol,
                         intent.action.value,
-                        None if intent.target_cumulative_sold_qty is None else str(intent.target_cumulative_sold_qty),
+                        target_cumulative_sold_qty,
                         intent.created_at_ms,
                     ),
                 )
@@ -429,16 +430,6 @@ class SQLiteStateStore:
                 raise ActiveIntentConflict(
                     f"symbol {intent.symbol} already has an active intent"
                 ) from exc
-
-    @staticmethod
-    def _intent_matches(row: sqlite3.Row, intent: OrderIntent) -> bool:
-        return (
-            row["symbol"] == intent.symbol
-            and row["action"] == intent.action.value
-            and row["target_cumulative_sold_qty"]
-            == (None if intent.target_cumulative_sold_qty is None else str(intent.target_cumulative_sold_qty))
-            and row["created_at_ms"] == intent.created_at_ms
-        )
 
     @staticmethod
     def _intent_from_row(row: sqlite3.Row) -> OrderIntent:

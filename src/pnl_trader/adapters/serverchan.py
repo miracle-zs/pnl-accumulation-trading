@@ -34,7 +34,7 @@ class ServerChanNotifier:
             result = response.json()
         except ValueError:
             raise ServerChanNotificationError("response was not valid JSON") from None
-        if not isinstance(result, dict) or result.get("code") != 0:
+        if not isinstance(result, dict) or result["code"] != 0:
             raise ServerChanNotificationError("API returned an unsuccessful result")
 
     @staticmethod

@@ -122,7 +122,7 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data["active_positions_count"], 3)
             self.assertEqual(data["pending_close_fill_count"], 0)
 
-            with patch("pnl_trader.web.service.time.time_ns", return_value=1700000000000 * 1_000_000):
+            with patch("pnl_trader.clock.time.time_ns", return_value=1700000000000 * 1_000_000):
                 resp = await client.get("/api/equity?period=24h")
                 latest = resp.json()["latest"]
                 self.assertEqual(latest["leverage"], 2.0)
@@ -177,7 +177,7 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 ("ETHUSDT", "t-2", "BUY", "100", "1", "0", "0.01", "BNB", 1700000000000, "intent-2"),
             )
         app = create_app(data_dir=self._data_dir)
-        with patch("pnl_trader.web.service.time.time_ns", return_value=1700000000000 * 1_000_000):
+        with patch("pnl_trader.clock.time.time_ns", return_value=1700000000000 * 1_000_000):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
                 resp = await client.get("/api/analytics")
         self.assertIsNone(resp.json()["today"]["realized_net"])
@@ -260,9 +260,9 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         next_slot_ms = snapshot_ms - snapshot_ms % 900_000 + 900_000
         app = create_app(data_dir=self._data_dir)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            with patch("pnl_trader.web.service.time.time_ns", return_value=(next_slot_ms - 1) * 1_000_000):
+            with patch("pnl_trader.clock.time.time_ns", return_value=(next_slot_ms - 1) * 1_000_000):
                 current = (await client.get("/api/equity?period=24h")).json()
-            with patch("pnl_trader.web.service.time.time_ns", return_value=next_slot_ms * 1_000_000):
+            with patch("pnl_trader.clock.time.time_ns", return_value=next_slot_ms * 1_000_000):
                 stale = (await client.get("/api/equity?period=24h")).json()
         self.assertTrue(current["latest"]["is_current_slot"])
         self.assertFalse(stale["latest"]["is_current_slot"])
@@ -301,7 +301,7 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 ],
             )
         app = create_app(data_dir=self._data_dir)
-        with patch("pnl_trader.web.service.time.time_ns", return_value=1700000000000 * 1_000_000):
+        with patch("pnl_trader.clock.time.time_ns", return_value=1700000000000 * 1_000_000):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
                 response = await client.get("/api/analytics")
         self.assertEqual(response.json()["today"]["fill_count"], 2)
