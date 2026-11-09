@@ -34,7 +34,7 @@ class StateStorePort(Protocol):
         self, symbol: str, *, created_at_ms: int
     ) -> SymbolState: ...
 
-    def clear_settled_symbol_state(
+    def clear_flat_symbol_state(
         self, symbol: str, *, updated_at_ms: int
     ) -> SymbolState: ...
 

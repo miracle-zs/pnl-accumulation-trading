@@ -73,29 +73,25 @@ class ReconciledReviewBatchSource:
 
         positions_by_symbol = self._index_positions(position_snapshot)
         signals_by_symbol = {signal.symbol: signal for signal in signals}
-        delisted_symbols = {
-            symbol for symbol, signal in signals_by_symbol.items() if signal.delisted
-        }
         inactive_symbols = {
             symbol
             for symbol, signal in signals_by_symbol.items()
             if signal.delisted or (not signal.admitted and symbol not in managed_symbols)
         }
         self._store.clear_dashboard_issues(tuple(sorted(inactive_symbols)))
-        for symbol in delisted_symbols:
-            state = states.get(symbol)
+        for symbol, state in states.items():
             position = positions_by_symbol.get(symbol)
+            actual_qty = position.position_amt if position is not None else ZERO
             if (
-                state is not None
-                and state.lifecycle in _MANAGED_LIFECYCLES
+                state.qty > ZERO
                 and symbol not in intents_by_symbol
-                and (position is None or position.position_amt == ZERO)
+                and actual_qty == ZERO
             ):
-                states[symbol] = self._store.clear_settled_symbol_state(
+                states[symbol] = self._store.clear_flat_symbol_state(
                     symbol,
                     updated_at_ms=now_ms,
                 )
-                logger.info("cleared settled delisted symbol state: symbol=%s", symbol)
+                logger.info("cleared local state for flat exchange position: symbol=%s", symbol)
 
         self._reconcile_positions(states, positions_by_symbol, intents_by_symbol)
 

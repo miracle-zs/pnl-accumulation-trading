@@ -319,13 +319,13 @@ class SQLiteStateStore:
             ).fetchone()
             return self._symbol_state_from_row(row)
 
-    def clear_settled_symbol_state(
+    def clear_flat_symbol_state(
         self,
         symbol: str,
         *,
         updated_at_ms: int,
     ) -> SymbolState:
-        """Clear local strategy state after Binance settles a delisted contract."""
+        """Clear local position state after Binance confirms the symbol is flat."""
 
         with self._transaction() as connection:
             active_intent = connection.execute(
@@ -337,7 +337,7 @@ class SQLiteStateStore:
             ).fetchone()
             if active_intent is not None:
                 raise RuntimeError(
-                    f"cannot clear settled symbol {symbol} with an active order intent"
+                    f"cannot clear flat symbol {symbol} with an active order intent"
                 )
 
             updated = connection.execute(
