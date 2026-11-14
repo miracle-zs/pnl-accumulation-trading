@@ -307,6 +307,19 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["today"]["fill_count"], 2)
         self.assertEqual(response.json()["today"]["realized_net"], 7.97)
 
+    async def test_dashboard_static_assets_are_served(self) -> None:
+        self._init_sample_db()
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            html = await client.get("/")
+            css = await client.get("/tailwind.css")
+            js = await client.get("/js/app.js")
+        self.assertEqual(html.status_code, 200)
+        self.assertIn("js/app.js", html.text)
+        self.assertEqual(css.status_code, 200)
+        self.assertEqual(js.status_code, 200)
+        self.assertIn("javascript", js.headers.get("content-type", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

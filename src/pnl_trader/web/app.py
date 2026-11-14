@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import FastAPI, Query
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from .service import DashboardQueryService
 
@@ -103,5 +104,9 @@ def create_app(data_dir: Path | str) -> FastAPI:
     def get_dashboard_stylesheet() -> FileResponse:
         css_path = Path(__file__).parent / "static" / "tailwind.css"
         return FileResponse(css_path, media_type="text/css")
+
+    js_dir = Path(__file__).parent / "static" / "js"
+    if js_dir.exists():
+        app.mount("/js", StaticFiles(directory=js_dir), name="js")
 
     return app
