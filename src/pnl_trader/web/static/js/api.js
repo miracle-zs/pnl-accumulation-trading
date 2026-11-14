@@ -16,13 +16,16 @@ import { renderFills, renderRanking } from './fills.js';
 
 let refreshInProgress = false;
 let refreshQueued = false;
+let activeAbortController = null;
 
 export async function fetchData() {
-  if (refreshInProgress) {
-    refreshQueued = true;
-    return;
+  // If an existing request is in-flight, cancel it to avoid race conditions
+  if (refreshInProgress && activeAbortController) {
+    activeAbortController.abort();
   }
   refreshInProgress = true;
+  activeAbortController = new AbortController();
+  const { signal } = activeAbortController;
 
   const refreshIcon = document.getElementById('refresh-icon');
   const refreshText = document.getElementById('refresh-text');
@@ -32,13 +35,13 @@ export async function fetchData() {
   const statusBadge = document.getElementById('system-status-badge');
   try {
     const responses = await Promise.all([
-      fetch('api/overview'),
-      fetch(`api/equity?period=${state.currentPeriod}`),
-      fetch('api/tier-distribution'),
-      fetch('api/positions'),
-      fetch('api/fills?limit=12&side=BUY'),
-      fetch('api/fills?limit=12&side=SELL'),
-      fetch('api/analytics'),
+      fetch('api/overview', { signal }),
+      fetch(`api/equity?period=${state.currentPeriod}`, { signal }),
+      fetch('api/tier-distribution', { signal }),
+      fetch('api/positions', { signal }),
+      fetch('api/fills?limit=12&side=BUY', { signal }),
+      fetch('api/fills?limit=12&side=SELL', { signal }),
+      fetch('api/analytics', { signal }),
     ]);
     if (responses.some(response => !response.ok)) {
       throw new Error('Dashboard API returned an unsuccessful response');
@@ -201,6 +204,9 @@ export async function fetchData() {
       renderFills(state.rawBuyFills, state.rawSellFills);
     }
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return; // Silently ignore cancelled requests
+    }
     if (statusBadge) {
       statusBadge.textContent = '数据刷新失败';
       statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/30';

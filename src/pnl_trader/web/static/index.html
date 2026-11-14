@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
   <title>PNL Trader · 15分钟周期巡检量化终端</title>
   <link rel="stylesheet" href="tailwind.css">
   <style>
     :root {
+      color-scheme: dark;
       --bg: #090d16;
       --card: #0f172a;
       --card-border: #1e293b;
@@ -514,7 +516,7 @@
           <button type="button" onclick="filterTier('T3')" id="filter-t3" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500">T3</button>
         </div>
 
-        <input type="text" id="symbol-search" oninput="handleSearchInput()" placeholder="搜索标的 (如 BTC, SOL)..." aria-label="搜索交易标的" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 w-44">
+        <input type="search" id="symbol-search" oninput="handleSearchInput()" placeholder="搜索标的 (如 BTC, SOL)..." aria-label="搜索交易标的" autocomplete="off" spellcheck="false" enterkeyhint="search" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 w-44">
       </div>
     </div>
 

@@ -136,16 +136,58 @@ window.filterTier = filterTier;
 window.handleSort = handleSort;
 window.handleSearchInput = handleSearchInput;
 
+// Timers and Page Lifecycle Management (efficient background processing)
+let pollIntervalId = null;
+let countdownIntervalId = null;
+let uptimeIntervalId = null;
+
+function startTimers() {
+  if (!countdownIntervalId) {
+    updateCountdown();
+    countdownIntervalId = setInterval(updateCountdown, 1000);
+  }
+  if (!uptimeIntervalId) {
+    renderTradingUptime();
+    uptimeIntervalId = setInterval(renderTradingUptime, 1000);
+  }
+  if (!pollIntervalId) {
+    pollIntervalId = setInterval(fetchData, 30000);
+  }
+}
+
+function stopTimers() {
+  if (pollIntervalId) {
+    clearInterval(pollIntervalId);
+    pollIntervalId = null;
+  }
+  if (countdownIntervalId) {
+    clearInterval(countdownIntervalId);
+    countdownIntervalId = null;
+  }
+  if (uptimeIntervalId) {
+    clearInterval(uptimeIntervalId);
+    uptimeIntervalId = null;
+  }
+}
+
+// Conserve CPU & battery by pausing background timers when tab is hidden
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopTimers();
+  } else {
+    startTimers();
+    // Immediately catch up with fresh data upon foregrounding
+    fetchData();
+  }
+});
+
 // Application Initialization
 function init() {
-  updateCountdown();
-  setInterval(updateCountdown, 1000);
-  setInterval(renderTradingUptime, 1000);
   initAccessibleTabs();
   initChartResizeObserver('canvas-container', () => state.chartHistoryPoints);
 
   fetchData();
-  setInterval(fetchData, 30000);
+  startTimers();
 }
 
 if (document.readyState === 'loading') {
