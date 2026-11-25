@@ -277,6 +277,37 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 store.close()
 
+    def test_reconcile_rejects_active_sell_intent_exceeding_local_position(self) -> None:
+        from pnl_trader.application.execution_models import PersistedOrderIntent
+        from pnl_trader.domain import SymbolState, Tier
+
+        state = SymbolState(
+            symbol="BTCUSDT",
+            tier=Tier.T1,
+            lifecycle=Lifecycle.OPEN,
+            qty=D("1"),
+            avg_entry_price=D("10"),
+            tier_entry_qty=D("1"),
+            tier_anchor_price=D("10"),
+        )
+        intent = PersistedOrderIntent(
+            intent=OrderIntent(
+                intent_id="oversized-sell",
+                symbol="BTCUSDT",
+                action=Action.CLOSE_T1,
+                created_at_ms=200,
+                target_cumulative_sold_qty=D("1"),
+            ),
+            status=IntentStatus.PENDING,
+            requested_qty=D("2"),
+        )
+        with self.assertRaisesRegex(RuntimeError, "exceeds local position"):
+            ReconciledReviewBatchSource._reconcile_positions(
+                {"BTCUSDT": state},
+                {"BTCUSDT": ExchangePosition("BTCUSDT", "BOTH", D("0"))},
+                {"BTCUSDT": intent},
+            )
+
 
 class _StaticSignalSource:
     def __init__(self, signals: tuple[ReviewSignal, ...]) -> None:

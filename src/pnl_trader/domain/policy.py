@@ -101,5 +101,8 @@ def _close_to_target(
 ) -> Decision:
     close_qty = cumulative_target - state.tier_sold_qty
     if close_qty <= ZERO:
-        return Decision(Action.HOLD)
+        raise ValueError(
+            f"cumulative close target {cumulative_target} already reached for {state.symbol} "
+            f"(sold={state.tier_sold_qty}, completed_batches={state.completed_batches})"
+        )
     return Decision(action, close_qty=close_qty)

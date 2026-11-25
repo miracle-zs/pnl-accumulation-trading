@@ -3,7 +3,6 @@
 export function renderRetinaChart(points) {
   const canvas = document.getElementById('equity-canvas');
   const container = document.getElementById('canvas-container');
-  if (!canvas || !container) return;
 
   const rect = container.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return;
@@ -21,17 +20,14 @@ export function renderRetinaChart(points) {
 
   ctx.clearRect(0, 0, w, h);
 
-  if (!points || points.length < 2) {
+  if (points.length < 2) {
     ctx.fillStyle = '#64748b';
     ctx.font = '13px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('暂无足够权益采样数据', w / 2, h / 2);
-    const startEl = document.getElementById('chart-start-time');
-    const latestEl = document.getElementById('chart-latest-time');
-    const tooltip = document.getElementById('chart-tooltip');
-    if (startEl) startEl.textContent = '—';
-    if (latestEl) latestEl.textContent = '—';
-    if (tooltip) tooltip.classList.add('hidden');
+    document.getElementById('chart-start-time').textContent = '—';
+    document.getElementById('chart-latest-time').textContent = '—';
+    document.getElementById('chart-tooltip').classList.add('hidden');
     canvas.onpointermove = null;
     canvas.onpointerleave = null;
     canvas.onpointerdown = null;
@@ -71,10 +67,8 @@ export function renderRetinaChart(points) {
   const gradColorTop = isPositive ? 'rgba(16, 185, 129, 0.22)' : 'rgba(244, 63, 94, 0.22)';
   const gradColorBottom = isPositive ? 'rgba(16, 185, 129, 0.0)' : 'rgba(244, 63, 94, 0.0)';
 
-  const tooltipIndicator = document.getElementById('tooltip-indicator');
-  if (tooltipIndicator) {
-    tooltipIndicator.className = `w-2 h-2 rounded-full ${isPositive ? 'bg-emerald-400' : 'bg-rose-400'}`;
-  }
+  document.getElementById('tooltip-indicator').className =
+    `w-2 h-2 rounded-full ${isPositive ? 'bg-emerald-400' : 'bg-rose-400'}`;
 
   // Draw horizontal grid lines & labels
   ctx.lineWidth = 1;
@@ -162,10 +156,8 @@ export function renderRetinaChart(points) {
   // Update range times
   const d0 = new Date(points[0].captured_at_ms);
   const d1 = new Date(points[points.length - 1].captured_at_ms);
-  const startEl = document.getElementById('chart-start-time');
-  const latestEl = document.getElementById('chart-latest-time');
-  if (startEl) startEl.textContent = `${d0.toLocaleDateString('zh-CN')} ${d0.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
-  if (latestEl) latestEl.textContent = `${d1.toLocaleDateString('zh-CN')} ${d1.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+  document.getElementById('chart-start-time').textContent = `${d0.toLocaleDateString('zh-CN')} ${d0.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+  document.getElementById('chart-latest-time').textContent = `${d1.toLocaleDateString('zh-CN')} ${d1.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
 
   // Attach crosshair listener with Pointer Events (Supports Touch, Pen and Mouse)
   setupCanvasHover(canvas, points, getX, getY);
@@ -173,7 +165,6 @@ export function renderRetinaChart(points) {
 
 export function setupCanvasHover(canvas, points, getX, getY) {
   const tooltip = document.getElementById('chart-tooltip');
-  if (!tooltip) return;
 
   function handlePointerMove(e) {
     const rect = canvas.getBoundingClientRect();
@@ -215,10 +206,8 @@ export function setupCanvasHover(canvas, points, getX, getY) {
       tooltip.style.top = `${targetY - 55}px`;
     }
 
-    const tooltipTime = document.getElementById('tooltip-time');
-    const tooltipVal = document.getElementById('tooltip-val');
-    if (tooltipTime) tooltipTime.textContent = new Date(p.captured_at_ms).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-    if (tooltipVal) tooltipVal.textContent = `$${p.equity.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+    document.getElementById('tooltip-time').textContent = new Date(p.captured_at_ms).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    document.getElementById('tooltip-val').textContent = `$${p.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   function handlePointerLeave() {
@@ -233,7 +222,6 @@ export function setupCanvasHover(canvas, points, getX, getY) {
 
 export function initChartResizeObserver(containerId, getPoints) {
   const containerEl = document.getElementById(containerId);
-  if (!containerEl) return;
   const observer = new ResizeObserver(() => {
     renderRetinaChart(getPoints());
   });

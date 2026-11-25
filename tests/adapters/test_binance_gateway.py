@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, call, patch
 
 import httpx
 
-from pnl_trader.adapters.binance.gateway import BinanceFuturesGateway
+from pnl_trader.adapters.binance.gateway import BinanceFuturesGateway, BinanceProtocolError
 from pnl_trader.application.execution_models import (
     ExchangeOrderStatus,
     MarketOrderRequest,
@@ -257,6 +257,65 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
             now_ms = 900_000
             await gateway.get_exchange_info_snapshot()
             self.assertEqual(len(requests), 2)
+
+    async def test_exchange_info_fails_fast_when_trading_perpetual_lacks_filters(self) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "quoteAsset": "USDT",
+                            "marginAsset": "USDT",
+                            "contractType": "PERPETUAL",
+                            "status": "TRADING",
+                            "underlyingType": "COIN",
+                            "underlyingSubType": [],
+                            "filters": [],
+                        }
+                    ]
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(
+                client=client,
+                api_key="test-api-key",
+                api_secret="test-api-secret",
+            )
+            with self.assertRaises(BinanceProtocolError):
+                await gateway.get_exchange_info_snapshot()
+
+    async def test_exchange_info_skips_rules_for_delivering_contract(self) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "symbols": [
+                        {
+                            "symbol": "OLDUSDT",
+                            "quoteAsset": "USDT",
+                            "marginAsset": "USDT",
+                            "contractType": "PERPETUAL",
+                            "status": "DELIVERING",
+                            "underlyingType": "COIN",
+                            "underlyingSubType": [],
+                            "filters": [],
+                        }
+                    ]
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(
+                client=client,
+                api_key="test-api-key",
+                api_secret="test-api-secret",
+            )
+            instruments = await gateway.get_exchange_info_snapshot()
+            self.assertEqual(len(instruments), 1)
+            self.assertIsNone(instruments[0].rules)
 
 
 if __name__ == "__main__":

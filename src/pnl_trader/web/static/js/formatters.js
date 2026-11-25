@@ -51,6 +51,5 @@ export function showMessage(container, className, message) {
 }
 
 export function announce(message) {
-  const el = document.getElementById('sr-announcer');
-  if (el) el.textContent = message;
+  document.getElementById('sr-announcer').textContent = message;
 }

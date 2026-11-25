@@ -10,8 +10,7 @@ import {
 } from './formatters.js';
 
 export function renderFills(buyFills, sellFills) {
-  const searchInput = document.getElementById('symbol-search');
-  const query = searchInput ? searchInput.value.trim().toUpperCase() : '';
+  const query = document.getElementById('symbol-search').value.trim().toUpperCase();
   const filteredBuys = query ? buyFills.filter(f => f.symbol.includes(query)) : buyFills;
   const filteredSells = query ? sellFills.filter(f => f.symbol.includes(query)) : sellFills;
 
@@ -32,15 +31,14 @@ export function renderFills(buyFills, sellFills) {
 export function renderFillGroup(listId, countId, fills, side) {
   const list = document.getElementById(listId);
   const countEl = document.getElementById(countId);
-  if (!list) return;
 
   if (!state.ledgerAvailable) {
-    if (countEl) countEl.textContent = '—';
+    countEl.textContent = '—';
     showMessage(list, 'text-slate-400 text-xs py-6 text-center', '等待账本数据');
     return;
   }
-  if (countEl) countEl.textContent = `最近 ${fills.length} 笔`;
-  if (!fills || fills.length === 0) {
+  countEl.textContent = `最近 ${fills.length} 笔`;
+  if (fills.length === 0) {
     const emptyText = side === 'BUY' ? '暂无买入成交明细' : '暂无卖出成交明细';
     showMessage(list, 'text-slate-400 text-xs py-6 text-center', emptyText);
     return;
@@ -83,14 +81,13 @@ export function renderFillGroup(listId, countId, fills, side) {
 
 export function renderRanking(symbols, pendingCloseFills) {
   const container = document.getElementById('ranking-container');
-  if (!container) return;
 
   if (!state.ledgerAvailable || pendingCloseFills > 0) {
     const message = !state.ledgerAvailable ? '等待账本数据' : '平仓流水待对账，收益排名暂不可用';
     showMessage(container, 'text-slate-400 text-xs py-8 text-center', message);
     return;
   }
-  if (!symbols || symbols.length === 0) {
+  if (symbols.length === 0) {
     showMessage(container, 'text-slate-500 text-xs py-8 text-center', '暂无收益排名记录');
     return;
   }

@@ -24,15 +24,13 @@ export function handleSort(key) {
   sortKeys.forEach(k => {
     const th = document.getElementById('th-' + k);
     const indicator = document.getElementById('sort-' + k);
-    if (th) {
-      if (k === state.currentSortKey) {
-        const dir = state.currentSortDirection === 'asc' ? 'ascending' : 'descending';
-        th.setAttribute('aria-sort', dir);
-        if (indicator) indicator.textContent = state.currentSortDirection === 'asc' ? '▲' : '▼';
-      } else {
-        th.removeAttribute('aria-sort');
-        if (indicator) indicator.textContent = '↕';
-      }
+    if (k === state.currentSortKey) {
+      const dir = state.currentSortDirection === 'asc' ? 'ascending' : 'descending';
+      th.setAttribute('aria-sort', dir);
+      indicator.textContent = state.currentSortDirection === 'asc' ? '▲' : '▼';
+    } else {
+      th.removeAttribute('aria-sort');
+      indicator.textContent = '↕';
     }
   });
 
@@ -44,12 +42,10 @@ export function filterTier(tier) {
   state.currentTierFilter = tier;
   ['all', 't1', 't2', 't3'].forEach(k => {
     const btn = document.getElementById('filter-' + k);
-    if (btn) {
-      if (k.toUpperCase() === tier || (k === 'all' && tier === 'ALL')) {
-        btn.className = 'px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium focus-visible:outline-2 focus-visible:outline-blue-500';
-      } else {
-        btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500';
-      }
+    if (k.toUpperCase() === tier || (k === 'all' && tier === 'ALL')) {
+      btn.className = 'px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium focus-visible:outline-2 focus-visible:outline-blue-500';
+    } else {
+      btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500';
     }
   });
   renderPositions();
@@ -58,21 +54,19 @@ export function filterTier(tier) {
 export function renderPositions() {
   const tbody = document.getElementById('position-table-body');
   const summaryEl = document.getElementById('position-summary-text');
-  if (!tbody) return;
 
   if (!state.ledgerAvailable) {
     showTableMessage(tbody, 9, 'py-12 text-center text-slate-400 font-sans', '等待账本数据');
-    if (summaryEl) summaryEl.textContent = '在管持仓: —';
+    summaryEl.textContent = '在管持仓: —';
     return;
   }
-  if (!state.allPositions || state.allPositions.length === 0) {
+  if (state.allPositions.length === 0) {
     showTableMessage(tbody, 9, 'py-12 text-center text-slate-500 font-sans', '暂无在管持仓记录');
-    if (summaryEl) summaryEl.textContent = '在管持仓: 0 个标的';
+    summaryEl.textContent = '在管持仓: 0 个标的';
     return;
   }
 
-  const searchInput = document.getElementById('symbol-search');
-  const query = searchInput ? searchInput.value.trim().toUpperCase() : '';
+  const query = document.getElementById('symbol-search').value.trim().toUpperCase();
   let filtered = state.allPositions.filter(p => {
     const matchesQuery = p.symbol.includes(query);
     let matchesTier = true;
@@ -112,9 +106,7 @@ export function renderPositions() {
     let unpnlCell = createNode('td', 'py-3 px-4 text-right');
     if (p.estimated_unrealized_pnl !== null) {
       const pnlVal = Number(p.estimated_unrealized_pnl);
-      const pnlPct = p.avg_entry_price > 0 && p.scan_price
-        ? ((p.scan_price - p.avg_entry_price) / p.avg_entry_price * 100)
-        : 0;
+      const pnlPct = (p.scan_price - p.avg_entry_price) / p.avg_entry_price * 100;
       const pnlClass = pnlVal > 0 ? 'text-emerald-400' : pnlVal < 0 ? 'text-rose-400' : 'text-slate-300';
       const sign = pnlPct > 0 ? '+' : '';
       const pctStr = `${sign}${pnlPct.toFixed(2)}%`;
@@ -122,11 +114,9 @@ export function renderPositions() {
       const amountSpan = createNode('span', `font-bold ${pnlClass}`, formatSignedUsd(pnlVal));
       const pctSpan = createNode('span', `text-[10px] ml-1 opacity-80 font-normal ${pnlClass}`, `(${pctStr})`);
       unpnlCell.append(amountSpan, pctSpan);
-      unpnlCell.dataset.value = pnlVal;
     } else {
       unpnlCell.textContent = '—';
       unpnlCell.className = 'py-3 px-4 text-right text-slate-500';
-      unpnlCell.dataset.value = -Infinity;
     }
 
     const row = createNode('tr', 'hover:bg-slate-800/50 transition-colors');
@@ -157,9 +147,9 @@ export function renderPositions() {
 
   if (rows.length === 0) {
     showTableMessage(tbody, 9, 'py-8 text-center text-slate-500 font-sans', '无符合当前层级或搜索条件的持仓标的');
-    if (summaryEl) summaryEl.textContent = `显示 0 / ${state.allPositions.length} 个在管标的`;
+    summaryEl.textContent = `显示 0 / ${state.allPositions.length} 个在管标的`;
     return;
   }
   tbody.replaceChildren(...rows);
-  if (summaryEl) summaryEl.textContent = `显示 ${filtered.length} / ${state.allPositions.length} 个在管标的`;
+  summaryEl.textContent = `显示 ${filtered.length} / ${state.allPositions.length} 个在管标的`;
 }

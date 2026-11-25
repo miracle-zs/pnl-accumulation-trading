@@ -14,10 +14,8 @@ function updateCountdown() {
   const remainingSeconds = Math.ceil(((slot + 1) * 900000 - now) / 1000);
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
-  const countdownEl = document.getElementById('countdown');
-  if (countdownEl) {
-    countdownEl.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  }
+  document.getElementById('countdown').textContent =
+    `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   if (slot !== lastReviewSlot) {
     lastReviewSlot = slot;
     setTimeout(fetchData, 3500);
@@ -27,7 +25,6 @@ function updateCountdown() {
 // Uptime Counter Loop
 function renderTradingUptime() {
   const uptimeEl = document.getElementById('trading-uptime');
-  if (!uptimeEl) return;
   if (state.tradingUptimeBaseSeconds === null) {
     uptimeEl.textContent = '—';
     return;
@@ -50,26 +47,14 @@ export function switchView(view) {
       const btn = document.getElementById(`tab-${v}`);
       const el = document.getElementById(`view-${v}`);
       const isSelected = (v === view);
-      if (btn) {
-        btn.setAttribute('aria-selected', String(isSelected));
-        btn.tabIndex = isSelected ? 0 : -1;
-      }
-      if (el) {
-        if (isSelected) {
-          el.classList.remove('hidden');
-        } else {
-          el.classList.add('hidden');
-        }
-      }
+      btn.setAttribute('aria-selected', String(isSelected));
+      btn.tabIndex = isSelected ? 0 : -1;
+      el.classList.toggle('hidden', !isSelected);
     });
 
-    const tierFilterGroup = document.getElementById('tier-filter-group');
-    const positionsToolbar = document.getElementById('positions-toolbar');
-    const positionFooter = document.getElementById('position-footer');
-
-    if (tierFilterGroup) tierFilterGroup.style.display = (view === 'positions') ? 'inline-flex' : 'none';
-    if (positionsToolbar) positionsToolbar.style.display = (view === 'positions' || view === 'fills') ? 'flex' : 'none';
-    if (positionFooter) positionFooter.classList.toggle('hidden', view !== 'positions');
+    document.getElementById('tier-filter-group').style.display = (view === 'positions') ? 'inline-flex' : 'none';
+    document.getElementById('positions-toolbar').style.display = (view === 'positions' || view === 'fills') ? 'flex' : 'none';
+    document.getElementById('position-footer').classList.toggle('hidden', view !== 'positions');
 
     if (view === 'fills') {
       renderFills(state.rawBuyFills, state.rawSellFills);
@@ -102,7 +87,6 @@ export function handleSearchInput() {
 // Initialize Roving Tabindex for WAI-ARIA tablist
 function initAccessibleTabs() {
   const tablistEl = document.querySelector('[role="tablist"]');
-  if (!tablistEl) return;
 
   tablistEl.addEventListener('keydown', (e) => {
     const tabs = Array.from(tablistEl.querySelectorAll('[role="tab"]'));

@@ -11,8 +11,7 @@ import {
 
 export function updatePositionStatusKpi(positions) {
   const statusEl = document.getElementById('kpi-position-status');
-  if (!statusEl) return;
-  if (!state.ledgerAvailable || !positions || positions.length === 0) {
+  if (!state.ledgerAvailable || positions.length === 0) {
     statusEl.textContent = '暂无持仓';
     return;
   }
@@ -34,34 +33,27 @@ export function renderDrawdown(equity) {
   const maxDdPctEl = document.getElementById('max-drawdown-pct');
   const curDdPctEl = document.getElementById('current-drawdown-pct');
 
-  if (periodEl) periodEl.textContent = periodNames[equity.period] || equity.period;
-  const hasSamples = equity.points && equity.points.length > 0;
-  if (maxDdEl) {
-    maxDdEl.textContent = hasSamples && equity.max_drawdown !== null
-      ? formatUsd(equity.max_drawdown) : '—';
-  }
-  if (maxDdPctEl) {
-    maxDdPctEl.textContent = hasSamples && equity.max_drawdown_pct !== null
-      ? `${equity.max_drawdown_pct.toFixed(2)}%` : '采样不足';
-  }
-  if (curDdPctEl) {
-    curDdPctEl.textContent = hasSamples && equity.current_drawdown_pct !== null
-      ? `${equity.current_drawdown_pct.toFixed(2)}%` : '—';
-  }
+  periodEl.textContent = periodNames[equity.period];
+  const hasSamples = equity.points.length > 0;
+  maxDdEl.textContent = hasSamples && equity.max_drawdown !== null
+    ? formatUsd(equity.max_drawdown) : '—';
+  maxDdPctEl.textContent = hasSamples && equity.max_drawdown_pct !== null
+    ? `${equity.max_drawdown_pct.toFixed(2)}%` : '采样不足';
+  curDdPctEl.textContent = hasSamples && equity.current_drawdown_pct !== null
+    ? `${equity.current_drawdown_pct.toFixed(2)}%` : '—';
 }
 
 export function renderLosingPositions(positions) {
   const body = document.getElementById('losers-list');
   const countEl = document.getElementById('losers-count');
-  if (!body) return;
 
   if (!state.ledgerAvailable) {
-    if (countEl) countEl.textContent = '等待账本';
+    countEl.textContent = '等待账本';
     showTableMessage(body, 4, 'py-6 text-center text-slate-500', '等待账本数据');
     return;
   }
-  if (!positions || positions.length === 0) {
-    if (countEl) countEl.textContent = '0 个持仓';
+  if (positions.length === 0) {
+    countEl.textContent = '0 个持仓';
     showTableMessage(body, 4, 'py-6 text-center text-slate-500', '暂无在管持仓');
     return;
   }
@@ -71,11 +63,9 @@ export function renderLosingPositions(positions) {
     .filter(position => position.estimated_unrealized_pnl < 0)
     .sort((a, b) => a.estimated_unrealized_pnl - b.estimated_unrealized_pnl);
 
-  if (countEl) {
-    countEl.textContent = pricedPositions.length > 0
-      ? `${losses.length} 个浮亏 · ${pricedPositions.length}/${positions.length} 已估值`
-      : '等待价格采样';
-  }
+  countEl.textContent = pricedPositions.length > 0
+    ? `${losses.length} 个浮亏 · ${pricedPositions.length}/${positions.length} 已估值`
+    : '等待价格采样';
   if (losses.length === 0) {
     const message = pricedPositions.length > 0
       ? '当前无浮亏持仓标的'
@@ -102,14 +92,13 @@ export function renderLosingPositions(positions) {
 export function renderTierExposure(exposure) {
   const container = document.getElementById('tier-exposure-list');
   const countEl = document.getElementById('exposure-priced-count');
-  if (!container) return;
 
-  if (!state.ledgerAvailable || !exposure || exposure.total_positions === 0) {
-    if (countEl) countEl.textContent = state.ledgerAvailable ? '暂无持仓' : '等待账本';
+  if (!state.ledgerAvailable || exposure.total_positions === 0) {
+    countEl.textContent = state.ledgerAvailable ? '暂无持仓' : '等待账本';
     showMessage(container, 'text-xs text-slate-500', '暂无在管持仓');
     return;
   }
-  if (countEl) countEl.textContent = `${exposure.priced_positions}/${exposure.total_positions} 已估值`;
+  countEl.textContent = `${exposure.priced_positions}/${exposure.total_positions} 已估值`;
   const tiers = [
     { key: 't1', label: 'T1 基础底仓' },
     { key: 't2', label: 'T2 加仓阶段' },
@@ -117,7 +106,7 @@ export function renderTierExposure(exposure) {
   ];
   const rows = tiers.map(tier => {
     const amount = exposure[tier.key];
-    const ratio = exposure.total > 0 ? Math.min(100, Math.max(0, amount / exposure.total * 100)) : 0;
+    const ratio = exposure.total > 0 ? amount / exposure.total * 100 : 0;
     const row = document.createElement('div');
     const labels = createNode('div', 'flex items-center justify-between text-xs mb-1.5');
     const amountLabel = createNode('span', 'font-mono text-slate-200');
@@ -147,28 +136,25 @@ export function renderCosts(costs) {
   const weeklyCommEl = document.getElementById('weekly-commission');
   const weeklyCountEl = document.getElementById('weekly-fill-count');
   const otherFeesNote = document.getElementById('other-fees-note');
-  if (!rows) return;
 
   if (!state.ledgerAvailable) {
-    if (weeklyCommEl) weeklyCommEl.textContent = '—';
-    if (weeklyCountEl) weeklyCountEl.textContent = '—';
-    if (otherFeesNote) otherFeesNote.classList.add('hidden');
+    weeklyCommEl.textContent = '—';
+    weeklyCountEl.textContent = '—';
+    otherFeesNote.classList.add('hidden');
     showMessage(rows, 'text-xs text-slate-500 py-2', '等待账本数据');
     return;
   }
-  if (weeklyCommEl) weeklyCommEl.textContent = formatUsd(costs.commission_usdt);
-  if (weeklyCountEl) weeklyCountEl.textContent = `${costs.fill_count} 笔`;
+  weeklyCommEl.textContent = formatUsd(costs.commission_usdt);
+  weeklyCountEl.textContent = `${costs.fill_count} 笔`;
   const otherFees = costs.other_fee_count;
   const pendingCloseFills = costs.pending_close_fill_count;
   const warnings = [];
   if (otherFees > 0) warnings.push(`存在 ${otherFees} 笔非 USDT 手续费抵扣（如 BNB 折扣），未折算入规费总额。`);
   if (pendingCloseFills > 0) warnings.push(`存在 ${pendingCloseFills} 笔平仓成交待对账，规费统计可能不完整。`);
-  if (otherFeesNote) {
-    otherFeesNote.textContent = warnings.join(' ');
-    otherFeesNote.classList.toggle('hidden', warnings.length === 0);
-  }
+  otherFeesNote.textContent = warnings.join(' ');
+  otherFeesNote.classList.toggle('hidden', warnings.length === 0);
   const days = costs.days;
-  if (!days || days.length === 0) {
+  if (days.length === 0) {
     showMessage(rows, 'text-xs text-slate-500 py-2', '最近 7 天暂无成交记录');
     return;
   }
@@ -189,7 +175,6 @@ export function renderCosts(costs) {
 export function renderExecutionIssues(issues) {
   const container = document.getElementById('execution-issues');
   const countEl = document.getElementById('execution-issue-count');
-  if (!container) return;
 
   const labels = {
     PRICE_MISSING: '行情价格缺失',
@@ -207,17 +192,16 @@ export function renderExecutionIssues(issues) {
   };
 
   if (!state.ledgerAvailable) {
-    if (countEl) countEl.textContent = '等待账本';
+    countEl.textContent = '等待账本';
     showMessage(container, 'text-xs text-slate-500 py-4 text-center', '等待账本数据');
     return;
   }
-  const currentIssues = issues || [];
-  if (countEl) countEl.textContent = `${currentIssues.length} 项`;
-  if (currentIssues.length === 0) {
+  countEl.textContent = `${issues.length} 项`;
+  if (issues.length === 0) {
     showMessage(container, 'text-xs text-emerald-400/90 py-4 text-center', '系统运行正常，无待处理异常');
     return;
   }
-  container.replaceChildren(...currentIssues.map(issue => {
+  container.replaceChildren(...issues.map(issue => {
     const item = document.createElement('article');
     item.className = 'py-2.5 border-b border-slate-800/70';
     const header = document.createElement('div');

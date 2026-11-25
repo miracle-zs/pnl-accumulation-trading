@@ -185,6 +185,19 @@ class StrategyPolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, Action.OPEN_T1)
         self.assertEqual(decision.buy_notional, D("10.0"))
 
+    def test_incomplete_batch_already_past_target_raises_instead_of_holding(self) -> None:
+        state = open_state(
+            Tier.T2,
+            qty="0.2",
+            entry_qty="0.5",
+            average="60",
+            anchor="50",
+            completed_batches=0,
+        )
+
+        with self.assertRaisesRegex(ValueError, "already reached"):
+            self.decide(state, "72")
+
 
 class ConfirmedExecutionTransitionTests(unittest.TestCase):
     def test_t2_fill_updates_weighted_average_and_uses_fill_price_as_anchor(self) -> None:

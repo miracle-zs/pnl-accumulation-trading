@@ -188,12 +188,30 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             overview = (await client.get("/api/overview")).json()
             analytics = (await client.get("/api/analytics")).json()
+            tiers = (await client.get("/api/tier-distribution")).json()
         self.assertIsNone(analytics["today"]["realized_net"])
         self.assertIsNone(analytics["costs"]["commission_usdt"])
         self.assertEqual(overview["status"], "WAITING_DATA")
         self.assertIsNone(overview["realized_cash"])
         self.assertIsNone(overview["fill_count"])
         self.assertIsNone(overview["active_positions_count"])
+        self.assertIsNone(tiers["total"])
+        self.assertIsNone(tiers["t1"])
+        self.assertIsNone(tiers["exposure"]["total"])
+        self.assertIsNone(tiers["exposure"]["total_positions"])
+
+    def test_corrupt_tier_batch_state_raises_instead_of_bucketing(self) -> None:
+        self._init_sample_db()
+        with closing(sqlite3.connect(self._db_path)) as connection, connection:
+            connection.execute(
+                "INSERT INTO symbol_states VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("BADUSDT", 2, "OPEN", "1", "10", "1", "10", 2, 1700000000001),
+            )
+        service = DashboardQueryService(self._db_path)
+        with self.assertRaises(ValueError):
+            service.get_tier_distribution()
+        with self.assertRaises(ValueError):
+            service.get_positions()
 
     async def test_recent_fills_are_limited_separately_by_side(self) -> None:
         self._init_sample_db()

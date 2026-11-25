@@ -160,9 +160,10 @@ class DashboardQueryService:
         if len(points) >= 2:
             start_equity = points[0]["equity"]
             end_equity = points[-1]["equity"]
-            change = round(end_equity - start_equity, 2)
+            raw_change = end_equity - start_equity
+            change = round(raw_change, 2)
             if start_equity != 0:
-                change_pct = round(change / start_equity * 100, 2)
+                change_pct = round(raw_change / start_equity * 100, 2)
 
         peak_equity = None
         max_drawdown = 0.0
@@ -324,10 +325,10 @@ class DashboardQueryService:
     def get_tier_distribution(self) -> dict[str, object]:
         if not self._db_path.is_file():
             return {
-                "t1": 0, "t2": 0, "t21": 0, "t3": 0, "t31": 0,
-                "t32": 0, "total": 0,
-                "exposure": {"t1": 0.0, "t2": 0.0, "t3": 0.0, "total": 0.0,
-                             "priced_positions": 0, "total_positions": 0},
+                "t1": None, "t2": None, "t21": None, "t3": None, "t31": None,
+                "t32": None, "total": None,
+                "exposure": {"t1": None, "t2": None, "t3": None, "total": None,
+                             "priced_positions": None, "total_positions": None},
             }
 
         with closing(_get_readonly_connection(self._db_path)) as conn:
@@ -352,20 +353,23 @@ class DashboardQueryService:
                 tier = r["tier"]
                 batches = r["completed_batches"]
                 total += cnt
-                if tier == 1:
+                if tier == 1 and batches == 0:
                     dist["t1"] += cnt
-                elif tier == 2:
-                    if batches == 0:
-                        dist["t2"] += cnt
-                    else:
-                        dist["t21"] += cnt
-                elif tier == 3:
-                    if batches == 0:
-                        dist["t3"] += cnt
-                    elif batches == 1:
-                        dist["t31"] += cnt
-                    else:
-                        dist["t32"] += cnt
+                elif tier == 2 and batches == 0:
+                    dist["t2"] += cnt
+                elif tier == 2 and batches == 1:
+                    dist["t21"] += cnt
+                elif tier == 3 and batches == 0:
+                    dist["t3"] += cnt
+                elif tier == 3 and batches == 1:
+                    dist["t31"] += cnt
+                elif tier == 3 and batches == 2:
+                    dist["t32"] += cnt
+                else:
+                    raise ValueError(
+                        f"open symbol state has unsupported tier/batches: "
+                        f"tier={tier} completed_batches={batches}"
+                    )
             dist["total"] = total
             exposure = {"t1": 0.0, "t2": 0.0, "t3": 0.0, "total": 0.0,
                         "priced_positions": 0, "total_positions": len(exposure_rows)}
@@ -410,22 +414,22 @@ class DashboardQueryService:
                 anchor_p = float(r["tier_anchor_price"])
                 tier_entry_q = float(r["tier_entry_qty"])
 
-                if t == 1:
+                if t == 1 and batches == 0:
                     tier_label = "Tier 1"
                     tp_price = avg_p * (1 + float(T1_TAKE_PROFIT))
                     dca_price = anchor_p * (1 - float(DCA_DROP))
                     wo_price = None
-                elif t == 2:
+                elif t == 2 and batches in {0, 1}:
                     tier_label = "Tier 2" if batches == 0 else "Tier 2.1 (半仓)"
                     threshold = (
-                        T2_FULL_TAKE_PROFIT
-                        if batches > 0
-                        else T2_BATCH1_TAKE_PROFIT
+                        T2_BATCH1_TAKE_PROFIT
+                        if batches == 0
+                        else T2_FULL_TAKE_PROFIT
                     )
                     tp_price = avg_p * (1 + float(threshold))
                     dca_price = anchor_p * (1 - float(DCA_DROP))
                     wo_price = None
-                elif t == 3:
+                elif t == 3 and batches in {0, 1, 2}:
                     if batches == 0:
                         tier_label = "Tier 3"
                         threshold = T3_BATCH1_TAKE_PROFIT
@@ -440,7 +444,8 @@ class DashboardQueryService:
                     wo_price = float(T3_WRITEOFF_VALUE_LIMIT) / tier_entry_q
                 else:
                     raise ValueError(
-                        f"open symbol state has unsupported tier: {r['symbol']} tier={t}"
+                        f"open symbol state has unsupported tier/batches: "
+                        f"{r['symbol']} tier={t} completed_batches={batches}"
                     )
 
                 if r["lifecycle"] == "CLOSING":

@@ -184,7 +184,12 @@ class ReconciledReviewBatchSource:
                 minimum_qty = state.qty
                 maximum_qty = state.qty + intent.requested_qty
             else:
-                minimum_qty = max(ZERO, state.qty - intent.requested_qty)
+                if intent.requested_qty > state.qty:
+                    raise RuntimeError(
+                        f"active sell intent for {symbol} exceeds local position: "
+                        f"requested={intent.requested_qty}, local={state.qty}"
+                    )
+                minimum_qty = state.qty - intent.requested_qty
                 maximum_qty = state.qty
             if not minimum_qty <= actual_qty <= maximum_qty:
                 raise RuntimeError(

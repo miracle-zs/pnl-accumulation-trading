@@ -32,7 +32,7 @@ def _trading_service_uptime_seconds() -> int | None:
             text=True,
             timeout=1,
         )
-    except (OSError, subprocess.SubprocessError):
+    except FileNotFoundError:
         return None
 
     properties = dict(
@@ -40,16 +40,18 @@ def _trading_service_uptime_seconds() -> int | None:
         for line in result.stdout.splitlines()
         if "=" in line
     )
-    if properties.get("ActiveState") != "active":
+    if properties["ActiveState"] != "active":
         return None
 
-    try:
-        started_at_monotonic_us = int(properties["ExecMainStartTimestampMonotonic"])
-    except (KeyError, ValueError):
-        return None
+    started_at_monotonic_us = int(properties["ExecMainStartTimestampMonotonic"])
     if started_at_monotonic_us <= 0:
-        return None
-    return max(0, int(time.monotonic() - started_at_monotonic_us / 1_000_000))
+        raise ValueError(
+            f"active pnl-trader.service has invalid start timestamp: {started_at_monotonic_us}"
+        )
+    elapsed_seconds = int(time.monotonic() - started_at_monotonic_us / 1_000_000)
+    if elapsed_seconds < 0:
+        raise ValueError(f"computed negative service uptime: {elapsed_seconds}")
+    return elapsed_seconds
 
 
 def create_app(data_dir: Path | str) -> FastAPI:
@@ -106,7 +108,6 @@ def create_app(data_dir: Path | str) -> FastAPI:
         return FileResponse(css_path, media_type="text/css")
 
     js_dir = Path(__file__).parent / "static" / "js"
-    if js_dir.exists():
-        app.mount("/js", StaticFiles(directory=js_dir), name="js")
+    app.mount("/js", StaticFiles(directory=js_dir), name="js")
 
     return app

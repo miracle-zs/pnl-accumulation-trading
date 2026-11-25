@@ -186,8 +186,14 @@ class BinanceFuturesGateway:
                 raise BinanceProtocolError(
                     f"exchangeInfo row {index} has invalid underlyingSubType"
                 )
-            try:
-                rules = _parse_instrument_rules(
+            needs_rules = (
+                quote_asset == "USDT"
+                and margin_asset == "USDT"
+                and contract_type == "PERPETUAL"
+                and status in {"TRADING", "PRE_DELIVERING"}
+            )
+            rules = (
+                _parse_instrument_rules(
                     row,
                     symbol=symbol,
                     contract_type=contract_type,
@@ -195,8 +201,9 @@ class BinanceFuturesGateway:
                     quote_asset=quote_asset,
                     margin_asset=margin_asset,
                 )
-            except (BinanceProtocolError, ValueError):
-                rules = None
+                if needs_rules
+                else None
+            )
             instruments.append(
                 ExchangeInstrument(
                     symbol=symbol,
