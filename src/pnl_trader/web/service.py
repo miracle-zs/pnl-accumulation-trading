@@ -183,18 +183,15 @@ class DashboardQueryService:
         latest = None
         if latest_row is not None:
             equity = float(latest_row["total_margin_balance"])
-            notional = latest_row["position_notional"]
-            unrealized = latest_row["unrealized_pnl"]
-            available = latest_row["available_balance"]
-            notional = float(notional) if notional is not None else None
+            notional = float(latest_row["position_notional"])
             latest = {
                 "captured_at_ms": latest_row["captured_at_ms"],
                 "is_current_slot": latest_row["captured_at_ms"] >= now_ms - now_ms % 900_000,
                 "equity": equity,
-                "unrealized_pnl": float(unrealized) if unrealized is not None else None,
-                "available_balance": float(available) if available is not None else None,
+                "unrealized_pnl": float(latest_row["unrealized_pnl"]),
+                "available_balance": float(latest_row["available_balance"]),
                 "position_notional": notional,
-                "leverage": notional / equity if notional is not None and equity > 0 else None,
+                "leverage": notional / equity if equity > 0 else None,
             }
 
         return {
@@ -242,11 +239,9 @@ class DashboardQueryService:
             ).fetchone()
             pending_by_period = conn.execute(
                 f"""SELECT
-                       COUNT(CASE WHEN full_close_confirmed_at_ms IS NULL OR
-                           (full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?)
+                       COUNT(CASE WHEN full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?
                            THEN 1 END) AS today_count,
-                       COUNT(CASE WHEN full_close_confirmed_at_ms IS NULL OR
-                           (full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?)
+                       COUNT(CASE WHEN full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?
                            THEN 1 END) AS week_count
                     FROM order_intents AS i
                     WHERE status = 'FILLED' AND action IN ({close_placeholders})

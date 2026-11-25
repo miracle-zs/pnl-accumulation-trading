@@ -317,7 +317,7 @@ class BinanceFuturesGateway:
                 params=params,
                 signed=True,
             )
-            order = _parse_order_snapshot(payload, require_cumulative_quote=False)
+            order = _parse_order_snapshot(payload)
         except ExchangeAccessError:
             raise
         except BinanceApiError as exc:
@@ -447,9 +447,9 @@ class BinanceFuturesGateway:
             )
             total_qty = sum((fill.qty for fill in fills), ZERO)
             total_quote = sum((fill.price * fill.qty for fill in fills), ZERO)
-            reconciles = total_qty == order_snapshot.executed_qty and (
-                order_snapshot.cumulative_quote is None
-                or total_quote == order_snapshot.cumulative_quote
+            reconciles = (
+                total_qty == order_snapshot.executed_qty
+                and total_quote == order_snapshot.cumulative_quote
             )
             if reconciles:
                 return fills
@@ -649,11 +649,7 @@ def _parse_instrument_rules(
     )
 
 
-def _parse_order_snapshot(
-    payload: object,
-    *,
-    require_cumulative_quote: bool = True,
-) -> ExchangeOrderSnapshot:
+def _parse_order_snapshot(payload: object) -> ExchangeOrderSnapshot:
     if not isinstance(payload, dict):
         raise BinanceProtocolError("order response must be an object")
     raw_status = _required_text(payload["status"], "status")
@@ -661,15 +657,10 @@ def _parse_order_snapshot(
         status = ExchangeOrderStatus(raw_status)
     except ValueError as exc:
         raise BinanceProtocolError(f"unsupported order status {raw_status!r}") from exc
-    executed_qty = _decimal(payload["executedQty"], "executedQty")
-    if "cumQuote" not in payload and not require_cumulative_quote:
-        cumulative_quote = None
-    else:
-        cumulative_quote = _decimal(payload["cumQuote"], "cumQuote")
     return ExchangeOrderSnapshot(
         status=status,
-        executed_qty=executed_qty,
-        cumulative_quote=cumulative_quote,
+        executed_qty=_decimal(payload["executedQty"], "executedQty"),
+        cumulative_quote=_decimal(payload["cumQuote"], "cumQuote"),
         exchange_order_id=str(_integer(payload["orderId"], "orderId")),
     )
 

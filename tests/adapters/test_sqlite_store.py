@@ -30,7 +30,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_old_versions_are_rejected_without_changing_the_database(self) -> None:
-        for version in (19, 20):
+        for version in (19, 20, 21, 22, 23, 24):
             with self.subTest(version=version):
                 old_path = Path(self.temp_dir.name) / f"v{version}.sqlite3"
                 with closing(sqlite3.connect(old_path)) as connection, connection:

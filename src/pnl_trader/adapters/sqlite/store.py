@@ -34,21 +34,7 @@ from ...domain.transitions import apply_confirmed_execution, validate_execution_
 
 
 _SCHEMA_VERSION = 25
-_DASHBOARD_ANALYTICS_SCHEMA = """
-CREATE TABLE latest_symbol_prices (
-    symbol TEXT PRIMARY KEY,
-    price TEXT NOT NULL,
-    captured_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE dashboard_issues (
-    symbol TEXT PRIMARY KEY,
-    category TEXT NOT NULL,
-    detail TEXT NOT NULL,
-    occurred_at_ms INTEGER NOT NULL
-);
-"""
-_BASE_SCHEMA = """
+_SCHEMA = """
 CREATE TABLE symbol_states (
     symbol TEXT NOT NULL,
     tier INTEGER NOT NULL CHECK (tier BETWEEN 0 AND 3),
@@ -102,13 +88,24 @@ CREATE INDEX trade_fills_by_side_symbol_pnl ON trade_fills(side, symbol, realize
 CREATE TABLE account_equity_snapshots (
     captured_at_ms INTEGER PRIMARY KEY,
     total_margin_balance TEXT NOT NULL,
-    unrealized_pnl TEXT,
-    available_balance TEXT,
-    position_notional TEXT
+    unrealized_pnl TEXT NOT NULL,
+    available_balance TEXT NOT NULL,
+    position_notional TEXT NOT NULL
 );
 
+CREATE TABLE latest_symbol_prices (
+    symbol TEXT PRIMARY KEY,
+    price TEXT NOT NULL,
+    captured_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE dashboard_issues (
+    symbol TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    occurred_at_ms INTEGER NOT NULL
+);
 """
-_SCHEMA = _BASE_SCHEMA + _DASHBOARD_ANALYTICS_SCHEMA
 
 _ALLOWED_TRANSITIONS = {
     "PREPARED": {"CANCELED"},
@@ -171,40 +168,6 @@ class SQLiteStateStore:
     def _initialize_schema(self) -> None:
         schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
         if schema_version == _SCHEMA_VERSION:
-            return
-        if schema_version == 21:
-            with self._transaction() as connection:
-                for statement in _DASHBOARD_ANALYTICS_SCHEMA.split(";"):
-                    if statement.strip():
-                        connection.execute(statement)
-                connection.execute("PRAGMA user_version = 22")
-            schema_version = 22
-        if schema_version == 22:
-            with self._transaction() as connection:
-                connection.execute(
-                    "CREATE INDEX trade_fills_by_intent ON trade_fills(intent_id)"
-                )
-                connection.execute("PRAGMA user_version = 23")
-            schema_version = 23
-        if schema_version == 23:
-            with self._transaction() as connection:
-                connection.execute(
-                    "ALTER TABLE order_intents ADD COLUMN full_close_confirmed_at_ms INTEGER"
-                )
-                connection.execute(
-                    "CREATE INDEX trade_fills_by_side_symbol_pnl "
-                    "ON trade_fills(side, symbol, realized_pnl)"
-                )
-                connection.execute("PRAGMA user_version = 24")
-            schema_version = 24
-        if schema_version == 24:
-            with self._transaction() as connection:
-                connection.execute(
-                    "CREATE INDEX filled_order_intents_by_action_and_time "
-                    "ON order_intents(action, full_close_confirmed_at_ms, created_at_ms) "
-                    "WHERE status = 'FILLED'"
-                )
-                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             return
         if schema_version != 0:
             raise RuntimeError(f"unsupported database schema version: {schema_version}")

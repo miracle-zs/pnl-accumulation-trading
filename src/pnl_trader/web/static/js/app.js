@@ -107,13 +107,24 @@ function initAccessibleTabs() {
   });
 }
 
-// Expose handlers to window for inline onclick compatibility
-window.fetchData = fetchData;
-window.switchView = switchView;
-window.selectPeriod = selectPeriod;
-window.filterTier = filterTier;
-window.handleSort = handleSort;
-window.handleSearchInput = handleSearchInput;
+function bindControls() {
+  document.getElementById('btn-refresh').addEventListener('click', () => {
+    fetchData();
+  });
+  document.querySelectorAll('.period-btn').forEach(btn => {
+    btn.addEventListener('click', () => selectPeriod(btn.dataset.period));
+  });
+  document.querySelectorAll('[role="tab"]').forEach(tab => {
+    tab.addEventListener('click', () => switchView(tab.dataset.view));
+  });
+  document.querySelectorAll('#tier-filter-group [data-tier]').forEach(btn => {
+    btn.addEventListener('click', () => filterTier(btn.dataset.tier));
+  });
+  document.getElementById('symbol-search').addEventListener('input', handleSearchInput);
+  document.querySelectorAll('.sort-header-btn').forEach(btn => {
+    btn.addEventListener('click', () => handleSort(btn.dataset.sort));
+  });
+}
 
 // Timers and Page Lifecycle Management (efficient background processing)
 let pollIntervalId = null;
@@ -160,6 +171,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+bindControls();
 initAccessibleTabs();
 initChartResizeObserver('canvas-container', () => state.chartHistoryPoints);
 fetchData();

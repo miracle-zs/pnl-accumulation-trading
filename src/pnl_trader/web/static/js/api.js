@@ -100,13 +100,13 @@ export async function fetchData() {
 
       if (eq.latest) {
         kpiEquity.textContent = `$${eq.latest.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        kpiAvailable.textContent = eq.latest.available_balance !== null ? `$${eq.latest.available_balance.toFixed(2)}` : '—';
-        kpiNotional.textContent = eq.latest.position_notional !== null ? `$${eq.latest.position_notional.toFixed(2)}` : '—';
+        kpiAvailable.textContent = `$${eq.latest.available_balance.toFixed(2)}`;
+        kpiNotional.textContent = `$${eq.latest.position_notional.toFixed(2)}`;
         kpiLeverage.textContent = eq.latest.leverage !== null ? `实际杠杆 ${eq.latest.leverage.toFixed(2)}x` : '实际杠杆 —';
 
         const unpnl = eq.latest.unrealized_pnl;
         kpiUnrealized.textContent = formatSignedUsd(unpnl);
-        kpiUnrealized.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${unpnl === null ? 'text-slate-400' : unpnl >= 0 ? 'text-emerald-400' : 'text-amber-400'}`;
+        kpiUnrealized.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${unpnl >= 0 ? 'text-emerald-400' : 'text-amber-400'}`;
       } else {
         kpiEquity.textContent = '—';
         kpiAvailable.textContent = '—';

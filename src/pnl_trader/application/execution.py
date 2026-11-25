@@ -371,9 +371,7 @@ def _validate_order_fills(
 ) -> Decimal:
     quantity = sum((fill.qty for fill in fills), ZERO)
     quote = sum((fill.price * fill.qty for fill in fills), ZERO)
-    if quantity != order.executed_qty or (
-        order.cumulative_quote is not None and quote != order.cumulative_quote
-    ):
+    if quantity != order.executed_qty or quote != order.cumulative_quote:
         raise IntentConflict("trade records do not match the exchange order")
     return quote
 

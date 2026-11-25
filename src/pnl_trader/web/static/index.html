@@ -186,7 +186,7 @@
         <span class="text-slate-400">运行时长:</span>
         <span id="trading-uptime" class="font-mono text-slate-200 font-semibold">—</span>
       </div>
-      <button id="btn-refresh" type="button" onclick="fetchData()" class="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 border border-slate-700 focus-visible:outline-2 focus-visible:outline-blue-500">
+      <button id="btn-refresh" type="button" class="bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-medium px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 border border-slate-700 focus-visible:outline-2 focus-visible:outline-blue-500">
         <svg id="refresh-icon" class="w-3.5 h-3.5 transition-transform" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
         </svg>
@@ -273,9 +273,9 @@
 
         <!-- Period Toggle Buttons -->
         <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-xs" role="group" aria-label="走势图时间跨度切换">
-          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-500" data-period="24h" aria-pressed="false" onclick="selectPeriod('24h')">24 小时</button>
-          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-500" data-period="7d" aria-pressed="true" onclick="selectPeriod('7d')">7 天</button>
-          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-500" data-period="30d" aria-pressed="false" onclick="selectPeriod('30d')">30 天</button>
+          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-500" data-period="24h" aria-pressed="false">24 小时</button>
+          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-500" data-period="7d" aria-pressed="true">7 天</button>
+          <button type="button" class="period-btn px-2.5 py-1 rounded-md text-slate-400 hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-blue-500" data-period="30d" aria-pressed="false">30 天</button>
         </div>
       </div>
 
@@ -476,13 +476,13 @@
     <!-- Header with Accessible Tablist and Filters -->
     <div class="p-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-950/40">
       <div class="flex items-center gap-2" role="tablist" aria-label="交易详情视图切换">
-        <button type="button" role="tab" id="tab-positions" aria-controls="view-positions" aria-selected="true" tabindex="0" onclick="switchView('positions')" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-500">
+        <button type="button" role="tab" id="tab-positions" data-view="positions" aria-controls="view-positions" aria-selected="true" tabindex="0" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-500">
           在管持仓监控
         </button>
-        <button type="button" role="tab" id="tab-fills" aria-controls="view-fills" aria-selected="false" tabindex="-1" onclick="switchView('fills')" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-500">
+        <button type="button" role="tab" id="tab-fills" data-view="fills" aria-controls="view-fills" aria-selected="false" tabindex="-1" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-500">
           实时成交明细
         </button>
-        <button type="button" role="tab" id="tab-ranking" aria-controls="view-ranking" aria-selected="false" tabindex="-1" onclick="switchView('ranking')" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-500">
+        <button type="button" role="tab" id="tab-ranking" data-view="ranking" aria-controls="view-ranking" aria-selected="false" tabindex="-1" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold focus-visible:outline-2 focus-visible:outline-blue-500">
           标的已实现收益榜
         </button>
       </div>
@@ -490,13 +490,13 @@
       <!-- Filter Pills & Unified Search -->
       <div id="positions-toolbar" class="flex items-center gap-2.5 flex-wrap">
         <div id="tier-filter-group" class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800 text-xs" role="group" aria-label="按层级筛选">
-          <button type="button" onclick="filterTier('ALL')" id="filter-all" class="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium focus-visible:outline-2 focus-visible:outline-blue-500">全部</button>
-          <button type="button" onclick="filterTier('T1')" id="filter-t1" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500">T1</button>
-          <button type="button" onclick="filterTier('T2')" id="filter-t2" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500">T2</button>
-          <button type="button" onclick="filterTier('T3')" id="filter-t3" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500">T3</button>
+          <button type="button" data-tier="ALL" id="filter-all" class="px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium focus-visible:outline-2 focus-visible:outline-blue-500">全部</button>
+          <button type="button" data-tier="T1" id="filter-t1" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500">T1</button>
+          <button type="button" data-tier="T2" id="filter-t2" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500">T2</button>
+          <button type="button" data-tier="T3" id="filter-t3" class="px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500">T3</button>
         </div>
 
-        <input type="search" id="symbol-search" oninput="handleSearchInput()" placeholder="搜索标的 (如 BTC, SOL)..." aria-label="搜索交易标的" autocomplete="off" spellcheck="false" enterkeyhint="search" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 w-44">
+        <input type="search" id="symbol-search" placeholder="搜索标的 (如 BTC, SOL)..." aria-label="搜索交易标的" autocomplete="off" spellcheck="false" enterkeyhint="search" class="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 w-44">
       </div>
     </div>
 
@@ -508,20 +508,20 @@
           <thead class="bg-slate-950/90 text-slate-400 uppercase tracking-wider text-[11px] sticky top-0 z-10 border-b border-slate-800 font-mono backdrop-blur-sm">
             <tr>
               <th scope="col" class="py-3 px-4 font-medium" id="th-symbol">
-                <button type="button" class="sort-header-btn" onclick="handleSort('symbol')">
+                <button type="button" class="sort-header-btn" data-sort="symbol">
                   <span>交易标的</span>
                   <span class="sort-indicator" id="sort-symbol" aria-hidden="true">↕</span>
                 </button>
               </th>
               <th scope="col" class="py-3 px-3 font-medium" id="th-tier" aria-sort="descending">
-                <button type="button" class="sort-header-btn" onclick="handleSort('tier')">
+                <button type="button" class="sort-header-btn" data-sort="tier">
                   <span>持仓层级</span>
                   <span class="sort-indicator" id="sort-tier" aria-hidden="true">▼</span>
                 </button>
               </th>
               <th scope="col" class="py-3 px-3 font-medium">持仓均价</th>
               <th scope="col" class="py-3 px-3 font-medium" id="th-scan_price">
-                <button type="button" class="sort-header-btn" onclick="handleSort('scan_price')">
+                <button type="button" class="sort-header-btn" data-sort="scan_price">
                   <span>最近巡检价格</span>
                   <span class="sort-indicator" id="sort-scan_price" aria-hidden="true">↕</span>
                 </button>
@@ -530,13 +530,13 @@
               <th scope="col" class="py-3 px-3 font-medium">准入时补仓线 / T3 出清线</th>
               <th scope="col" class="py-3 px-3 font-medium">持仓数量</th>
               <th scope="col" class="py-3 px-4 text-right font-medium" id="th-entry_notional" title="持仓数量 × 持仓均价">
-                <button type="button" class="sort-header-btn" onclick="handleSort('entry_notional')">
+                <button type="button" class="sort-header-btn" data-sort="entry_notional">
                   <span>持仓成本 (USDT)</span>
                   <span class="sort-indicator" id="sort-entry_notional" aria-hidden="true">↕</span>
                 </button>
               </th>
               <th scope="col" class="py-3 px-4 text-right font-medium" id="th-estimated_unrealized_pnl">
-                <button type="button" class="sort-header-btn" onclick="handleSort('estimated_unrealized_pnl')">
+                <button type="button" class="sort-header-btn" data-sort="estimated_unrealized_pnl">
                   <span>估算浮动盈亏</span>
                   <span class="sort-indicator" id="sort-estimated_unrealized_pnl" aria-hidden="true">↕</span>
                 </button>
