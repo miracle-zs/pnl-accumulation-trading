@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import threading
 import time
 from typing import Literal
 
@@ -14,10 +15,12 @@ from fastapi.staticfiles import StaticFiles
 
 from .service import DashboardQueryService
 
+_UPTIME_CACHE_TTL_SECONDS = 60.0
+_uptime_cache_lock = threading.Lock()
+_uptime_cache: tuple[float, int | None] | None = None
 
-def _trading_service_uptime_seconds() -> int | None:
-    """Read the trading service start time from systemd on the dashboard host."""
 
+def _query_service_start_monotonic_us() -> int | None:
     try:
         result = subprocess.run(
             (
@@ -48,7 +51,22 @@ def _trading_service_uptime_seconds() -> int | None:
         raise ValueError(
             f"active pnl-trader.service has invalid start timestamp: {started_at_monotonic_us}"
         )
-    elapsed_seconds = int(time.monotonic() - started_at_monotonic_us / 1_000_000)
+    return started_at_monotonic_us
+
+
+def _trading_service_uptime_seconds() -> int | None:
+    """Read the trading service start time from systemd, cached across dashboard polls."""
+    global _uptime_cache
+    now = time.monotonic()
+    with _uptime_cache_lock:
+        if _uptime_cache is not None and now - _uptime_cache[0] < _UPTIME_CACHE_TTL_SECONDS:
+            started_at_monotonic_us = _uptime_cache[1]
+        else:
+            started_at_monotonic_us = _query_service_start_monotonic_us()
+            _uptime_cache = (now, started_at_monotonic_us)
+    if started_at_monotonic_us is None:
+        return None
+    elapsed_seconds = int(now - started_at_monotonic_us / 1_000_000)
     if elapsed_seconds < 0:
         raise ValueError(f"computed negative service uptime: {elapsed_seconds}")
     return elapsed_seconds
@@ -65,6 +83,17 @@ def create_app(data_dir: Path | str) -> FastAPI:
         version="1.0.0",
     )
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
+
+    @app.get("/api/dashboard")
+    def get_dashboard_snapshot(
+        period: Literal["24h", "7d", "30d"] = "7d",
+        fills_limit: int = Query(default=12, ge=1, le=500),
+    ) -> dict[str, object]:
+        snapshot = service.get_dashboard_snapshot(period=period, fills_limit=fills_limit)
+        overview = snapshot["overview"]
+        assert isinstance(overview, dict)
+        overview["trading_uptime_seconds"] = _trading_service_uptime_seconds()
+        return snapshot
 
     @app.get("/api/overview")
     def get_overview() -> dict[str, object]:

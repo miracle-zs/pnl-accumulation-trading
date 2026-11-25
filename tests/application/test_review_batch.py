@@ -228,6 +228,8 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                     close_intent.intent_id,
                     expected=IntentStatus.PENDING,
                     filled_qty=opened.qty,
+                    exchange_order_id="close-order-1",
+                    cumulative_quote=D("12"),
                     updated_at_ms=260,
                 )
                 self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.REOPEN_PENDING)

@@ -30,7 +30,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_old_versions_are_rejected_without_changing_the_database(self) -> None:
-        for version in (19, 20, 21, 22, 23, 24):
+        for version in (19, 20, 21, 22, 23, 24, 25):
             with self.subTest(version=version):
                 old_path = Path(self.temp_dir.name) / f"v{version}.sqlite3"
                 with closing(sqlite3.connect(old_path)) as connection, connection:
@@ -184,6 +184,29 @@ class SQLiteStateStoreTests(unittest.TestCase):
         self.store = SQLiteStateStore(self.db_path)
 
         self.assertEqual(self.store.load_symbol_state("BTCUSDT"), state)
+
+    def test_batch_idle_init_and_dashboard_issue_sync(self) -> None:
+        states = self.store.ensure_idle_symbol_states(("BTCUSDT", "ETHUSDT"), created_at_ms=100)
+        self.assertEqual(set(states), {"BTCUSDT", "ETHUSDT"})
+
+        self.store.sync_dashboard_issues(
+            upserts={
+                "BTCUSDT": ("PRICE_MISSING", "missing", 200),
+                "ETHUSDT": ("REVIEW_ERROR", "err", 200),
+            },
+            clear_symbols=(),
+        )
+        self.store.sync_dashboard_issues(
+            upserts={"BTCUSDT": ("ORDER_REJECTED", "rejected", 300)},
+            clear_symbols=("ETHUSDT",),
+        )
+        rows = self.store._connection.execute(
+            "SELECT symbol, category, detail FROM dashboard_issues ORDER BY symbol"
+        ).fetchall()
+        self.assertEqual(
+            [(row["symbol"], row["category"], row["detail"]) for row in rows],
+            [("BTCUSDT", "ORDER_REJECTED", "rejected")],
+        )
 
     def seed_idle_symbol(self, symbol: str = "BTCUSDT") -> None:
         self.store.ensure_idle_symbol_state(symbol, created_at_ms=100)

@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
-from ..domain.models import BUY_ACTIONS, Action, Lifecycle, Observation
+from ..domain.models import BUY_ACTIONS, Action, Lifecycle, Observation, SymbolState
 from ..domain.policy import decide_strategy
 from .errors import (
     ActiveIntentConflict,
@@ -17,7 +17,7 @@ from .errors import (
     UnsupportedLeverageError,
 )
 from .execution import ExecutionCoordinator, ExecutionResult
-from .models import IntentStatus, OrderIntent
+from .models import IntentStatus, OrderIntent, PersistedOrderIntent
 from .order_planning import MarketOrderPlan, plan_market_order
 from .ports import ExchangeGatewayPort
 
@@ -67,26 +67,38 @@ class SymbolReviewExecutor:
         slot_start_ms: int,
         admitted: bool,
         price: Decimal,
+        state: SymbolState | None = None,
+        active_intent: PersistedOrderIntent | None = None,
+        active_intent_loaded: bool = False,
     ) -> SymbolReviewResult:
         """Review one action for a symbol using the slot's latest-price snapshot."""
 
-        state = self._store.load_symbol_state(symbol)
-        intent_key = f"{slot_start_ms}:{symbol}"
-        if state.lifecycle is Lifecycle.REOPEN_PENDING:
-            intent_key += ":reopen"
-        intent_id = str(uuid5(NAMESPACE_URL, f"pnl-periodic-review:{intent_key}"))
-        existing = await self._resolve_prior_symbol_intent(
-            symbol=symbol,
-            current_intent_id=intent_id,
-        )
-        if existing is not None:
-            return existing
+        if state is None:
+            state = self._store.load_symbol_state(symbol)
+        if not active_intent_loaded:
+            active_list = self._store.list_active_order_intents(symbol)
+            resolved_active: PersistedOrderIntent | None = active_list[0] if active_list else None
+        else:
+            resolved_active = active_intent
 
         observation = Observation(
             admitted=admitted,
             price=price,
         )
         decision = decide_strategy(state, observation)
+        if resolved_active is None and decision.action is Action.HOLD:
+            return SymbolReviewResult(disposition=ReviewDisposition.NO_ACTION)
+
+        intent_key = f"{slot_start_ms}:{symbol}"
+        if state.lifecycle is Lifecycle.REOPEN_PENDING:
+            intent_key += ":reopen"
+        intent_id = str(uuid5(NAMESPACE_URL, f"pnl-periodic-review:{intent_key}"))
+        existing = self._resolve_prior_symbol_intent(
+            active_record=resolved_active,
+            current_intent_id=intent_id,
+        )
+        if existing is not None:
+            return existing
         if decision.action is Action.HOLD:
             return SymbolReviewResult(disposition=ReviewDisposition.NO_ACTION)
 
@@ -157,21 +169,19 @@ class SymbolReviewExecutor:
         )
         return False
 
-    async def _resolve_prior_symbol_intent(
+    def _resolve_prior_symbol_intent(
         self,
         *,
-        symbol: str,
+        active_record: PersistedOrderIntent | None,
         current_intent_id: str,
     ) -> SymbolReviewResult | None:
-        active = self._store.list_active_order_intents(symbol)
-        if active:
-            record = active[0]
-            same_slot = record.intent.intent_id == current_intent_id
-            if record.status is IntentStatus.PREPARED:
+        if active_record is not None:
+            same_slot = active_record.intent.intent_id == current_intent_id
+            if active_record.status is IntentStatus.PREPARED:
                 if same_slot:
                     return None
                 self._store.transition_intent(
-                    record.intent.intent_id,
+                    active_record.intent.intent_id,
                     expected=IntentStatus.PREPARED,
                     target=IntentStatus.CANCELED,
                 )

@@ -1,6 +1,6 @@
 // Main Application Entry Point (ES Module)
 
-import { fetchData } from './api.js';
+import { fetchData, fetchEquity } from './api.js';
 import { initChartResizeObserver } from './chart.js';
 import {
   state,
@@ -68,7 +68,7 @@ export function selectPeriod(p) {
   document.querySelectorAll('.period-btn').forEach(btn => {
     btn.setAttribute('aria-pressed', String(btn.dataset.period === p));
   });
-  fetchData();
+  fetchEquity(p);
 }
 
 export function handleSearchInput() {

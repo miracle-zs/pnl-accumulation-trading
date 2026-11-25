@@ -149,29 +149,20 @@ class ExecutionCoordinator:
         """Backfill trade details after confirmed full closes and reopening."""
 
         for record in self._store.list_full_closes_missing_fills():
-            try:
-                order = await self._exchange.lookup_order(
-                    record.intent.symbol, record.intent.intent_id
-                )
-            except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
-                logger.warning(
-                    "full-close fills still unavailable: symbol=%s intent_id=%s error=%s",
-                    record.intent.symbol,
-                    record.intent.intent_id,
-                    type(exc).__name__,
-                )
-                continue
             if (
-                order is None
-                or order.status is not ExchangeOrderStatus.FILLED
-                or order.executed_qty != record.requested_qty
+                record.requested_qty is None
+                or record.exchange_order_id is None
+                or record.full_close_cumulative_quote is None
             ):
-                logger.warning(
-                    "full-close fills still unavailable: symbol=%s intent_id=%s error=ORDER_NOT_CONFIRMED",
-                    record.intent.symbol,
-                    record.intent.intent_id,
+                raise RuntimeError(
+                    f"confirmed full close {record.intent.intent_id} is missing exchange order metadata"
                 )
-                continue
+            order = ExchangeOrderSnapshot(
+                status=ExchangeOrderStatus.FILLED,
+                executed_qty=record.requested_qty,
+                cumulative_quote=record.full_close_cumulative_quote,
+                exchange_order_id=record.exchange_order_id,
+            )
             try:
                 fills = await self._exchange.list_order_fills(
                     record.intent.symbol, order, "SELL"
@@ -282,6 +273,8 @@ class ExecutionCoordinator:
                 intent.intent_id,
                 expected=expected_status,
                 filled_qty=order.executed_qty,
+                exchange_order_id=order.exchange_order_id,
+                cumulative_quote=order.cumulative_quote,
                 updated_at_ms=self._clock_ms(),
             )
             return ExecutionResult(intent_id=intent.intent_id, status=IntentStatus.FILLED)

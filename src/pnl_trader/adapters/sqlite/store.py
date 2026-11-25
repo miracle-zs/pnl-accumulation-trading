@@ -33,7 +33,7 @@ from ...domain.models import (
 from ...domain.transitions import apply_confirmed_execution, validate_execution_intent
 
 
-_SCHEMA_VERSION = 25
+_SCHEMA_VERSION = 26
 _SCHEMA = """
 CREATE TABLE symbol_states (
     symbol TEXT NOT NULL,
@@ -56,7 +56,9 @@ CREATE TABLE order_intents (
     status TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL,
     requested_qty TEXT,
-    full_close_confirmed_at_ms INTEGER
+    full_close_confirmed_at_ms INTEGER,
+    exchange_order_id TEXT,
+    full_close_cumulative_quote TEXT
 );
 
 CREATE UNIQUE INDEX one_active_intent_per_symbol
@@ -82,6 +84,7 @@ CREATE TABLE trade_fills (
 );
 
 CREATE INDEX trade_fills_by_time ON trade_fills(traded_at_ms);
+CREATE INDEX trade_fills_by_side_time ON trade_fills(side, traded_at_ms);
 CREATE INDEX trade_fills_by_intent ON trade_fills(intent_id);
 CREATE INDEX trade_fills_by_side_symbol_pnl ON trade_fills(side, symbol, realized_pnl);
 
@@ -141,7 +144,7 @@ class SQLiteStateStore:
             journal_mode = self._connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
             if str(journal_mode).lower() != "wal":
                 raise RuntimeError(f"SQLite did not enable WAL mode: {journal_mode}")
-            self._connection.execute("PRAGMA synchronous = FULL")
+            self._connection.execute("PRAGMA synchronous = NORMAL")
         except BaseException:
             self._connection.close()
             raise
@@ -259,6 +262,36 @@ class SQLiteStateStore:
                 symbols,
             )
 
+    def sync_dashboard_issues(
+        self,
+        *,
+        upserts: Mapping[str, tuple[str, str, int]],
+        clear_symbols: tuple[str, ...],
+    ) -> None:
+        """Apply a batch of dashboard issue upserts and clears in one transaction."""
+        if not upserts and not clear_symbols:
+            return
+        with self._transaction() as connection:
+            if upserts:
+                connection.executemany(
+                    """INSERT INTO dashboard_issues (symbol, category, detail, occurred_at_ms)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(symbol) DO UPDATE SET
+                           category = excluded.category,
+                           detail = excluded.detail,
+                           occurred_at_ms = excluded.occurred_at_ms""",
+                    (
+                        (symbol, category, detail, occurred_at_ms)
+                        for symbol, (category, detail, occurred_at_ms) in upserts.items()
+                    ),
+                )
+            if clear_symbols:
+                placeholders = ", ".join("?" for _ in clear_symbols)
+                connection.execute(
+                    f"DELETE FROM dashboard_issues WHERE symbol IN ({placeholders})",
+                    clear_symbols,
+                )
+
     def ensure_idle_symbol_state(
         self,
         symbol: str,
@@ -266,21 +299,32 @@ class SQLiteStateStore:
         created_at_ms: int,
     ) -> SymbolState:
         """Create an initial flat state once, without replacing an existing state."""
+        return self.ensure_idle_symbol_states((symbol,), created_at_ms=created_at_ms)[symbol]
 
+    def ensure_idle_symbol_states(
+        self,
+        symbols: tuple[str, ...],
+        *,
+        created_at_ms: int,
+    ) -> dict[str, SymbolState]:
+        """Batch-create initial flat states in a single transaction."""
+        if not symbols:
+            return {}
+        placeholders = ", ".join("?" for _ in symbols)
         with self._transaction() as connection:
-            connection.execute(
+            connection.executemany(
                 """INSERT OR IGNORE INTO symbol_states (
                     symbol, tier, lifecycle, qty,
                     avg_entry_price, tier_entry_qty, tier_anchor_price,
                     completed_batches, updated_at_ms
                 ) VALUES (?, 0, 'IDLE', '0', '0', '0', '0', 0, ?)""",
-                (symbol, created_at_ms),
+                ((symbol, created_at_ms) for symbol in symbols),
             )
-            row = connection.execute(
-                "SELECT * FROM symbol_states WHERE symbol = ?",
-                (symbol,),
-            ).fetchone()
-            return self._symbol_state_from_row(row)
+            rows = connection.execute(
+                f"SELECT * FROM symbol_states WHERE symbol IN ({placeholders})",
+                symbols,
+            ).fetchall()
+            return {row["symbol"]: self._symbol_state_from_row(row) for row in rows}
 
     def clear_flat_symbol_state(
         self,
@@ -453,12 +497,25 @@ class SQLiteStateStore:
                 intent=self._intent_from_row(row),
                 status=IntentStatus.FILLED,
                 requested_qty=Decimal(row["requested_qty"]),
+                exchange_order_id=row["exchange_order_id"],
+                full_close_cumulative_quote=(
+                    None
+                    if row["full_close_cumulative_quote"] is None
+                    else Decimal(row["full_close_cumulative_quote"])
+                ),
             )
             for row in rows
         )
 
     def confirm_full_close(
-        self, intent_id: str, *, expected: IntentStatus, filled_qty: Decimal, updated_at_ms: int
+        self,
+        intent_id: str,
+        *,
+        expected: IntentStatus,
+        filled_qty: Decimal,
+        exchange_order_id: str,
+        cumulative_quote: Decimal,
+        updated_at_ms: int,
     ) -> None:
         """Record a confirmed flat position before the trade ledger is available."""
 
@@ -492,9 +549,12 @@ class SQLiteStateStore:
             )
             connection.execute(
                 """UPDATE order_intents
-                   SET status = 'FILLED', full_close_confirmed_at_ms = ?
+                   SET status = 'FILLED',
+                       full_close_confirmed_at_ms = ?,
+                       exchange_order_id = ?,
+                       full_close_cumulative_quote = ?
                    WHERE intent_id = ?""",
-                (updated_at_ms, intent_id),
+                (updated_at_ms, exchange_order_id, str(cumulative_quote), intent_id),
             )
 
     def record_full_close_fills(

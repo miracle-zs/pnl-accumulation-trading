@@ -117,14 +117,17 @@ class ReconciledReviewBatchSource:
         inactive_symbols = set(signals_by_symbol) - candidate_symbols
         self._store.clear_dashboard_issues(tuple(sorted(inactive_symbols)))
 
-        candidates: list[ReviewCandidate] = []
-        for symbol in candidate_symbols:
-            if symbol not in states:
-                states[symbol] = self._store.ensure_idle_symbol_state(
-                    symbol,
+        missing_symbols = tuple(sorted(symbol for symbol in candidate_symbols if symbol not in states))
+        if missing_symbols:
+            states.update(
+                self._store.ensure_idle_symbol_states(
+                    missing_symbols,
                     created_at_ms=now_ms,
                 )
+            )
 
+        candidates: list[ReviewCandidate] = []
+        for symbol in candidate_symbols:
             admitted = signals_by_symbol[symbol].admitted
             priority = (
                 ReviewPriority.POSITION

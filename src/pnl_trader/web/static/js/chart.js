@@ -63,7 +63,6 @@ export function renderRetinaChart(points) {
 
   const isPositive = points[points.length - 1].equity >= points[0].equity;
   const themeColor = isPositive ? '#10b981' : '#f43f5e';
-  const shadowColor = isPositive ? 'rgba(16, 185, 129, 0.4)' : 'rgba(244, 63, 94, 0.4)';
   const gradColorTop = isPositive ? 'rgba(16, 185, 129, 0.22)' : 'rgba(244, 63, 94, 0.22)';
   const gradColorBottom = isPositive ? 'rgba(16, 185, 129, 0.0)' : 'rgba(244, 63, 94, 0.0)';
 
@@ -122,8 +121,6 @@ export function renderRetinaChart(points) {
   ctx.strokeStyle = themeColor;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.shadowColor = shadowColor;
-  ctx.shadowBlur = 8;
   ctx.stroke();
 
   // Area Fill
@@ -138,7 +135,6 @@ export function renderRetinaChart(points) {
   grad.addColorStop(0, gradColorTop);
   grad.addColorStop(1, gradColorBottom);
   ctx.fillStyle = grad;
-  ctx.shadowBlur = 0;
   ctx.fill();
   ctx.restore();
 
@@ -222,8 +218,15 @@ export function setupCanvasHover(canvas, points, getX, getY) {
 
 export function initChartResizeObserver(containerId, getPoints) {
   const containerEl = document.getElementById(containerId);
+  let frameId = null;
   const observer = new ResizeObserver(() => {
-    renderRetinaChart(getPoints());
+    if (frameId !== null) {
+      cancelAnimationFrame(frameId);
+    }
+    frameId = requestAnimationFrame(() => {
+      frameId = null;
+      renderRetinaChart(getPoints());
+    });
   });
   observer.observe(containerEl);
   return observer;

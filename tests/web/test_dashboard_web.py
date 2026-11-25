@@ -55,6 +55,7 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             );
 
             CREATE INDEX trade_fills_by_time ON trade_fills(traded_at_ms);
+            CREATE INDEX trade_fills_by_side_time ON trade_fills(side, traded_at_ms);
 
             CREATE TABLE order_intents (
                 intent_id TEXT PRIMARY KEY,
@@ -337,6 +338,29 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(css.status_code, 200)
         self.assertEqual(js.status_code, 200)
         self.assertIn("javascript", js.headers.get("content-type", ""))
+
+    async def test_dashboard_snapshot_endpoint_returns_consistent_bundle_and_refreshes_cache(self) -> None:
+        self._init_sample_db()
+        app = create_app(data_dir=self._data_dir)
+        with patch("pnl_trader.clock.time.time_ns", return_value=1700000000000 * 1_000_000):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                snap1 = (await client.get("/api/dashboard?period=24h&fills_limit=12")).json()
+                self.assertEqual(snap1["overview"]["active_positions_count"], len(snap1["positions"]))
+                self.assertEqual(snap1["tier_distribution"]["total"], len(snap1["positions"]))
+                self.assertAlmostEqual(snap1["overview"]["realized_cash"], 5.97)
+                self.assertEqual(len(snap1["sell_fills"]), 1)
+                self.assertEqual(snap1["buy_fills"], [])
+
+                with closing(sqlite3.connect(self._db_path)) as connection, connection:
+                    connection.execute(
+                        "INSERT INTO trade_fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        ("ETHUSDT", "t-9", "SELL", "3000.0", "0.01", "4.0", "0.0", "USDT", 1700000000010, "intent-9"),
+                    )
+
+                snap2 = (await client.get("/api/dashboard?period=24h&fills_limit=12")).json()
+                self.assertEqual(snap2["overview"]["fill_count"], 2)
+                self.assertAlmostEqual(snap2["overview"]["realized_cash"], 9.97)
+                self.assertEqual(len(snap2["sell_fills"]), 2)
 
 
 if __name__ == "__main__":

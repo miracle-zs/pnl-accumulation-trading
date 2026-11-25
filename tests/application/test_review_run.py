@@ -256,6 +256,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                 await recovery.recover_full_close_fills()
                 await recovery.recover_full_close_fills()
                 self.assertEqual(store.list_full_closes_missing_fills(), ())
+                self.assertEqual(exchange.lookup_calls, 0)
                 self.assertEqual(store.load_symbol_state("BTCUSDT").tier, Tier.T1)
                 self.assertEqual(DashboardQueryService(database_path).get_overview()["pending_close_fill_count"], 0)
             finally:
@@ -394,6 +395,7 @@ class _FilledExchange:
         self.submitted_sides: list[str] = []
         self.submitted_requests: list[MarketOrderRequest] = []
         self.events: list[str] = []
+        self.lookup_calls = 0
         self.close_fills_available = True
         self._fills_by_exchange_order_id: dict[str, tuple[TradeFillRecord, ...]] = {}
         self._order_snapshots: dict[str, ExchangeOrderSnapshot] = {}
@@ -460,6 +462,7 @@ class _FilledExchange:
         symbol: str,
         client_order_id: str,
     ) -> ExchangeOrderSnapshot | None:
+        self.lookup_calls += 1
         return self._order_snapshots.get(client_order_id)
 
     async def list_order_fills(

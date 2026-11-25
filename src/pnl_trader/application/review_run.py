@@ -56,53 +56,27 @@ def _log_execution_issue(symbol: str, result: ExecutionResult | None) -> None:
     )
 
 
-def _save_review_result_issue(
-    store: SQLiteStateStore,
-    *,
-    symbol: str,
+def _extract_review_issue(
     result: SymbolReviewResult,
+    *,
     occurred_at_ms: int,
-) -> bool:
+) -> tuple[str, str, int] | None:
     disposition = result.disposition
     if disposition is ReviewDisposition.LEVERAGE_UNAVAILABLE:
-        store.record_dashboard_issue(
-            symbol=symbol,
-            category=disposition.value,
-            detail="币安不支持 10x、5x 或 3x 杠杆，已跳过开仓",
-            occurred_at_ms=occurred_at_ms,
-        )
-        return False
+        return (disposition.value, "币安不支持 10x、5x 或 3x 杠杆，已跳过开仓", occurred_at_ms)
     if disposition is ReviewDisposition.INTENT_CONFLICT:
-        store.record_dashboard_issue(
-            symbol=symbol,
-            category=disposition.value,
-            detail="本地订单意图与策略状态冲突",
-            occurred_at_ms=occurred_at_ms,
-        )
-        return False
+        return (disposition.value, "本地订单意图与策略状态冲突", occurred_at_ms)
     if disposition is ReviewDisposition.ORDER_PENDING:
-        store.record_dashboard_issue(
-            symbol=symbol,
-            category=disposition.value,
-            detail="上一笔订单仍在等待币安确认",
-            occurred_at_ms=occurred_at_ms,
-        )
-        return False
+        return (disposition.value, "上一笔订单仍在等待币安确认", occurred_at_ms)
     if disposition is ReviewDisposition.NO_ACTION:
-        return True
+        return None
     execution = result.execution
     if execution is None:
         raise RuntimeError(f"{disposition.value} result is missing its execution")
     if execution.status not in _EXECUTION_ISSUE_STATUSES:
-        return True
+        return None
     detail = execution.detail or f"订单状态：{execution.status.value}"
-    store.record_dashboard_issue(
-        symbol=symbol,
-        category=f"ORDER_{execution.status.value}",
-        detail=detail,
-        occurred_at_ms=occurred_at_ms,
-    )
-    return False
+    return (f"ORDER_{execution.status.value}", detail, occurred_at_ms)
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,17 +181,24 @@ class ReviewRunCoordinator:
             batch.candidates,
             key=lambda candidate: (candidate.priority, candidate.symbol),
         )
+        states_by_symbol = {
+            state.symbol: state for state in self._store.list_symbol_states()
+        }
+        active_intents_by_symbol = {
+            record.intent.symbol: record
+            for record in self._store.list_active_order_intents()
+        }
+        issue_upserts: dict[str, tuple[str, str, int]] = {}
         resolved_symbols: set[str] = set()
 
         for candidate in ordered:
             price = latest_prices.get(candidate.symbol)
             if price is None:
                 logger.error("latest price missing for symbol=%s", candidate.symbol)
-                self._store.record_dashboard_issue(
-                    symbol=candidate.symbol,
-                    category="PRICE_MISSING",
-                    detail="本轮未获取到该标的最新价",
-                    occurred_at_ms=self._clock_ms(),
+                issue_upserts[candidate.symbol] = (
+                    "PRICE_MISSING",
+                    "本轮未获取到该标的最新价",
+                    self._clock_ms(),
                 )
                 counts["ERROR"] += 1
                 continue
@@ -227,16 +208,17 @@ class ReviewRunCoordinator:
                     slot_start_ms=batch.slot_start_ms,
                     admitted=candidate.admitted,
                     price=price,
+                    state=states_by_symbol[candidate.symbol],
+                    active_intent=active_intents_by_symbol.get(candidate.symbol),
+                    active_intent_loaded=True,
                 )
                 counts[result.disposition.value] += 1
                 _log_execution_issue(candidate.symbol, result.execution)
-                if _save_review_result_issue(
-                    self._store,
-                    symbol=candidate.symbol,
-                    result=result,
-                    occurred_at_ms=self._clock_ms(),
-                ):
+                issue = _extract_review_issue(result, occurred_at_ms=self._clock_ms())
+                if issue is None:
                     resolved_symbols.add(candidate.symbol)
+                else:
+                    issue_upserts[candidate.symbol] = issue
                 if (
                     result.plan is not None
                     and result.plan.action in FULL_CLOSE_ACTIONS
@@ -251,26 +233,27 @@ class ReviewRunCoordinator:
                             slot_start_ms=batch.slot_start_ms,
                             admitted=candidate.admitted,
                             price=price,
+                            state=state,
+                            active_intent=None,
+                            active_intent_loaded=True,
                         )
                         counts[reopen_result.disposition.value] += 1
                         _log_execution_issue(candidate.symbol, reopen_result.execution)
-                        if _save_review_result_issue(
-                            self._store,
-                            symbol=candidate.symbol,
-                            result=reopen_result,
-                            occurred_at_ms=self._clock_ms(),
-                        ):
+                        reopen_issue = _extract_review_issue(
+                            reopen_result, occurred_at_ms=self._clock_ms()
+                        )
+                        if reopen_issue is None:
                             resolved_symbols.add(candidate.symbol)
                         else:
                             resolved_symbols.discard(candidate.symbol)
+                            issue_upserts[candidate.symbol] = reopen_issue
             except OrderBelowMinimum as exc:
                 resolved_symbols.discard(candidate.symbol)
                 logger.warning("symbol order below exchange minimum: symbol=%s reason=%s", candidate.symbol, exc)
-                self._store.record_dashboard_issue(
-                    symbol=candidate.symbol,
-                    category="ORDER_BELOW_MINIMUM",
-                    detail=str(exc),
-                    occurred_at_ms=self._clock_ms(),
+                issue_upserts[candidate.symbol] = (
+                    "ORDER_BELOW_MINIMUM",
+                    str(exc),
+                    self._clock_ms(),
                 )
                 counts["ERROR"] += 1
             except (OrderRuleUnavailable, ExchangeOperationError) as exc:
@@ -280,14 +263,16 @@ class ReviewRunCoordinator:
                     candidate.symbol,
                     exc,
                 )
-                self._store.record_dashboard_issue(
-                    symbol=candidate.symbol,
-                    category="REVIEW_ERROR",
-                    detail="本轮处理异常，请查看服务日志",
-                    occurred_at_ms=self._clock_ms(),
+                issue_upserts[candidate.symbol] = (
+                    "REVIEW_ERROR",
+                    "本轮处理异常，请查看服务日志",
+                    self._clock_ms(),
                 )
                 counts["ERROR"] += 1
-        self._store.clear_dashboard_issues(tuple(sorted(resolved_symbols)))
+        self._store.sync_dashboard_issues(
+            upserts=issue_upserts,
+            clear_symbols=tuple(sorted(resolved_symbols)),
+        )
         return ReviewRunResult(
             candidate_count=len(batch.candidates),
             result_counts=tuple(sorted(counts.items())),

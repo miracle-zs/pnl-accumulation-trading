@@ -58,6 +58,8 @@ class PersistedOrderIntent:
     intent: OrderIntent
     status: IntentStatus
     requested_qty: Decimal | None
+    exchange_order_id: str | None = None
+    full_close_cumulative_quote: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
