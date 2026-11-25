@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..clock import current_epoch_ms
 from ..domain.models import BUY_ACTIONS, Lifecycle, SymbolState, ZERO
-from .execution_models import PersistedOrderIntent
-from .position_models import ExchangePosition
-from .review_run_models import ReviewBatch, ReviewCandidate, ReviewPriority
+from .models import (
+    ExchangePosition,
+    PersistedOrderIntent,
+    ReviewBatch,
+    ReviewCandidate,
+    ReviewPriority,
+)
 from .ports import (
     PositionSnapshotPort,
     ReviewSignalSourcePort,
-    StateStorePort,
 )
+
+if TYPE_CHECKING:
+    from ..adapters.sqlite.store import SQLiteStateStore
 
 
 _MANAGED_LIFECYCLES = {
@@ -38,7 +44,7 @@ class ReconciledReviewBatchSource:
     def __init__(
         self,
         *,
-        store: StateStorePort,
+        store: SQLiteStateStore,
         positions: PositionSnapshotPort,
         signals: ReviewSignalSourcePort,
         clock_ms: Callable[[], int] | None = None,
@@ -114,10 +120,6 @@ class ReconciledReviewBatchSource:
         candidates: list[ReviewCandidate] = []
         for symbol in candidate_symbols:
             if symbol not in states:
-                if symbol in positions_by_symbol or symbol in intents_by_symbol:
-                    raise RuntimeError(
-                        f"exchange activity for {symbol} has no initialized local state"
-                    )
                 states[symbol] = self._store.ensure_idle_symbol_state(
                     symbol,
                     created_at_ms=now_ms,

@@ -6,19 +6,23 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 import logging
+from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, uuid5
 
 from ..domain.models import BUY_ACTIONS, Action, Lifecycle, Observation
 from ..domain.policy import decide_strategy
-from .execution import ExecutionCoordinator, ExecutionResult
-from .exchange_errors import UnsupportedLeverageError
-from .execution_models import IntentStatus, OrderIntent
-from .order_planning import MarketOrderPlan, plan_market_order
-from .ports import ExchangeGatewayPort, StateStorePort
-from .store_errors import (
+from .errors import (
     ActiveIntentConflict,
     IntentConflict,
+    UnsupportedLeverageError,
 )
+from .execution import ExecutionCoordinator, ExecutionResult
+from .models import IntentStatus, OrderIntent
+from .order_planning import MarketOrderPlan, plan_market_order
+from .ports import ExchangeGatewayPort
+
+if TYPE_CHECKING:
+    from ..adapters.sqlite.store import SQLiteStateStore
 
 logger = logging.getLogger(__name__)
 LEVERAGE_PREFERENCE = (10, 5, 3)
@@ -46,7 +50,7 @@ class SymbolReviewExecutor:
     def __init__(
         self,
         *,
-        store: StateStorePort,
+        store: SQLiteStateStore,
         exchange: ExchangeGatewayPort,
         execution: ExecutionCoordinator,
     ) -> None:

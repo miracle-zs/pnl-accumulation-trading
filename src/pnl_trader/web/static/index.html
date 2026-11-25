@@ -95,14 +95,6 @@
       border-color: #0284c7;
     }
 
-    /* Container Queries for Modular Responsive Components */
-    .kpi-container {
-      container-type: inline-size;
-    }
-    .table-container {
-      container-type: inline-size;
-    }
-
     /* Accessible Sortable Headers */
     .sort-header-btn {
       width: 100%;
@@ -155,13 +147,8 @@
       border-width: 0;
     }
 
-    /* Motion & View Transition Reduced Motion Safety */
+    /* Motion Reduced Motion Safety */
     @media (prefers-reduced-motion: reduce) {
-      ::view-transition-group(*),
-      ::view-transition-old(*),
-      ::view-transition-new(*) {
-        animation: none !important;
-      }
       *, *::before, *::after {
         animation-duration: 0.001ms !important;
         animation-iteration-count: 1 !important;
@@ -171,9 +158,6 @@
   </style>
 </head>
 <body class="min-h-screen p-4 md:p-6 lg:p-8 flex flex-col gap-6 max-w-7xl mx-auto">
-
-  <!-- Screen Reader Live Status for Dynamic Sort & Updates -->
-  <div id="sr-announcer" role="status" aria-live="polite" class="sr-only"></div>
 
   <!-- Top Navigation Header -->
   <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-5 border-b border-slate-800/80 gap-4">
@@ -214,7 +198,7 @@
   <!-- 4 Core Metric Cards (KPI Ribbon with Container Query Support) -->
   <section class="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-label="核心指标">
     <!-- Card 1: Total Equity -->
-    <div class="kpi-container bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
       <div class="flex items-center justify-between text-xs text-slate-400">
         <span>账户总权益</span>
         <span id="equity-change-badge" class="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">—</span>
@@ -230,7 +214,7 @@
     </div>
 
     <!-- Card 2: Realized Net Cash -->
-    <div class="kpi-container bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
       <div class="flex items-center justify-between text-xs text-slate-400">
         <div class="flex items-center gap-1">
           <span>累计已实现净盈亏</span>
@@ -249,7 +233,7 @@
     </div>
 
     <!-- Card 3: Floating Unrealized PnL -->
-    <div class="kpi-container bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
       <div class="flex items-center justify-between text-xs text-slate-400">
         <span>持仓浮动盈亏</span>
         <span id="kpi-active-symbols" class="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 font-mono">—</span>
@@ -265,7 +249,7 @@
     </div>
 
     <!-- Card 4: Position Notional & Leverage -->
-    <div class="kpi-container bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
+    <div class="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 flex flex-col justify-between transition-colors shadow-sm">
       <div class="flex items-center justify-between text-xs text-slate-400">
         <span>持仓名义总额</span>
         <span id="kpi-actual-leverage" class="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-mono">—</span>
@@ -411,7 +395,7 @@
         </div>
         <span id="losers-count" class="text-xs text-slate-500 font-mono">—</span>
       </div>
-      <div tabindex="0" role="region" aria-label="浮亏持仓列表" class="table-container overflow-x-auto custom-scrollbar">
+      <div tabindex="0" role="region" aria-label="浮亏持仓列表" class="overflow-x-auto custom-scrollbar">
         <table class="w-full text-xs min-w-[420px]">
           <thead class="text-[11px] text-slate-500 border-b border-slate-800">
             <tr>
@@ -517,7 +501,7 @@
     </div>
 
     <!-- View 1: Positions Table (Semantic Table with Container Query & Accessible Sortable Headers) -->
-    <div id="view-positions" role="tabpanel" aria-labelledby="tab-positions" tabindex="0" class="table-container">
+    <div id="view-positions" role="tabpanel" aria-labelledby="tab-positions" tabindex="0">
       <div tabindex="0" role="region" aria-labelledby="positions-caption" class="overflow-x-auto custom-scrollbar max-h-96">
         <table class="w-full text-left text-xs min-w-[760px] border-separate border-spacing-0">
           <caption id="positions-caption" class="sr-only">在管合约持仓监控数据表</caption>

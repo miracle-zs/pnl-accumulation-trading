@@ -1,10 +1,14 @@
 // Main Application Entry Point (ES Module)
 
-import { state } from './state.js';
 import { fetchData } from './api.js';
 import { initChartResizeObserver } from './chart.js';
-import { renderPositions, handleSort, filterTier } from './tables.js';
-import { renderFills } from './fills.js';
+import {
+  state,
+  renderPositions,
+  handleSort,
+  filterTier,
+  renderFills,
+} from './renderers.js';
 
 // Countdown & 15-Minute Boundary Refresh
 let lastReviewSlot = Math.floor(Date.now() / 900000);
@@ -38,33 +42,24 @@ function renderTradingUptime() {
   uptimeEl.textContent = `${days}天 ${hours}小时 ${minutes}分`;
 }
 
-// View Transitions-enhanced view switcher with ARIA tab semantics
 export function switchView(view) {
-  const applyViewChange = () => {
-    state.currentView = view;
-    const tabs = ['positions', 'fills', 'ranking'];
-    tabs.forEach(v => {
-      const btn = document.getElementById(`tab-${v}`);
-      const el = document.getElementById(`view-${v}`);
-      const isSelected = (v === view);
-      btn.setAttribute('aria-selected', String(isSelected));
-      btn.tabIndex = isSelected ? 0 : -1;
-      el.classList.toggle('hidden', !isSelected);
-    });
+  state.currentView = view;
+  const tabs = ['positions', 'fills', 'ranking'];
+  tabs.forEach(v => {
+    const btn = document.getElementById(`tab-${v}`);
+    const el = document.getElementById(`view-${v}`);
+    const isSelected = (v === view);
+    btn.setAttribute('aria-selected', String(isSelected));
+    btn.tabIndex = isSelected ? 0 : -1;
+    el.classList.toggle('hidden', !isSelected);
+  });
 
-    document.getElementById('tier-filter-group').style.display = (view === 'positions') ? 'inline-flex' : 'none';
-    document.getElementById('positions-toolbar').style.display = (view === 'positions' || view === 'fills') ? 'flex' : 'none';
-    document.getElementById('position-footer').classList.toggle('hidden', view !== 'positions');
+  document.getElementById('tier-filter-group').style.display = (view === 'positions') ? 'inline-flex' : 'none';
+  document.getElementById('positions-toolbar').style.display = (view === 'positions' || view === 'fills') ? 'flex' : 'none';
+  document.getElementById('position-footer').classList.toggle('hidden', view !== 'positions');
 
-    if (view === 'fills') {
-      renderFills(state.rawBuyFills, state.rawSellFills);
-    }
-  };
-
-  if (!document.startViewTransition) {
-    applyViewChange();
-  } else {
-    document.startViewTransition(applyViewChange);
+  if (view === 'fills') {
+    renderFills(state.rawBuyFills, state.rawSellFills);
   }
 }
 
@@ -165,17 +160,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Application Initialization
-function init() {
-  initAccessibleTabs();
-  initChartResizeObserver('canvas-container', () => state.chartHistoryPoints);
-
-  fetchData();
-  startTimers();
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
-}
+initAccessibleTabs();
+initChartResizeObserver('canvas-container', () => state.chartHistoryPoints);
+fetchData();
+startTimers();

@@ -5,16 +5,17 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..clock import current_epoch_ms
 from ..domain.models import BUY_ACTIONS, FULL_CLOSE_ACTIONS, ExecutionReceipt, TradeFillRecord, ZERO
-from .exchange_errors import (
+from .errors import (
     ExchangeAccessError,
     ExchangeOperationError,
     ExchangeResponseError,
+    IntentConflict,
 )
-from .execution_models import (
+from .models import (
     ExchangeOrderSnapshot,
     ExchangeOrderStatus,
     IntentStatus,
@@ -23,8 +24,10 @@ from .execution_models import (
     PersistedOrderIntent,
     SubmissionCertainty,
 )
-from .ports import ExchangeGatewayPort, StateStorePort
-from .store_errors import IntentConflict
+from .ports import ExchangeGatewayPort
+
+if TYPE_CHECKING:
+    from ..adapters.sqlite.store import SQLiteStateStore
 
 
 logger = logging.getLogger(__name__)
@@ -49,7 +52,7 @@ class ExecutionCoordinator:
     def __init__(
         self,
         *,
-        store: StateStorePort,
+        store: SQLiteStateStore,
         exchange: ExchangeGatewayPort,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
@@ -128,8 +131,7 @@ class ExecutionCoordinator:
                 detail=submission.detail,
             )
         order = submission.order
-        if order is None:
-            raise RuntimeError("accepted order submission has no order snapshot")
+        assert order is not None
         return await self._consume_order_snapshot(
             intent,
             requested_qty,
@@ -298,11 +300,11 @@ class ExecutionCoordinator:
                 detail=f"terminal order fills are not yet available ({type(exc).__name__})",
             )
 
-        _validate_order_fills(order, fills)
+        quote_qty = _validate_order_fills(order, fills)
         receipt = ExecutionReceipt(
             action=intent.action,
             filled_qty=order.executed_qty,
-            quote_qty=sum((fill.price * fill.qty for fill in fills), ZERO),
+            quote_qty=quote_qty,
             target_cumulative_sold_qty=intent.target_cumulative_sold_qty,
         )
         terminal_status = _TERMINAL_STATUS_BY_EXCHANGE[order.status]
@@ -366,13 +368,14 @@ class ExecutionCoordinator:
 
 def _validate_order_fills(
     order: ExchangeOrderSnapshot, fills: tuple[TradeFillRecord, ...]
-) -> None:
+) -> Decimal:
     quantity = sum((fill.qty for fill in fills), ZERO)
     quote = sum((fill.price * fill.qty for fill in fills), ZERO)
     if quantity != order.executed_qty or (
         order.cumulative_quote is not None and quote != order.cumulative_quote
     ):
         raise IntentConflict("trade records do not match the exchange order")
+    return quote
 
 
 _TERMINAL_STATUS_BY_EXCHANGE = {

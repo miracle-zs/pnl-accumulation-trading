@@ -1,110 +1,23 @@
-"""Interfaces consumed by application workflows."""
+"""External seam protocols consumed by application workflows."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 from typing import Mapping, Protocol
 
-from ..domain.models import ExecutionReceipt, SymbolState, TradeFillRecord
-from .account_models import AccountSnapshot
-from .market_models import (
+from ..domain.models import TradeFillRecord
+from .models import (
+    AccountSnapshot,
     ExchangeInstrument,
-    InstrumentRules,
-)
-from .position_models import ExchangePosition
-from .review_batch_models import ReviewSignal
-from .review_run_models import ReviewBatch
-from .execution_models import (
     ExchangeOrderSnapshot,
-    IntentStatus,
+    ExchangePosition,
+    InstrumentRules,
     MarketOrderRequest,
     OrderSide,
-    OrderIntent,
-    PersistedOrderIntent,
+    ReviewBatch,
+    ReviewSignal,
     SubmissionResult,
 )
-
-
-class StateStorePort(Protocol):
-    def load_symbol_state(self, symbol: str) -> SymbolState: ...
-
-    def list_symbol_states(self) -> tuple[SymbolState, ...]: ...
-
-    def ensure_idle_symbol_state(
-        self, symbol: str, *, created_at_ms: int
-    ) -> SymbolState: ...
-
-    def clear_flat_symbol_state(
-        self, symbol: str, *, updated_at_ms: int
-    ) -> SymbolState: ...
-
-    def record_account_equity_snapshot(
-        self,
-        *,
-        captured_at_ms: int,
-        snapshot: AccountSnapshot,
-    ) -> None: ...
-
-    def record_market_prices(
-        self, prices: Mapping[str, Decimal], *, captured_at_ms: int
-    ) -> None: ...
-
-    def record_dashboard_issue(
-        self, *, symbol: str, category: str, detail: str, occurred_at_ms: int
-    ) -> None: ...
-
-    def clear_dashboard_issues(self, symbols: tuple[str, ...]) -> None: ...
-
-    def create_order_intent(
-        self,
-        intent: OrderIntent,
-    ) -> None: ...
-
-    def create_order_attempt(self, intent_id: str, *, requested_qty: Decimal) -> None: ...
-
-    def list_active_order_intents(
-        self,
-        symbol: str | None = None,
-    ) -> tuple[PersistedOrderIntent, ...]: ...
-
-    def list_full_closes_missing_fills(self) -> tuple[PersistedOrderIntent, ...]: ...
-
-    def confirm_full_close(
-        self, intent_id: str, *, expected: IntentStatus, filled_qty: Decimal, updated_at_ms: int
-    ) -> None: ...
-
-    def record_full_close_fills(
-        self, intent_id: str, fills: tuple[TradeFillRecord, ...]
-    ) -> None: ...
-
-    def get_intent_status(self, intent_id: str) -> IntentStatus | None: ...
-
-    def transition_intent(
-        self,
-        intent_id: str,
-        *,
-        expected: IntentStatus,
-        target: IntentStatus,
-    ) -> None: ...
-
-    def commit_confirmed_execution(
-        self,
-        *,
-        intent_id: str,
-        receipt: ExecutionReceipt,
-        fills: tuple[TradeFillRecord, ...],
-        expected_intent_status: IntentStatus,
-        terminal_status: IntentStatus,
-        updated_at_ms: int,
-    ) -> None: ...
-
-    def resolve_no_fill(
-        self,
-        intent_id: str,
-        *,
-        expected: IntentStatus,
-        terminal_status: IntentStatus,
-    ) -> None: ...
 
 
 class AlertNotifierPort(Protocol):
@@ -117,6 +30,14 @@ class ExchangeGatewayPort(Protocol):
     async def reserve_order_submission(self) -> None: ...
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules: ...
+
+    async def get_exchange_info_snapshot(self) -> tuple[ExchangeInstrument, ...]: ...
+
+    async def get_latest_prices(self) -> Mapping[str, Decimal]: ...
+
+    async def get_position_snapshot(self) -> tuple[ExchangePosition, ...]: ...
+
+    async def get_account_snapshot(self) -> AccountSnapshot: ...
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult: ...
 
@@ -136,14 +57,6 @@ class ExchangeGatewayPort(Protocol):
 
 class PositionSnapshotPort(Protocol):
     async def get_position_snapshot(self) -> tuple[ExchangePosition, ...]: ...
-
-
-class AccountEquitySnapshotPort(Protocol):
-    async def get_account_snapshot(self) -> AccountSnapshot: ...
-
-
-class MarketPriceSnapshotPort(Protocol):
-    async def get_latest_prices(self) -> Mapping[str, Decimal]: ...
 
 
 class ExchangeInstrumentCatalogPort(Protocol):

@@ -1,18 +1,19 @@
 // API Fetching and Data Synchronization Service
 
-import { state } from './state.js';
-import { formatSignedUsd } from './formatters.js';
 import { renderRetinaChart } from './chart.js';
-import { renderPositions } from './tables.js';
 import {
+  state,
+  formatSignedUsd,
+  renderPositions,
   updatePositionStatusKpi,
   renderDrawdown,
   renderLosingPositions,
   renderTierExposure,
   renderCosts,
   renderExecutionIssues,
-} from './analytics.js';
-import { renderFills, renderRanking } from './fills.js';
+  renderFills,
+  renderRanking,
+} from './renderers.js';
 
 let activeAbortController = null;
 

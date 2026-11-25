@@ -1,10 +1,10 @@
-"""Stable application values shared by execution and persistence adapters."""
+"""Application-level values shared across workflows and adapters."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
-from enum import Enum
+from decimal import Decimal, ROUND_FLOOR
+from enum import Enum, IntEnum
 from typing import Literal
 
 from ..domain.models import BUY_ACTIONS, CLOSE_ACTIONS, Action, ZERO
@@ -130,3 +130,105 @@ class SubmissionResult:
             and self.order.status is ExchangeOrderStatus.REJECTED
         ):
             raise ValueError("a rejected order must use definitive REJECTED certainty")
+
+
+@dataclass(frozen=True, slots=True)
+class MarketQuantityRules:
+    """The effective quantity grid for a MARKET order."""
+
+    min_qty: Decimal
+    max_qty: Decimal
+    step_size: Decimal
+
+    def __post_init__(self) -> None:
+        if self.min_qty <= ZERO or self.max_qty < self.min_qty:
+            raise ValueError("quantity limits must be positive and ordered")
+        if self.step_size <= ZERO:
+            raise ValueError("step_size must be positive")
+
+    def align_down(self, requested_qty: Decimal) -> Decimal:
+        """Return the greatest allowed quantity <= requested_qty, or zero if none fits."""
+
+        if requested_qty < self.min_qty:
+            return ZERO
+        steps = ((requested_qty - self.min_qty) / self.step_size).to_integral_value(
+            rounding=ROUND_FLOOR
+        )
+        return self.min_qty + steps * self.step_size
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentRules:
+    """Normalized contract eligibility and market-order constraints."""
+
+    symbol: str
+    contract_type: str
+    status: str
+    quote_asset: str
+    margin_asset: str
+    market_quantity: MarketQuantityRules
+    min_market_notional: Decimal
+
+    def __post_init__(self) -> None:
+        if self.min_market_notional <= ZERO:
+            raise ValueError("min_market_notional must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeInstrument:
+    """ExchangeInfo metadata for one contract, with optional usable order rules."""
+
+    symbol: str
+    quote_asset: str
+    margin_asset: str
+    contract_type: str
+    status: str
+    underlying_type: str
+    underlying_sub_types: tuple[str, ...]
+    rules: InstrumentRules | None
+
+
+@dataclass(frozen=True, slots=True)
+class AccountSnapshot:
+    equity: Decimal
+    unrealized_pnl: Decimal
+    available_balance: Decimal
+    position_notional: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangePosition:
+    """One position-risk row; amount keeps the exchange's signed direction."""
+
+    symbol: str
+    position_side: str
+    position_amt: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewSignal:
+    symbol: str
+    admitted: bool
+    delisted: bool = False
+
+
+class ReviewPriority(IntEnum):
+    POSITION = 0
+    ENTRY = 1
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewCandidate:
+    """One symbol's entry signal and batch-level review priority."""
+
+    symbol: str
+    admitted: bool
+    priority: ReviewPriority
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewBatch:
+    """Candidate set for one 15-minute review slot."""
+
+    slot_start_ms: int
+    candidates: tuple[ReviewCandidate, ...]

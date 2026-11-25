@@ -1,7 +1,7 @@
 from decimal import Decimal
 import unittest
 
-from pnl_trader.application.market_models import InstrumentRules, MarketQuantityRules
+from pnl_trader.application.models import InstrumentRules, MarketQuantityRules
 from pnl_trader.application.order_planning import OrderRuleUnavailable, plan_market_order
 from pnl_trader.domain import (
     Action, Decision, Lifecycle, Observation, SymbolState, Tier, decide_strategy,

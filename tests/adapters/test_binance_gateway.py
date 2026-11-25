@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, call, patch
 import httpx
 
 from pnl_trader.adapters.binance.gateway import BinanceFuturesGateway, BinanceProtocolError
-from pnl_trader.application.execution_models import (
+from pnl_trader.application.models import (
     ExchangeOrderStatus,
     MarketOrderRequest,
     SubmissionCertainty,

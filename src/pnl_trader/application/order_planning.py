@@ -15,7 +15,7 @@ from ..domain.models import (
     SymbolState,
     ZERO,
 )
-from .market_models import InstrumentRules
+from .models import InstrumentRules
 
 
 class OrderRuleUnavailable(ValueError):

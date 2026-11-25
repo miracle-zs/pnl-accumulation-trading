@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from pnl_trader.credentials import optional_secret, require_secret
+from pnl_trader.runtime import optional_secret, require_secret
 
 
 class CredentialLoadingTests(unittest.TestCase):

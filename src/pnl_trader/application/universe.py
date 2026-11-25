@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from .models import ReviewSignal
 from .ports import ExchangeInstrumentCatalogPort
-from .review_batch_models import ReviewSignal
 
 
 _DELISTING_STATUSES = frozenset({

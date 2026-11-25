@@ -7,30 +7,26 @@ import tempfile
 import unittest
 
 from pnl_trader.adapters.sqlite import SQLiteStateStore
-from pnl_trader.application.account_models import AccountSnapshot
-from pnl_trader.application.exchange_errors import ExchangeOperationError
+from pnl_trader.application.errors import ExchangeOperationError
 from pnl_trader.application.execution import ExecutionCoordinator
-from pnl_trader.application.execution_models import (
+from pnl_trader.application.models import (
+    AccountSnapshot,
     ExchangeOrderSnapshot,
     ExchangeOrderStatus,
-    MarketOrderRequest,
-    SubmissionCertainty,
-    SubmissionResult,
-)
-from pnl_trader.application.market_models import (
+    ExchangePosition,
     InstrumentRules,
+    MarketOrderRequest,
     MarketQuantityRules,
-)
-from pnl_trader.application.position_models import ExchangePosition
-from pnl_trader.application.review_batch import ReconciledReviewBatchSource
-from pnl_trader.application.review_batch_models import ReviewSignal
-from pnl_trader.application.review_executor import SymbolReviewExecutor
-from pnl_trader.application.review_run import ReviewRunCoordinator
-from pnl_trader.application.review_run_models import (
     ReviewBatch,
     ReviewCandidate,
     ReviewPriority,
+    ReviewSignal,
+    SubmissionCertainty,
+    SubmissionResult,
 )
+from pnl_trader.application.review_batch import ReconciledReviewBatchSource
+from pnl_trader.application.review_executor import SymbolReviewExecutor
+from pnl_trader.application.review_run import ReviewRunCoordinator
 from pnl_trader.domain import (
     Action,
     Lifecycle,
@@ -59,7 +55,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
                     batch_source=_OneSymbolBatchSource(),
-                    market_prices=exchange,
+                    exchange=exchange,
                 )
                 for slot in (SLOT_START_MS, SLOT_START_MS + 900_000):
                     with self.assertLogs("pnl_trader.application.review_run", level="WARNING") as logs:
@@ -111,8 +107,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=symbol_reviews,
                     batch_source=_OneSymbolBatchSource(),
-                    market_prices=exchange,
-                    account_equity=exchange,
+                    exchange=exchange,
                 )
 
                 result = await review_runs.run_slot(
@@ -160,7 +155,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
                     batch_source=_OneSymbolBatchSource(),
-                    market_prices=exchange,
+                    exchange=exchange,
                 )
 
                 result = await reviews.run_slot(slot_start_ms=SLOT_START_MS)
@@ -243,7 +238,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
                     batch_source=_OneSymbolBatchSource(),
-                    market_prices=exchange,
+                    exchange=exchange,
                 )
                 with self.assertLogs("pnl_trader.application.execution", level="WARNING"):
                     await reviews.run_slot(slot_start_ms=SLOT_START_MS)
@@ -290,7 +285,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                         execution=execution,
                         symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
                         batch_source=_OneSymbolBatchSource(),
-                        market_prices=exchange,
+                        exchange=exchange,
                     )
                     await reviews.run_slot(slot_start_ms=SLOT_START_MS)
                     self.assertEqual(exchange.submitted_sides, ["SELL"])
@@ -341,7 +336,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     execution=execution,
                     symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
                     batch_source=_TwoSymbolBatchSource(),
-                    market_prices=exchange,
+                    exchange=exchange,
                 )
                 with self.assertLogs("pnl_trader.application.review_run", level="WARNING"):
                     result = await reviews.run_slot(slot_start_ms=SLOT_START_MS)
@@ -375,7 +370,7 @@ def _reviews_with_matching_snapshot(store, exchange):
         execution=execution,
         symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
         batch_source=ReconciledReviewBatchSource(store=store, positions=inputs, signals=inputs),
-        market_prices=exchange,
+        exchange=exchange,
     )
 
 

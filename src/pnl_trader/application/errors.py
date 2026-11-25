@@ -1,4 +1,14 @@
-"""Application-level exchange errors shared across adapters and workflows."""
+"""Application-level errors shared across adapters and workflows."""
+
+from __future__ import annotations
+
+
+class ActiveIntentConflict(RuntimeError):
+    """A symbol already has an unfinished trading intent."""
+
+
+class IntentConflict(RuntimeError):
+    """An order intent conflicts with the current state or prior execution."""
 
 
 class ExchangeOperationError(RuntimeError):

@@ -7,30 +7,30 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 import logging
-from typing import Callable, Mapping
+from typing import TYPE_CHECKING, Callable, Mapping
 
 from ..clock import current_epoch_ms
 from ..domain.models import FULL_CLOSE_ACTIONS, Lifecycle
-from .execution import ExecutionCoordinator, ExecutionResult
-from .exchange_errors import (
+from .errors import (
     ExchangeAccessError,
     ExchangeOperationError,
     ExchangeResponseError,
 )
-from .execution_models import IntentStatus
+from .execution import ExecutionCoordinator, ExecutionResult
+from .models import IntentStatus, ReviewBatch
 from .order_planning import OrderBelowMinimum, OrderRuleUnavailable
 from .ports import (
-    AccountEquitySnapshotPort,
-    MarketPriceSnapshotPort,
+    ExchangeGatewayPort,
     ReviewBatchSourcePort,
-    StateStorePort,
 )
 from .review_executor import (
     ReviewDisposition,
     SymbolReviewExecutor,
     SymbolReviewResult,
 )
-from .review_run_models import ReviewBatch
+
+if TYPE_CHECKING:
+    from ..adapters.sqlite.store import SQLiteStateStore
 
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ def _log_execution_issue(symbol: str, result: ExecutionResult | None) -> None:
 
 
 def _save_review_result_issue(
-    store: StateStorePort,
+    store: SQLiteStateStore,
     *,
     symbol: str,
     result: SymbolReviewResult,
@@ -117,20 +117,18 @@ class ReviewRunCoordinator:
     def __init__(
         self,
         *,
-        store: StateStorePort,
+        store: SQLiteStateStore,
         execution: ExecutionCoordinator,
         symbol_reviews: SymbolReviewExecutor,
         batch_source: ReviewBatchSourcePort,
-        market_prices: MarketPriceSnapshotPort,
-        account_equity: AccountEquitySnapshotPort | None = None,
+        exchange: ExchangeGatewayPort,
         clock_ms: Callable[[], int] | None = None,
     ) -> None:
         self._store = store
         self._execution = execution
         self._symbol_reviews = symbol_reviews
         self._batch_source = batch_source
-        self._market_prices = market_prices
-        self._account_equity = account_equity
+        self._exchange = exchange
         self._clock_ms = current_epoch_ms if clock_ms is None else clock_ms
 
     async def run_slot(
@@ -163,7 +161,7 @@ class ReviewRunCoordinator:
         await self._execution.recover_pending()
         batch, latest_prices = await asyncio.gather(
             self._batch_source.load_review_batch(slot_start_ms),
-            self._market_prices.get_latest_prices(),
+            self._exchange.get_latest_prices(),
         )
         price_captured_at_ms = self._clock_ms()
         result = await self._run_batch(batch, latest_prices)
@@ -181,23 +179,22 @@ class ReviewRunCoordinator:
             },
             captured_at_ms=price_captured_at_ms,
         )
-        if self._account_equity is not None:
-            try:
-                snapshot = await self._account_equity.get_account_snapshot()
-            except (
-                ExchangeAccessError,
-                ExchangeOperationError,
-                ExchangeResponseError,
-            ) as exc:
-                logger.warning(
-                    "account equity snapshot unavailable; review finished: %s",
-                    type(exc).__name__,
-                )
-            else:
-                self._store.record_account_equity_snapshot(
-                    captured_at_ms=self._clock_ms(),
-                    snapshot=snapshot,
-                )
+        try:
+            snapshot = await self._exchange.get_account_snapshot()
+        except (
+            ExchangeAccessError,
+            ExchangeOperationError,
+            ExchangeResponseError,
+        ) as exc:
+            logger.warning(
+                "account equity snapshot unavailable; review finished: %s",
+                type(exc).__name__,
+            )
+        else:
+            self._store.record_account_equity_snapshot(
+                captured_at_ms=self._clock_ms(),
+                snapshot=snapshot,
+            )
         return result
 
     async def _run_batch(

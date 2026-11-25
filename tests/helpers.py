@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from pnl_trader.adapters.sqlite import SQLiteStateStore
-from pnl_trader.application.execution_models import IntentStatus, OrderIntent
+from pnl_trader.application.models import IntentStatus, OrderIntent
 from pnl_trader.domain import Action, ExecutionReceipt, SymbolState, TradeFillRecord
 
 

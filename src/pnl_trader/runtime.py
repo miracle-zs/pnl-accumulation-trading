@@ -21,10 +21,23 @@ from .application.review_executor import SymbolReviewExecutor
 from .application.review_run import ReviewRunCoordinator
 from .application.scheduler import PeriodicReviewScheduler
 from .application.universe import UniverseCatalog
-from .credentials import optional_secret, require_secret
 
 
 logger = logging.getLogger(__name__)
+
+
+def require_secret(name: str) -> str:
+    """Read a required secret from the environment."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise ValueError(f"required secret {name} is missing from the process environment")
+    return value
+
+
+def optional_secret(name: str) -> str | None:
+    """Read a secret when configured, without making it a startup requirement."""
+    value = os.environ.get(name, "").strip()
+    return value or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,8 +125,7 @@ async def run_application(config: RuntimeConfig) -> None:
                     execution=execution,
                     symbol_reviews=symbol_reviews,
                     batch_source=batch_source,
-                    market_prices=exchange,
-                    account_equity=exchange,
+                    exchange=exchange,
                 )
 
                 stop_event = asyncio.Event()
