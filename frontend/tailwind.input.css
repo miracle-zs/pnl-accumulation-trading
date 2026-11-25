@@ -1,3 +1,572 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@font-face {
+  font-family: "Barlow";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fonts/barlow-latin-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Barlow";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/barlow-latin-600.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Barlow";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("fonts/barlow-latin-700.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: light;
+
+  /* Committed Atlantic Slate-Teal Shell */
+  --shell-bg: #0e2a33;
+  --shell-surface: #163b47;
+  --shell-surface-hover: #1d4a58;
+  --shell-border: #255362;
+  --shell-text: #f2f7f6;
+  --shell-muted: #9eb9c0;
+  --shell-beacon: #34d399;
+
+  /* Chart-Ivory Working Canvas & Planes */
+  --bg: #f3f6f5;
+  --surface: #ffffff;
+  --surface-subtle: #eaf0ee;
+  --surface-hover: #f2f7f5;
+  --border: #d4dfdc;
+  --border-strong: #8fa5a0;
+
+  /* Ink Hierarchy (all >= 4.5:1 on white & canvas) */
+  --ink: #102128;
+  --ink-secondary: #3f5760;
+  --ink-muted: #526a73;
+
+  /* Brand & Selection */
+  --accent: #135d73;
+  --accent-hover: #0e4a5c;
+  --accent-soft: #e6f2f5;
+
+  /* Semantic Financial States (>= 4.5:1 text contrast on light surfaces) */
+  --gain: #0a7052;
+  --gain-bg: #e6f5ef;
+  --gain-border: #a5dcc8;
+  --loss: #bd2b2b;
+  --loss-bg: #fcecec;
+  --loss-border: #f0b5b5;
+  --warn: #985506;
+  --warn-bg: #fdf4e3;
+  --warn-border: #ebcc94;
+
+  /* Tier Ladder Grammar */
+  --tier-t1: #135d73;
+  --tier-t1-bar: #1a7692;
+  --tier-t1-bg: #e7f3f6;
+  --tier-t1-border: #aed2dd;
+
+  --tier-t2: #985506;
+  --tier-t2-bar: #c97b18;
+  --tier-t2-bg: #fdf4e3;
+  --tier-t2-border: #ebcc94;
+
+  --tier-t21: #0a7052;
+  --tier-t21-bg: #e6f5ef;
+  --tier-t21-border: #a5dcc8;
+
+  --tier-t3: #bd2b2b;
+  --tier-t3-bar: #cc3b3b;
+  --tier-t3-bg: #fcecec;
+  --tier-t3-border: #f0b5b5;
+
+  --tier-t31: #5c3d91;
+  --tier-t31-bar: #7250ad;
+  --tier-t31-bg: #f1ecfa;
+  --tier-t31-border: #cfc0e9;
+
+  /* Browser Surfaces */
+  --scrollbar-thumb: #6f8890;
+  --scrollbar-track: #e6eeec;
+  accent-color: var(--accent);
+}
+
+@layer base {
+  html {
+    background-color: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+
+  ::selection {
+    background-color: var(--accent);
+    color: #ffffff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-scroll {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* Committed Command Shell */
+.command-shell {
+  background-color: var(--shell-bg);
+  color: var(--shell-text);
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.command-shell :focus-visible {
+  outline-color: var(--shell-beacon);
+}
+
+.shell-pill {
+  background-color: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  color: var(--shell-text);
+}
+
+.shell-btn {
+  background-color: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  color: var(--shell-text);
+  transition: background-color 160ms ease, border-color 160ms ease, transform 120ms ease;
+}
+
+.shell-btn:hover {
+  background-color: var(--shell-surface-hover);
+  border-color: #366f82;
+}
+
+.shell-btn:active {
+  transform: translateY(1px);
+}
+
+/* Signature 15-Minute Slot Progress Rail */
+.slot-rail {
+  position: relative;
+  height: 5px;
+  border-radius: 2px;
+  background-color: #1f4754;
+  overflow: hidden;
+}
+
+.slot-rail-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  background-color: var(--shell-beacon);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Flat Hairline-Ruled Ledger Planes (tight architectural 4px corners) */
+.ledger-plane {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* Status Pills (paired with geometric dot for WCAG 1.4.1 non-color clarity) */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  border: 1px solid transparent;
+}
+
+.status-pill-dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.status-shell-ok {
+  background-color: #133c3b;
+  border-color: #266b60;
+  color: #c9f5e6;
+}
+.status-shell-ok .status-pill-dot {
+  background-color: #34d399;
+}
+
+.status-shell-warn {
+  background-color: #423015;
+  border-color: #8c601c;
+  color: #fde6b8;
+}
+.status-shell-warn .status-pill-dot {
+  background-color: #f59e0b;
+}
+
+.status-shell-error {
+  background-color: #4a1c22;
+  border-color: #9e3843;
+  color: #ffd5d8;
+}
+.status-shell-error .status-pill-dot {
+  background-color: #f87171;
+}
+
+/* Tier Badges */
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.125rem 0.4375rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.badge-t1 {
+  background-color: var(--tier-t1-bg);
+  color: var(--tier-t1);
+  border-color: var(--tier-t1-border);
+}
+
+.badge-t2 {
+  background-color: var(--tier-t2-bg);
+  color: var(--tier-t2);
+  border-color: var(--tier-t2-border);
+}
+
+.badge-t21 {
+  background-color: var(--tier-t21-bg);
+  color: var(--tier-t21);
+  border-color: var(--tier-t21-border);
+}
+
+.badge-t3 {
+  background-color: var(--tier-t3-bg);
+  color: var(--tier-t3);
+  border-color: var(--tier-t3-border);
+}
+
+.badge-t31 {
+  background-color: var(--tier-t31-bg);
+  color: var(--tier-t31);
+  border-color: var(--tier-t31-border);
+}
+
+/* Segmented Controls (Period Toggle & Tier Filter) */
+.seg-group {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  background-color: var(--surface-subtle);
+  border: 1px solid var(--border);
+}
+
+.seg-btn {
+  padding: 0.25rem 0.625rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  background-color: transparent;
+  border: 1px solid transparent;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  white-space: nowrap;
+}
+
+.seg-btn:hover {
+  color: var(--ink);
+}
+
+.seg-btn[aria-pressed="true"] {
+  background-color: var(--surface);
+  color: var(--accent);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+/* Accessible Tabs (WCAG 1.4.1 non-color underline on pseudo-element; no dimension shift) */
+.ledger-tablist {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scroll-snap-type: inline proximity;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.ledger-tab {
+  position: relative;
+  flex: none;
+  scroll-snap-align: start;
+  padding: 0.75rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms ease;
+}
+
+.ledger-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+  border-radius: 3px;
+}
+
+.ledger-tab:hover {
+  color: var(--ink);
+}
+
+.ledger-tab[aria-selected="true"] {
+  color: var(--accent);
+}
+
+.ledger-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0;
+  border-block-end: 2.5px solid var(--accent);
+}
+
+/* Search Input (accessible >= 3:1 border contrast) */
+.ledger-search {
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.ledger-search::placeholder {
+  color: var(--ink-muted);
+}
+
+.ledger-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(19, 93, 115, 0.16);
+  outline: none;
+}
+
+/* Responsive & Sortable Data Table with Right-Edge Scroll Affordance */
+.table-shell-wrap {
+  position: relative;
+}
+
+.table-shell {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(520px, 68vh);
+  container-type: inline-size;
+  background:
+    linear-gradient(to left, #ffffff 35%, transparent) right / 24px 100% no-repeat local,
+    radial-gradient(farthest-side at 100% 50%, rgba(16, 33, 40, 0.14), transparent) right / 10px 100% no-repeat scroll,
+    #ffffff;
+}
+
+.positions-table {
+  width: 100%;
+  min-inline-size: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+}
+
+.positions-table thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+.positions-table thead th {
+  background-color: var(--surface-subtle);
+  color: var(--ink-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  padding: 0.625rem 0.75rem;
+}
+
+.positions-table thead th:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 3;
+  padding-inline-start: 1rem;
+  box-shadow: inset -1px 0 0 var(--border);
+}
+
+.positions-table thead th:has(> button),
+.positions-table thead th:first-child:has(> button) {
+  padding: 0;
+}
+
+.positions-table tbody th[scope="row"] {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background-color: var(--surface);
+  font-weight: 600;
+  color: var(--ink);
+  padding: 0.6875rem 0.75rem 0.6875rem 1rem;
+  border-bottom: 1px solid #e7eeec;
+  box-shadow: inset -1px 0 0 #e7eeec;
+  white-space: nowrap;
+  transition: background-color 120ms ease;
+}
+
+.positions-table tbody td {
+  padding: 0.6875rem 0.75rem;
+  border-bottom: 1px solid #e7eeec;
+  white-space: nowrap;
+}
+
+.positions-table tbody tr:hover td,
+.positions-table tbody tr:hover th[scope="row"] {
+  background-color: var(--surface-hover);
+}
+
+.sort-header-btn {
+  width: 100%;
+  min-block-size: 2.375rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.625rem 0.75rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+  text-align: inherit;
+  transition: color 150ms ease;
+}
+
+.positions-table thead th:first-child .sort-header-btn {
+  padding-inline-start: 1rem;
+}
+
+.positions-table thead th.text-right .sort-header-btn {
+  justify-content: flex-end;
+  padding-inline-end: 1rem;
+}
+
+.sort-header-btn:hover {
+  color: var(--ink);
+}
+
+/* CSS-driven decorative sort chevrons (read from th[aria-sort]) */
+.sort-icon {
+  display: inline-flex;
+  flex-direction: column;
+  width: 0.625rem;
+  height: 0.75rem;
+  color: #8298a0;
+  flex-shrink: 0;
+}
+
+.sort-icon .chev-up,
+.sort-icon .chev-down {
+  opacity: 0.4;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+th[aria-sort="ascending"] .sort-icon .chev-up {
+  opacity: 1;
+  color: var(--accent);
+}
+
+th[aria-sort="descending"] .sort-icon .chev-down {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* Chart Tooltip (deep slate-teal floating readout) */
+.chart-tooltip {
+  background-color: var(--shell-bg);
+  color: var(--shell-text);
+  border: 1px solid #2b6273;
+  border-radius: 4px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14);
+}
+
+/* Visually hidden live status / caption */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Forced Colors Mode (Windows High Contrast) */
+@media (forced-colors: active) {
+  .ledger-tab[aria-selected="true"]::after {
+    border-block-end-color: Highlight;
+  }
+  .seg-btn[aria-pressed="true"] {
+    border-color: Highlight;
+    outline: 1px solid Highlight;
+  }
+  .status-pill,
+  .tier-badge,
+  .ledger-plane {
+    border-color: CanvasText;
+  }
+  .slot-rail {
+    border: 1px solid CanvasText;
+  }
+  .slot-rail-fill {
+    background-color: Highlight;
+  }
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

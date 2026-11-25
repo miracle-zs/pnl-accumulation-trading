@@ -17,6 +17,16 @@ export const state = {
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
+const CRITICAL_ISSUE_CATEGORIES = new Set([
+  'REVIEW_RUN_ERROR',
+  'REVIEW_ERROR',
+  'ORDER_REJECTED',
+  'ORDER_UNKNOWN',
+  'ORDER_PARTIALLY_FILLED',
+  'INTENT_CONFLICT',
+  'LEVERAGE_UNAVAILABLE',
+]);
+
 export function formatSignedUsd(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
   const amount = Number(value);
@@ -67,21 +77,53 @@ function showMessage(container, className, message) {
   container.replaceChildren(createNode('div', className, message));
 }
 
+function tierBadgeClass(position) {
+  if (position.tier === 2) return position.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
+  if (position.tier === 3) return position.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
+  return 'badge-t1';
+}
+
+export function renderTradingUptime() {
+  const wrapEl = document.getElementById('trading-uptime-wrap');
+  const dividerEl = document.getElementById('trading-uptime-divider');
+  const uptimeEl = document.getElementById('trading-uptime');
+
+  if (state.tradingUptimeBaseSeconds === null) {
+    wrapEl.className = 'hidden flex-col text-xs leading-tight shrink-0';
+    dividerEl.className = 'h-6 w-px bg-[#255362] hidden';
+    uptimeEl.textContent = '—';
+    return;
+  }
+
+  wrapEl.className = 'hidden sm:flex flex-col text-xs leading-tight shrink-0';
+  dividerEl.className = 'h-6 w-px bg-[#255362] hidden sm:block';
+
+  const elapsedSeconds = state.tradingUptimeBaseSeconds +
+    Math.floor((performance.now() - state.tradingUptimeUpdatedAt) / 1000);
+  const totalMinutes = Math.floor(elapsedSeconds / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  uptimeEl.textContent = `${days}天 ${hours}时 ${minutes}分`;
+}
+
 export function updatePositionStatusKpi(positions) {
   const statusEl = document.getElementById('kpi-position-status');
   if (!state.ledgerAvailable || positions.length === 0) {
     statusEl.textContent = '暂无持仓';
+    statusEl.className = 'font-display font-medium tabular-nums text-[#526a73]';
     return;
   }
   const priced = positions.filter(p => Number.isFinite(p.estimated_unrealized_pnl));
   if (priced.length === 0) {
-    statusEl.textContent = '价格采样中...';
+    statusEl.textContent = '价格采样中';
+    statusEl.className = 'font-display font-medium tabular-nums text-[#526a73]';
     return;
   }
   const profitCount = priced.filter(p => p.estimated_unrealized_pnl > 0).length;
   const lossCount = priced.filter(p => p.estimated_unrealized_pnl < 0).length;
-  statusEl.textContent = `${profitCount} 浮盈 · ${lossCount} 浮亏`;
-  statusEl.className = `font-mono ${lossCount > 0 ? 'text-amber-300' : 'text-emerald-400'}`;
+  statusEl.textContent = `${profitCount} 盈 / ${lossCount} 亏`;
+  statusEl.className = `font-display font-semibold tabular-nums ${lossCount > 0 ? 'text-[#985506]' : 'text-[#0a7052]'}`;
 }
 
 export function renderDrawdown(equity) {
@@ -102,12 +144,12 @@ export function renderLosingPositions(positions) {
 
   if (!state.ledgerAvailable) {
     countEl.textContent = '等待账本';
-    showTableMessage(body, 4, 'py-6 text-center text-slate-500', '等待账本数据');
+    showTableMessage(body, 4, 'py-8 text-center text-[#526a73]', '等待账本数据');
     return;
   }
   if (positions.length === 0) {
-    countEl.textContent = '0 个持仓';
-    showTableMessage(body, 4, 'py-6 text-center text-slate-500', '暂无在管持仓');
+    countEl.textContent = '0 持仓';
+    showTableMessage(body, 4, 'py-8 text-center text-[#526a73]', '暂无在管持仓');
     return;
   }
   const pricedPositions = positions
@@ -117,25 +159,33 @@ export function renderLosingPositions(positions) {
     .sort((a, b) => a.estimated_unrealized_pnl - b.estimated_unrealized_pnl);
 
   countEl.textContent = pricedPositions.length > 0
-    ? `${losses.length} 个浮亏 · ${pricedPositions.length}/${positions.length} 已估值`
+    ? `${losses.length} 浮亏 · ${pricedPositions.length}/${positions.length} 已估值`
     : '等待价格采样';
+
   if (losses.length === 0) {
     const message = pricedPositions.length > 0
-      ? '当前无浮亏持仓标的'
+      ? '当前无浮亏持仓'
       : '持仓价格将在下一轮巡检后显示';
-    showTableMessage(body, 4, 'py-6 text-center text-slate-500', message);
+    showTableMessage(body, 4, 'py-8 text-center text-[#0a7052]', message);
     return;
   }
+
   const rows = losses.slice(0, 6).map(position => {
     const sampledAt = position.price_captured_at_ms
-      ? new Date(position.price_captured_at_ms).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      ? new Date(position.price_captured_at_ms).toLocaleTimeString('zh-CN', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
       : '—';
-    const row = document.createElement('tr');
+    const row = createNode('tr', 'hover:bg-[#f2f7f5] transition-colors');
+    const tierCell = createNode('td', 'py-2 px-2');
+    tierCell.append(createNode('span', `tier-badge ${tierBadgeClass(position)}`, position.tier_label));
     row.append(
-      createNode('td', 'py-2.5 text-white font-medium', position.symbol),
-      createNode('td', 'py-2.5 text-slate-400', position.tier_label),
-      createNode('td', 'py-2.5 text-right font-mono text-rose-400 font-semibold', formatSignedUsd(position.estimated_unrealized_pnl)),
-      createNode('td', 'py-2.5 text-right font-mono text-slate-500', sampledAt),
+      createNode('td', 'py-2 pr-2 font-display font-semibold text-[#102128]', position.symbol),
+      tierCell,
+      createNode('td', 'py-2 px-2 text-right font-mono tabular-nums font-semibold text-[#bd2b2b]', formatSignedUsd(position.estimated_unrealized_pnl)),
+      createNode('td', 'py-2 pl-2 text-right font-mono tabular-nums text-[#526a73]', sampledAt),
     );
     return row;
   });
@@ -148,38 +198,43 @@ export function renderTierExposure(exposure) {
 
   if (!state.ledgerAvailable || exposure.total_positions === 0) {
     countEl.textContent = state.ledgerAvailable ? '暂无持仓' : '等待账本';
-    showMessage(container, 'text-xs text-slate-500', '暂无在管持仓');
+    showMessage(container, 'text-xs text-[#526a73] py-4', '暂无在管持仓');
     return;
   }
   countEl.textContent = `${exposure.priced_positions}/${exposure.total_positions} 已估值`;
+
   const tiers = [
-    { key: 't1', label: 'T1 基础底仓' },
-    { key: 't2', label: 'T2 加仓阶段' },
-    { key: 't3', label: 'T3 深度补仓' },
+    { key: 't1', label: 'T1 敞口', barColor: '#1a7692' },
+    { key: 't2', label: 'T2 敞口', barColor: '#c97b18' },
+    { key: 't3', label: 'T3 敞口', barColor: '#cc3b3b', title: '包含 T3 深度补仓与 T3.1/T3.2 阶梯减仓合计敞口' },
   ];
+
   const rows = tiers.map(tier => {
     const amount = exposure[tier.key];
-    const ratio = exposure.total > 0 ? amount / exposure.total * 100 : 0;
+    const ratio = exposure.total > 0 ? (amount / exposure.total) * 100 : 0;
     const row = document.createElement('div');
-    const labels = createNode('div', 'flex items-center justify-between text-xs mb-1.5');
-    const amountLabel = createNode('span', 'font-mono text-slate-200');
+    if (tier.title) row.title = tier.title;
+    const labels = createNode('div', 'flex items-center justify-between gap-2 text-xs mb-1.5');
+    const amountLabel = createNode('span', 'font-display tabular-nums text-[#102128] font-semibold whitespace-nowrap');
     amountLabel.append(
       document.createTextNode(`${formatUsd(amount)} `),
-      createNode('span', 'text-slate-500', `${ratio.toFixed(1)}%`),
+      createNode('span', 'text-[#526a73] font-normal', `${ratio.toFixed(1)}%`),
     );
-    labels.append(createNode('span', 'text-slate-300', tier.label), amountLabel);
-    const track = createNode('div', 'h-1.5 rounded-full bg-slate-950 overflow-hidden');
-    const barClass = tier.key === 't1' ? 'bg-blue-500' : tier.key === 't2' ? 'bg-amber-500' : 'bg-rose-500';
-    const bar = createNode('div', `h-full rounded-full ${barClass}`);
+    labels.append(createNode('span', 'text-[#3f5760]', tier.label), amountLabel);
+
+    const track = createNode('div', 'h-2 rounded-sm bg-[#eaf0ee] overflow-hidden');
+    const bar = createNode('div', 'h-full rounded-sm');
     bar.style.width = `${ratio}%`;
+    bar.style.backgroundColor = tier.barColor;
     track.append(bar);
     row.append(labels, track);
     return row;
   });
-  const total = createNode('div', 'flex justify-between border-t border-slate-800 pt-3 text-xs');
+
+  const total = createNode('div', 'flex items-center justify-between border-t border-[#e3ece9] pt-2.5 text-xs');
   total.append(
-    createNode('span', 'text-slate-400', '已估值名义总敞口'),
-    createNode('span', 'font-mono font-semibold text-white', formatUsd(exposure.total)),
+    createNode('span', 'text-[#526a73]', '已估值总敞口'),
+    createNode('span', 'font-display tabular-nums font-bold text-[#102128]', formatUsd(exposure.total)),
   );
   container.replaceChildren(...rows, total);
 }
@@ -194,29 +249,44 @@ export function renderCosts(costs) {
     weeklyCommEl.textContent = '—';
     weeklyCountEl.textContent = '—';
     otherFeesNote.classList.add('hidden');
-    showMessage(rows, 'text-xs text-slate-500 py-2', '等待账本数据');
+    showMessage(rows, 'text-xs text-[#526a73] py-2', '等待账本数据');
     return;
   }
   weeklyCommEl.textContent = formatUsd(costs.commission_usdt);
   weeklyCountEl.textContent = `${costs.fill_count} 笔`;
+
   const warnings = [];
-  if (costs.other_fee_count > 0) warnings.push(`存在 ${costs.other_fee_count} 笔非 USDT 手续费抵扣（如 BNB 折扣），未折算入规费总额。`);
-  if (costs.pending_close_fill_count > 0) warnings.push(`存在 ${costs.pending_close_fill_count} 笔平仓成交待对账，规费统计可能不完整。`);
+  if (costs.other_fee_count > 0) warnings.push(`含 ${costs.other_fee_count} 笔非 USDT 规费（如 BNB），未折算入总额。`);
+  if (costs.pending_close_fill_count > 0) warnings.push(`含 ${costs.pending_close_fill_count} 笔待对账平仓，规费统计可能未完结。`);
   otherFeesNote.textContent = warnings.join(' ');
   otherFeesNote.classList.toggle('hidden', warnings.length === 0);
+
   const days = costs.days;
   if (days.length === 0) {
-    showMessage(rows, 'text-xs text-slate-500 py-2', '最近 7 天暂无成交记录');
+    showMessage(rows, 'text-xs text-[#526a73] py-2', '近 7 日暂无成交');
     return;
   }
-  const dayRows = days.slice(-7).reverse().map(day => {
-    const row = createNode('div', 'flex items-center justify-between text-xs');
-    const date = createNode('time', 'text-slate-400 font-mono', day.day.slice(5));
+
+  const recentDays = days.slice(-7).reverse();
+  const maxDayCost = Math.max(...recentDays.map(d => Number(d.commission_usdt) || 0), 0.0001);
+
+  const dayRows = recentDays.map(day => {
+    const ratio = Math.min(100, (Number(day.commission_usdt) / maxDayCost) * 100);
+    const row = createNode('div', 'grid grid-cols-[44px_1fr_auto] items-center gap-2.5 text-xs');
+    const date = createNode('time', 'text-[#526a73] font-mono tabular-nums', day.day.slice(5));
     date.dateTime = day.day;
+
+    const barWrap = createNode('div', 'flex items-center gap-2 min-w-0');
+    const track = createNode('div', 'flex-1 h-1.5 rounded-sm bg-[#eaf0ee] overflow-hidden');
+    const fill = createNode('div', 'h-full rounded-sm bg-[#1a7692]');
+    fill.style.width = `${day.commission_usdt > 0 ? Math.max(6, ratio) : 0}%`;
+    track.append(fill);
+    barWrap.append(track, createNode('span', 'text-xs tabular-nums text-[#526a73] w-9 text-right shrink-0', `${day.fill_count}笔`));
+
     row.append(
       date,
-      createNode('span', 'text-slate-500', `${day.fill_count} 笔`),
-      createNode('span', 'text-slate-200 font-mono', formatUsd(day.commission_usdt)),
+      barWrap,
+      createNode('span', 'text-[#102128] font-mono tabular-nums font-medium text-right w-14', formatUsd(day.commission_usdt)),
     );
     return row;
   });
@@ -237,36 +307,106 @@ export function renderExecutionIssues(issues) {
     REVIEW_ERROR: '单币巡检异常',
     REVIEW_RUN_ERROR: '全局巡检批处理失败',
     ORDER_UNKNOWN: '委托结果未决 (需对账)',
-    ORDER_REJECTED: '币安拒绝委托 (Rejected)',
+    ORDER_REJECTED: '币安拒绝委托',
     ORDER_CANCELED: '委托已撤销',
-    ORDER_EXPIRED: '委托已过期 (Expired)',
+    ORDER_EXPIRED: '委托已过期',
   };
 
   if (!state.ledgerAvailable) {
     countEl.textContent = '等待账本';
-    showMessage(container, 'text-xs text-slate-500 py-4 text-center', '等待账本数据');
+    countEl.className = 'text-xs tabular-nums px-2 py-0.5 rounded-full bg-[#eaf0ee] text-[#3f5760]';
+    showMessage(container, 'text-xs text-[#526a73] py-6 text-center', '等待账本数据');
     return;
   }
-  countEl.textContent = `${issues.length} 项`;
+
   if (issues.length === 0) {
-    showMessage(container, 'text-xs text-emerald-400/90 py-4 text-center', '系统运行正常，无待处理异常');
+    countEl.textContent = '正常 · 0 项';
+    countEl.className = 'text-xs tabular-nums font-semibold px-2 py-0.5 rounded-full bg-[#e6f5ef] text-[#0a7052] border border-[#a5dcc8]';
+
+    const okRow = createNode('div', 'py-5 flex items-center gap-2 text-xs text-[#0a7052]');
+    okRow.innerHTML = `
+      <svg class="w-4 h-4 shrink-0" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+        <path d="m9 11 3 3L22 4"/>
+      </svg>
+      <span>巡检执行正常，无待处理异常</span>
+    `;
+    container.replaceChildren(okRow);
     return;
   }
+
+  const criticalCount = issues.filter(i => CRITICAL_ISSUE_CATEGORIES.has(i.category)).length;
+  countEl.textContent = criticalCount > 0 ? `${issues.length} 项 (${criticalCount} 高优)` : `${issues.length} 项提示`;
+  countEl.className = criticalCount > 0
+    ? 'text-xs tabular-nums font-semibold px-2 py-0.5 rounded-full bg-[#fcecec] text-[#bd2b2b] border border-[#f0b5b5]'
+    : 'text-xs tabular-nums font-semibold px-2 py-0.5 rounded-full bg-[#fdf4e3] text-[#985506] border border-[#ebcc94]';
+
   container.replaceChildren(...issues.map(issue => {
-    const item = document.createElement('article');
-    item.className = 'py-2.5 border-b border-slate-800/70';
-    const header = document.createElement('div');
-    header.className = 'flex items-center justify-between gap-2';
-    header.append(
-      createNode('span', 'text-xs font-semibold text-white', issue.symbol),
-      createNode('span', 'text-[10px] text-amber-400', labels[issue.category] || issue.category),
+    const isCritical = CRITICAL_ISSUE_CATEGORIES.has(issue.category);
+    const item = createNode('article', 'py-3 first:pt-2.5 last:pb-1');
+    const header = createNode('div', 'flex items-center justify-between gap-2');
+
+    const titleWrap = createNode('div', 'flex items-center gap-1.5 min-w-0');
+    const iconWrap = createNode('span', isCritical ? 'text-[#bd2b2b] shrink-0' : 'text-[#985506] shrink-0');
+    iconWrap.setAttribute('aria-hidden', 'true');
+    iconWrap.innerHTML = isCritical
+      ? '<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
+      : '<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
+    titleWrap.append(
+      iconWrap,
+      createNode('span', 'font-display text-xs font-bold text-[#102128] truncate', issue.symbol),
     );
-    const detail = createNode('p', 'text-[11px] text-slate-400 mt-1 break-words', issue.detail);
-    const time = createNode('time', 'block text-[10px] text-slate-600 font-mono mt-1', new Date(issue.occurred_at_ms).toLocaleString('zh-CN'));
+
+    const badgeClass = isCritical
+      ? 'text-xs font-semibold px-1.5 py-0.5 rounded bg-[#fcecec] text-[#bd2b2b] border border-[#f0b5b5]'
+      : 'text-xs font-medium px-1.5 py-0.5 rounded bg-[#eaf0ee] text-[#3f5760] border border-[#d4dfdc]';
+    header.append(titleWrap, createNode('span', badgeClass, labels[issue.category] || issue.category));
+
+    const detail = createNode('p', 'text-xs text-[#3f5760] mt-1.5 break-words leading-relaxed', issue.detail);
+    const time = createNode('time', 'block text-xs text-[#526a73] font-mono tabular-nums mt-1', new Date(issue.occurred_at_ms).toLocaleString('zh-CN'));
     time.dateTime = new Date(issue.occurred_at_ms).toISOString();
     item.append(header, detail, time);
     return item;
   }));
+}
+
+function compareValues(valA, valB, type, direction) {
+  const missingA = valA === null || valA === undefined || valA === '';
+  const missingB = valB === null || valB === undefined || valB === '';
+  if (missingA && missingB) return 0;
+  if (missingA) return 1;
+  if (missingB) return -1;
+
+  const factor = direction === 'asc' ? 1 : -1;
+  if (type === 'string') {
+    return factor * collator.compare(String(valA), String(valB));
+  }
+  return factor * (Number(valA) - Number(valB));
+}
+
+function reorderRowsInPlace(tbody, sortKey, sortType, direction) {
+  const rows = Array.from(tbody.rows).filter(row => row.dataset.symbol);
+  if (rows.length <= 1) return;
+
+  rows.sort((rowA, rowB) => {
+    const rawA = rowA.dataset[sortKey];
+    const rawB = rowB.dataset[sortKey];
+    return compareValues(
+      rawA === '' ? null : rawA,
+      rawB === '' ? null : rawB,
+      sortType,
+      direction,
+    );
+  });
+
+  const canMoveBefore = typeof tbody.moveBefore === 'function';
+  for (const row of rows) {
+    if (canMoveBefore) {
+      tbody.moveBefore(row, null);
+    } else {
+      tbody.appendChild(row);
+    }
+  }
 }
 
 export function handleSort(key) {
@@ -274,34 +414,42 @@ export function handleSort(key) {
     state.currentSortDirection = state.currentSortDirection === 'asc' ? 'desc' : 'asc';
   } else {
     state.currentSortKey = key;
-    state.currentSortDirection = 'desc';
+    state.currentSortDirection = key === 'symbol' ? 'asc' : 'desc';
   }
 
   const sortKeys = ['symbol', 'tier', 'scan_price', 'entry_notional', 'estimated_unrealized_pnl'];
+  let activeLabel = key;
+  let activeType = 'number';
+
   sortKeys.forEach(k => {
     const th = document.getElementById('th-' + k);
-    const indicator = document.getElementById('sort-' + k);
     if (k === state.currentSortKey) {
       th.setAttribute('aria-sort', state.currentSortDirection === 'asc' ? 'ascending' : 'descending');
-      indicator.textContent = state.currentSortDirection === 'asc' ? '▲' : '▼';
+      activeLabel = th.textContent.trim();
+      activeType = th.dataset.type || 'number';
     } else {
       th.removeAttribute('aria-sort');
-      indicator.textContent = '↕';
     }
   });
 
-  renderPositions();
+  const tbody = document.getElementById('position-table-body');
+  const existingDataRows = Array.from(tbody.rows).filter(row => row.dataset.symbol);
+  if (existingDataRows.length > 0) {
+    reorderRowsInPlace(tbody, state.currentSortKey, activeType, state.currentSortDirection);
+    const status = document.getElementById('positions-sort-status');
+    const dirLabel = state.currentSortDirection === 'asc' ? '升序' : '降序';
+    status.textContent = `已按${activeLabel}${dirLabel}排列，共 ${existingDataRows.length} 行`;
+  } else {
+    renderPositions();
+  }
 }
 
 export function filterTier(tier) {
   state.currentTierFilter = tier;
   ['all', 't1', 't2', 't3'].forEach(k => {
     const btn = document.getElementById('filter-' + k);
-    if (k.toUpperCase() === tier || (k === 'all' && tier === 'ALL')) {
-      btn.className = 'px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium focus-visible:outline-2 focus-visible:outline-blue-500';
-    } else {
-      btn.className = 'px-2.5 py-1 rounded-md text-slate-400 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-500';
-    }
+    const isActive = k.toUpperCase() === tier || (k === 'all' && tier === 'ALL');
+    btn.setAttribute('aria-pressed', String(isActive));
   });
   renderPositions();
 }
@@ -311,12 +459,12 @@ export function renderPositions() {
   const summaryEl = document.getElementById('position-summary-text');
 
   if (!state.ledgerAvailable) {
-    showTableMessage(tbody, 9, 'py-12 text-center text-slate-400 font-sans', '等待账本数据');
+    showTableMessage(tbody, 9, 'py-12 text-center text-[#526a73] font-sans', '等待账本数据');
     summaryEl.textContent = '在管持仓: —';
     return;
   }
   if (state.allPositions.length === 0) {
-    showTableMessage(tbody, 9, 'py-12 text-center text-slate-500 font-sans', '暂无在管持仓记录');
+    showTableMessage(tbody, 9, 'py-12 text-center text-[#526a73] font-sans', '暂无在管持仓记录');
     summaryEl.textContent = '在管持仓: 0 个标的';
     return;
   }
@@ -331,76 +479,77 @@ export function renderPositions() {
     return matchesQuery && matchesTier;
   });
 
-  filtered.sort((a, b) => {
-    const valA = a[state.currentSortKey];
-    const valB = b[state.currentSortKey];
-    const missingA = valA === null || valA === undefined;
-    const missingB = valB === null || valB === undefined;
-    if (missingA && missingB) return 0;
-    if (missingA) return 1;
-    if (missingB) return -1;
+  const activeTh = document.getElementById('th-' + state.currentSortKey);
+  const sortType = activeTh ? activeTh.dataset.type || 'number' : 'number';
+  filtered.sort((a, b) => compareValues(
+    a[state.currentSortKey],
+    b[state.currentSortKey],
+    sortType,
+    state.currentSortDirection,
+  ));
 
-    if (typeof valA === 'string' && typeof valB === 'string') {
-      return state.currentSortDirection === 'asc'
-        ? collator.compare(valA, valB)
-        : collator.compare(valB, valA);
-    }
-    return state.currentSortDirection === 'asc' ? valA - valB : valB - valA;
-  });
+  if (filtered.length === 0) {
+    showTableMessage(tbody, 9, 'py-10 text-center text-[#526a73] font-sans', '无符合当前筛选条件的持仓标的');
+    summaryEl.textContent = `显示 0 / ${state.allPositions.length} 个在管标的`;
+    return;
+  }
 
   const rows = filtered.map(p => {
-    let badgeClass = 'badge-t1';
-    if (p.tier === 2) badgeClass = p.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
-    else if (p.tier === 3) badgeClass = p.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
+    const row = document.createElement('tr');
+    row.dataset.symbol = p.symbol;
+    row.dataset.tier = String(p.tier);
+    row.dataset.scan_price = p.scan_price === null ? '' : String(p.scan_price);
+    row.dataset.entry_notional = String(p.entry_notional);
+    row.dataset.estimated_unrealized_pnl = p.estimated_unrealized_pnl === null ? '' : String(p.estimated_unrealized_pnl);
+
+    const symbolHeader = createNode('th', 'font-display', p.symbol);
+    symbolHeader.scope = 'row';
+
+    const tierCell = createNode('td', '');
+    tierCell.append(createNode('span', `tier-badge font-sans ${tierBadgeClass(p)}`, p.tier_label));
 
     const tpStr = p.tp_price === null ? '—' : `$${formatPrice(p.tp_price)}`;
     const scanPriceStr = p.scan_price !== null ? `$${formatPrice(p.scan_price)}` : '—';
 
-    const unpnlCell = createNode('td', 'py-3 px-4 text-right');
+    const riskCell = createNode('td', 'text-right');
+    if (p.writeoff_price) {
+      riskCell.append(createNode('span', 'text-[#5c3d91] font-semibold', `$${formatPrice(p.writeoff_price)} 出清`));
+    } else if (p.dca_price) {
+      riskCell.append(createNode('span', 'text-[#985506]', `$${formatPrice(p.dca_price)} -50%`));
+    } else {
+      riskCell.textContent = '—';
+      riskCell.className = 'text-right text-[#526a73]';
+    }
+
+    const unpnlCell = createNode('td', 'text-right pr-4');
     if (p.estimated_unrealized_pnl !== null) {
       const pnlVal = Number(p.estimated_unrealized_pnl);
-      const pnlPct = (p.scan_price - p.avg_entry_price) / p.avg_entry_price * 100;
-      const pnlClass = pnlVal > 0 ? 'text-emerald-400' : pnlVal < 0 ? 'text-rose-400' : 'text-slate-300';
+      const pnlPct = ((p.scan_price - p.avg_entry_price) / p.avg_entry_price) * 100;
+      const pnlClass = pnlVal > 0 ? 'text-[#0a7052]' : pnlVal < 0 ? 'text-[#bd2b2b]' : 'text-[#3f5760]';
       const sign = pnlPct > 0 ? '+' : '';
       unpnlCell.append(
         createNode('span', `font-bold ${pnlClass}`, formatSignedUsd(pnlVal)),
-        createNode('span', `text-[10px] ml-1 opacity-80 font-normal ${pnlClass}`, `(${sign}${pnlPct.toFixed(2)}%)`),
+        createNode('span', `text-xs ml-1.5 font-normal ${pnlClass}`, `${sign}${pnlPct.toFixed(2)}%`),
       );
     } else {
       unpnlCell.textContent = '—';
-      unpnlCell.className = 'py-3 px-4 text-right text-slate-500';
+      unpnlCell.className = 'text-right pr-4 text-[#526a73]';
     }
 
-    const row = createNode('tr', 'hover:bg-slate-800/50 transition-colors');
-    const tierCell = createNode('td', 'py-3 px-3');
-    tierCell.append(createNode('span', `${badgeClass} px-2 py-0.5 rounded text-[11px] font-sans`, p.tier_label));
-    const riskCell = createNode('td', 'py-3 px-3 text-slate-400');
-    if (p.writeoff_price) {
-      riskCell.append(createNode('span', 'text-purple-400 font-semibold', `$${formatPrice(p.writeoff_price)} (出清)`));
-    } else if (p.dca_price) {
-      riskCell.append(createNode('span', 'text-amber-400/90 font-mono', `$${formatPrice(p.dca_price)} (-50%)`));
-    } else {
-      riskCell.textContent = '—';
-    }
     row.append(
-      createNode('td', 'py-3 px-4 font-bold text-white font-sans', p.symbol),
+      symbolHeader,
       tierCell,
-      createNode('td', 'py-3 px-3 text-slate-300', `$${formatPrice(p.avg_entry_price)}`),
-      createNode('td', 'py-3 px-3 text-slate-200 font-medium', scanPriceStr),
-      createNode('td', 'py-3 px-3 text-emerald-400 font-bold', tpStr),
+      createNode('td', 'text-right text-[#3f5760]', `$${formatPrice(p.avg_entry_price)}`),
+      createNode('td', 'text-right text-[#102128] font-medium', scanPriceStr),
+      createNode('td', 'text-right text-[#0a7052] font-semibold', tpStr),
       riskCell,
-      createNode('td', 'py-3 px-3 text-slate-300', p.qty),
-      createNode('td', 'py-3 px-4 text-right text-slate-100 font-bold', `$${p.entry_notional.toFixed(2)}`),
+      createNode('td', 'text-right text-[#3f5760]', String(p.qty)),
+      createNode('td', 'text-right text-[#102128] font-semibold', formatUsd(p.entry_notional)),
       unpnlCell,
     );
     return row;
   });
 
-  if (rows.length === 0) {
-    showTableMessage(tbody, 9, 'py-8 text-center text-slate-500 font-sans', '无符合当前层级或搜索条件的持仓标的');
-    summaryEl.textContent = `显示 0 / ${state.allPositions.length} 个在管标的`;
-    return;
-  }
   tbody.replaceChildren(...rows);
   summaryEl.textContent = `显示 ${filtered.length} / ${state.allPositions.length} 个在管标的`;
 }
@@ -420,13 +569,13 @@ function renderFillGroup(listId, countId, fills, side) {
 
   if (!state.ledgerAvailable) {
     countEl.textContent = '—';
-    showMessage(list, 'text-slate-400 text-xs py-6 text-center', '等待账本数据');
+    showMessage(list, 'text-[#526a73] text-xs py-6 text-center', '等待账本数据');
     return;
   }
   countEl.textContent = `最近 ${fills.length} 笔`;
   if (fills.length === 0) {
     const emptyText = side === 'BUY' ? '暂无买入成交明细' : '暂无卖出成交明细';
-    showMessage(list, 'text-slate-400 text-xs py-6 text-center', emptyText);
+    showMessage(list, 'text-[#526a73] text-xs py-6 text-center', emptyText);
     return;
   }
 
@@ -440,23 +589,24 @@ function renderFillGroup(listId, countId, fills, side) {
     const amountLabel = isBuy ? '成交额' : '已实现毛盈亏';
     const pnl = Number(fill.realized_pnl);
     const amountClass = isBuy
-      ? 'text-slate-200'
+      ? 'text-[#102128]'
       : !Number.isFinite(pnl)
-        ? 'text-slate-400'
-        : pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        ? 'text-[#526a73]'
+        : pnl >= 0 ? 'text-[#0a7052]' : 'text-[#bd2b2b]';
 
     const item = createNode('article', 'py-3 flex items-center justify-between gap-4 text-xs');
     const identity = createNode('div', 'min-w-0');
     identity.append(
-      createNode('p', 'font-semibold text-white truncate', fill.symbol),
-      createNode('p', 'text-slate-400 text-[11px] mt-1 font-mono tabular-nums', `单价: $${formatPrice(fill.price)} │ 数量: ${formatPrice(fill.qty)}`),
+      createNode('p', 'font-display font-semibold text-[#102128] truncate', fill.symbol),
+      createNode('p', 'text-[#526a73] text-xs mt-0.5 font-mono tabular-nums', `均价 $${formatPrice(fill.price)} · 数量 ${formatPrice(fill.qty)}`),
     );
+
     const details = createNode('div', 'shrink-0 text-right');
-    const timeNode = createNode('time', 'block mt-1 text-[10px] text-slate-500 font-mono tabular-nums', time);
+    const timeNode = createNode('time', 'block mt-0.5 text-xs text-[#526a73] font-mono tabular-nums', time);
     timeNode.dateTime = tradedAt.toISOString();
     details.append(
-      createNode('span', 'block text-[10px] text-slate-400', amountLabel),
-      createNode('span', `block mt-0.5 font-mono font-semibold tabular-nums ${amountClass}`, amount),
+      createNode('span', 'block text-xs text-[#526a73]', amountLabel),
+      createNode('span', `block font-display font-semibold tabular-nums ${amountClass}`, amount),
       timeNode,
     );
     item.append(identity, details);
@@ -470,22 +620,42 @@ export function renderRanking(symbols, pendingCloseFills) {
 
   if (!state.ledgerAvailable || pendingCloseFills > 0) {
     const message = !state.ledgerAvailable ? '等待账本数据' : '平仓流水待对账，收益排名暂不可用';
-    showMessage(container, 'text-slate-400 text-xs py-8 text-center', message);
+    showMessage(container, 'text-[#526a73] text-xs py-8 text-center', message);
     return;
   }
   if (symbols.length === 0) {
-    showMessage(container, 'text-slate-500 text-xs py-8 text-center', '暂无收益排名记录');
+    showMessage(container, 'text-[#526a73] text-xs py-8 text-center', '暂无收益排名记录');
     return;
   }
+
+  const maxAbs = Math.max(...symbols.map(s => Math.abs(Number(s.realized_gross) || 0)), 0.01);
+
   const rows = symbols.map((symbol, idx) => {
-    const row = createNode('div', 'flex items-center justify-between p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs font-mono');
-    const identity = createNode('div', 'flex items-center gap-3');
-    identity.append(
-      createNode('span', `w-5 text-center font-bold ${idx < 3 ? 'text-amber-400' : 'text-slate-500'}`, `#${idx + 1}`),
-      createNode('span', 'font-sans font-bold text-white', symbol.symbol),
+    const val = Number(symbol.realized_gross);
+    const widthPct = Math.min(100, Math.max(4, (Math.abs(val) / maxAbs) * 100));
+    const isPos = val >= 0;
+
+    const row = createNode('div', 'grid grid-cols-[28px_112px_1fr_116px] items-center gap-3 py-2.5 text-xs');
+    const rankEl = createNode(
+      'span',
+      `font-display tabular-nums font-bold text-center ${idx < 3 ? 'text-[#135d73]' : 'text-[#526a73]'}`,
+      `#${idx + 1}`,
     );
-    const pnlClass = symbol.realized_gross >= 0 ? 'text-emerald-400' : 'text-rose-400';
-    row.append(identity, createNode('span', `${pnlClass} font-bold`, `${formatSignedUsd(symbol.realized_gross)} USDT`));
+    const symEl = createNode('span', 'font-display font-semibold text-[#102128] truncate', symbol.symbol);
+
+    const track = createNode('div', 'h-2 rounded-sm bg-[#eaf0ee] overflow-hidden');
+    const fill = createNode('div', 'h-full rounded-sm');
+    fill.style.width = `${widthPct}%`;
+    fill.style.backgroundColor = isPos ? '#0a7052' : '#bd2b2b';
+    track.append(fill);
+
+    const valEl = createNode(
+      'span',
+      `font-display tabular-nums font-semibold text-right ${isPos ? 'text-[#0a7052]' : 'text-[#bd2b2b]'}`,
+      `${formatSignedUsd(val)} USDT`,
+    );
+
+    row.append(rankEl, symEl, track, valEl);
     return row;
   });
   container.replaceChildren(...rows);

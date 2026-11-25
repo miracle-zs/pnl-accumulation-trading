@@ -139,4 +139,7 @@ def create_app(data_dir: Path | str) -> FastAPI:
     js_dir = Path(__file__).parent / "static" / "js"
     app.mount("/js", StaticFiles(directory=js_dir), name="js")
 
+    fonts_dir = Path(__file__).parent / "static" / "fonts"
+    app.mount("/fonts", StaticFiles(directory=fonts_dir), name="fonts")
+
     return app

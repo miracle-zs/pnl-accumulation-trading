@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-26T00:32:00+08:00",
+  "title": "Design System: PNL Periodic Review Trader",
+  "extensions": {
+    "colorMeta": {
+      "shell-bg": {
+        "role": "primary",
+        "displayName": "Atlantic Slate-Teal",
+        "canonical": "#0e2a33",
+        "tonalRamp": ["#061419", "#0a1f26", "#0e2a33", "#163b47", "#255362", "#477988", "#8cb2bd", "#dcecef"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Harbor Teal",
+        "canonical": "#135d73",
+        "tonalRamp": ["#082933", "#0d4151", "#135d73", "#1a7692", "#3593af", "#6cb3c7", "#aed2dd", "#e6f2f5"]
+      },
+      "canvas-bg": {
+        "role": "neutral",
+        "displayName": "Chart Ivory",
+        "canonical": "#f3f6f5",
+        "tonalRamp": ["#102128", "#273b43", "#3f5760", "#526a73", "#8fa5a0", "#d4dfdc", "#eaf0ee", "#f3f6f5"]
+      },
+      "gain": {
+        "role": "secondary",
+        "displayName": "Sea Emerald",
+        "canonical": "#0a7052",
+        "tonalRamp": ["#053325", "#07523c", "#0a7052", "#118c68", "#2aad86", "#64c9a9", "#a5dcc8", "#e6f5ef"]
+      },
+      "loss": {
+        "role": "secondary",
+        "displayName": "Crimson Coral",
+        "canonical": "#bd2b2b",
+        "tonalRamp": ["#4a1010", "#7d1b1b", "#bd2b2b", "#d14343", "#e06c6c", "#ec9797", "#f0b5b5", "#fcecec"]
+      },
+      "warn": {
+        "role": "secondary",
+        "displayName": "Buoy Amber",
+        "canonical": "#985506",
+        "tonalRamp": ["#3d2102", "#693a04", "#985506", "#c97b18", "#df9a3f", "#ebbb77", "#ebcc94", "#fdf4e3"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display KPI",
+        "purpose": "Primary tabular KPI numerals and balance totals in self-hosted Barlow."
+      },
+      "headline": {
+        "displayName": "Shell Headline",
+        "purpose": "Product identity title in the committed deep slate-teal command header."
+      },
+      "title": {
+        "displayName": "Section Title",
+        "purpose": "Panel and diagnostic headings across the operational workspace."
+      },
+      "body": {
+        "displayName": "Operational Body",
+        "purpose": "Chinese UI labels, issue descriptions, filters, and table content."
+      },
+      "mono": {
+        "displayName": "Exact Telemetry Mono",
+        "purpose": "Prices, quantities, slot windows, and timestamps only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "tooltip-float",
+        "value": "0 4px 10px rgba(0, 0, 0, 0.14)",
+        "purpose": "Subtle neutral elevation exclusively for floating chart hover tooltips."
+      },
+      {
+        "name": "scroll-edge",
+        "value": "radial-gradient(farthest-side at 100% 50%, rgba(16, 33, 40, 0.14), transparent)",
+        "purpose": "Right-edge horizontal scroll affordance on responsive data tables."
+      }
+    ],
+    "motion": [
+      {
+        "name": "slot-rail-ease",
+        "value": "300ms cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "GPU-composited scaleX progression on the 15-minute slot cadence rail."
+      },
+      {
+        "name": "control-state",
+        "value": "150ms ease",
+        "purpose": "Crisp hover, tab selection, and segmented button transitions."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Shell Refresh Button",
+      "kind": "button",
+      "refersTo": "shell-button",
+      "description": "Primary command action seated on the Atlantic slate-teal header.",
+      "html": "<button type=\"button\" class=\"ds-shell-btn\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/><path d=\"M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16\"/><path d=\"M16 16h5v5\"/></svg><span>刷新</span></button>",
+      "css": ".ds-shell-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--shell-surface, #163b47); color: var(--shell-text, #f2f7f6); border: 1px solid var(--shell-border, #255362); border-radius: 4px; padding: 7px 12px; font-size: 12px; font-weight: 500; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, transform 120ms ease; } .ds-shell-btn:hover { background: #1d4a58; border-color: #366f82; } .ds-shell-btn:active { transform: translateY(1px); } .ds-shell-btn:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; }"
+    },
+    {
+      "name": "Segmented Period Toggle",
+      "kind": "nav",
+      "refersTo": "segmented-button-active",
+      "description": "Recessed sea-mist segmented control for switching chart periods and tier filters.",
+      "html": "<div class=\"ds-seg-group\" role=\"group\" aria-label=\"周期切换\"><button type=\"button\" class=\"ds-seg-btn\" aria-pressed=\"false\">24 小时</button><button type=\"button\" class=\"ds-seg-btn\" aria-pressed=\"true\">7 天</button><button type=\"button\" class=\"ds-seg-btn\" aria-pressed=\"false\">30 天</button></div>",
+      "css": ".ds-seg-group { display: inline-flex; padding: 2px; border-radius: 4px; background: var(--surface-subtle, #eaf0ee); border: 1px solid var(--border, #d4dfdc); } .ds-seg-btn { padding: 4px 10px; border-radius: 3px; font-size: 12px; font-weight: 500; color: var(--ink-secondary, #3f5760); background: transparent; border: 1px solid transparent; cursor: pointer; transition: color 150ms ease, background-color 150ms ease; } .ds-seg-btn:hover { color: var(--ink, #102128); } .ds-seg-btn[aria-pressed='true'] { background: var(--surface, #ffffff); color: var(--accent, #135d73); border-color: var(--border, #d4dfdc); font-weight: 600; } .ds-seg-btn:focus-visible { outline: 2px solid var(--accent, #135d73); outline-offset: 2px; }"
+    },
+    {
+      "name": "Workbench Tab Bar",
+      "kind": "nav",
+      "description": "Single-row accessible tablist with non-color 2.5px bottom border indicator.",
+      "html": "<div class=\"ds-tablist\" role=\"tablist\"><button type=\"button\" role=\"tab\" aria-selected=\"true\" class=\"ds-tab\">在管持仓</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" class=\"ds-tab\">实时成交</button><button type=\"button\" role=\"tab\" aria-selected=\"false\" class=\"ds-tab\">收益排行</button></div>",
+      "css": ".ds-tablist { display: flex; gap: 4px; background: #f7faf9; border-bottom: 1px solid var(--border, #d4dfdc); padding: 0 16px; } .ds-tab { position: relative; padding: 12px; font-size: 14px; font-weight: 600; color: var(--ink-secondary, #3f5760); background: transparent; border: none; cursor: pointer; transition: color 150ms ease; } .ds-tab:hover { color: var(--ink, #102128); } .ds-tab[aria-selected='true'] { color: var(--accent, #135d73); } .ds-tab[aria-selected='true']::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: 0; border-bottom: 2.5px solid var(--accent, #135d73); } .ds-tab:focus-visible { outline: 2px solid var(--accent, #135d73); outline-offset: -3px; border-radius: 3px; }"
+    },
+    {
+      "name": "Symbol Search Input",
+      "kind": "input",
+      "refersTo": "search-input",
+      "description": "High-contrast bordered search field for filtering managed positions and fills.",
+      "html": "<div class=\"ds-search-wrap\"><svg class=\"ds-search-icon\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><input type=\"search\" class=\"ds-search\" placeholder=\"搜索标的 (如 BTC, SOL)\" aria-label=\"搜索交易标的\"></div>",
+      "css": ".ds-search-wrap { position: relative; display: inline-block; width: 200px; } .ds-search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #526a73; pointer-events: none; } .ds-search { width: 100%; background: #ffffff; border: 1px solid #8fa5a0; border-radius: 4px; color: #102128; font-size: 12px; padding: 6px 10px 6px 32px; transition: border-color 150ms ease, box-shadow 150ms ease; } .ds-search::placeholder { color: #526a73; } .ds-search:focus { border-color: #135d73; box-shadow: 0 0 0 2px rgba(19, 93, 115, 0.16); outline: none; }"
+    },
+    {
+      "name": "Tier Ladder Badges",
+      "kind": "chip",
+      "description": "Color-coded 3px hairline badges encoding T1, T2, T2.1, T3, and T3.1/T3.2 strategy stages.",
+      "html": "<div class=\"ds-chip-row\"><span class=\"ds-badge ds-t1\">Tier 1</span><span class=\"ds-badge ds-t2\">Tier 2</span><span class=\"ds-badge ds-t21\">Tier 2.1 (半仓)</span><span class=\"ds-badge ds-t3\">Tier 3</span><span class=\"ds-badge ds-t31\">Tier 3.1</span></div>",
+      "css": ".ds-chip-row { display: flex; flex-wrap: wrap; gap: 6px; } .ds-badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 3px; font-size: 12px; font-weight: 600; border: 1px solid transparent; } .ds-t1 { background: #e7f3f6; color: #135d73; border-color: #aed2dd; } .ds-t2 { background: #fdf4e3; color: #985506; border-color: #ebcc94; } .ds-t21 { background: #e6f5ef; color: #0a7052; border-color: #a5dcc8; } .ds-t3 { background: #fcecec; color: #bd2b2b; border-color: #f0b5b5; } .ds-t31 { background: #f1ecfa; color: #5c3d91; border-color: #cfc0e9; }"
+    },
+    {
+      "name": "15-Minute Slot Cadence Rail",
+      "kind": "custom",
+      "description": "Signature shell telemetry module displaying the active 15m wall-clock window, countdown, and scaleX progress bar.",
+      "html": "<div class=\"ds-slot-pill\"><div class=\"ds-slot-head\"><span>巡检 <strong class=\"ds-mono\">00:15–00:30</strong></span><span>下轮 <strong class=\"ds-mono ds-mint\">05:24</strong></span></div><div class=\"ds-slot-rail\"><div class=\"ds-slot-fill\" style=\"transform: scaleX(0.64)\"></div></div></div>",
+      "css": ".ds-slot-pill { background: #163b47; border: 1px solid #255362; border-radius: 4px; padding: 6px 12px; width: 200px; color: #9eb9c0; font-size: 12px; } .ds-slot-head { display: flex; justify-content: space-between; margin-bottom: 5px; } .ds-mono { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; color: #d6e4e7; font-weight: 500; } .ds-mint { color: #34d399; font-weight: 600; } .ds-slot-rail { height: 5px; border-radius: 2px; background: #1f4754; overflow: hidden; } .ds-slot-fill { width: 100%; height: 100%; background: #34d399; transform-origin: left center; transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Maritime Chart & Port Dispatch Board",
+    "overview": "This design system treats the 15-minute periodic review trading dashboard as an institutional dispatch sheet rather than a dark-mode crypto terminal. A committed deep Atlantic slate-teal command header anchors system health, 15-minute slot progress, and runtime cadence, while the operational workspace below opens onto a calm, high-legibility chart-ivory canvas designed for long-duration desktop monitoring and rapid mobile check-ins. Visual authority comes from crisp hairline boundaries, disciplined tabular numerals, and purposeful semantic color rather than glowing dark cards or ornamental chrome. The incumbent dark-navy Tailwind card stack (#090d16 / #0f172a with glowing badges and nested borders) is explicitly retired.",
+    "keyCharacteristics": [
+      "Committed deep slate-teal command header paired with a cool chart-ivory working canvas.",
+      "Self-hosted Barlow tabular display numerals paired with native CJK sans copy and restrained monospace strictly for prices, quantities, and timestamps.",
+      "Flat hairline-divided ledger planes with crisp 4px corners and zero nested bordered sub-cards.",
+      "WCAG AA (>= 4.5:1) semantic contrast paired with non-color geometric indicators (dots, alert/info icons, border underlines) across all status, severity, and tier states."
+    ],
+    "rules": [
+      {
+        "name": "The Zero-Decoration Color Rule",
+        "body": "Never tint neutral metadata counts (fill counts, active symbol counts, timestamps) with saturated pill badges; reserve color fills strictly for directional PnL, risk severity, leverage, and tier state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Non-Color Redundancy Rule",
+        "body": "Every state badge, execution issue, and active tab must pair color with a geometric shape, icon, or hairline underline so status survives color blindness and Windows Forced Colors Mode.",
+        "section": "colors"
+      },
+      {
+        "name": "The Honest Monospace Rule",
+        "body": "Use monospace exclusively for exact prices, quantities, and timestamps—never on large KPI display figures or Chinese prose sentences.",
+        "section": "typography"
+      },
+      {
+        "name": "The No-Nested-Card Rule",
+        "body": "Never place bordered rounded sub-cards inside a .ledger-plane container; separate internal metrics, issue logs, tier rows, and rankings with 1px hairline dividers.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do self-host all fonts (Barlow WOFF2 in /fonts/) so local/offline trading nodes render identically with zero external CDN dependencies.",
+      "Do use tabular-nums on every financial figure, countdown, timestamp, and table column, and format all USD totals with thousands separators via formatUsd / formatSignedUsd.",
+      "Do pair color with non-color cues (warning/info icons, status dots, border underlines) and maintain >= 4.5:1 text contrast.",
+      "Do animate progress rails with GPU-composited transform: scaleX(...) rather than width."
+    ],
+    "donts": [
+      "Don't reintroduce dark-navy glowing SaaS cards, gradient text, or nested bordered boxes inside .ledger-plane panels.",
+      "Don't apply font-mono to KPI display headlines or Chinese body prose, or drop readable body text below 12px.",
+      "Don't render missing ledger metrics, un-reconciled close fills, or non-USDT fee caveats as synthetic zeros—preserve honest — and warning states.",
+      "Don't apply scrollbar-width: thin or clip focus outlines inside overflow-x: auto containers."
+    ]
+  }
+}

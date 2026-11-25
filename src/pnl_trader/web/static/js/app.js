@@ -4,42 +4,43 @@ import { fetchData, fetchEquity } from './api.js';
 import { initChartResizeObserver } from './chart.js';
 import {
   state,
+  renderTradingUptime,
   renderPositions,
   handleSort,
   filterTier,
   renderFills,
 } from './renderers.js';
 
-// Countdown & 15-Minute Boundary Refresh
-let lastReviewSlot = Math.floor(Date.now() / 900000);
+const SLOT_MS = 900_000;
+
+function formatHm(epochMs) {
+  const d = new Date(epochMs);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// 15-Minute Slot Cadence Rail & Boundary Refresh
+let lastReviewSlot = Math.floor(Date.now() / SLOT_MS);
 function updateCountdown() {
   const now = Date.now();
-  const slot = Math.floor(now / 900000);
-  const remainingSeconds = Math.ceil(((slot + 1) * 900000 - now) / 1000);
+  const slot = Math.floor(now / SLOT_MS);
+  const slotStartMs = slot * SLOT_MS;
+  const slotEndMs = (slot + 1) * SLOT_MS;
+  const elapsedMs = now - slotStartMs;
+  const remainingSeconds = Math.ceil((slotEndMs - now) / 1000);
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
+
   document.getElementById('countdown').textContent =
     `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  document.getElementById('slot-window-label').textContent =
+    `${formatHm(slotStartMs)}–${formatHm(slotEndMs)}`;
+  document.getElementById('slot-progress-fill').style.transform =
+    `scaleX(${Math.min(1, Math.max(0, elapsedMs / SLOT_MS)).toFixed(4)})`;
+
   if (slot !== lastReviewSlot) {
     lastReviewSlot = slot;
     setTimeout(fetchData, 3500);
   }
-}
-
-// Uptime Counter Loop
-function renderTradingUptime() {
-  const uptimeEl = document.getElementById('trading-uptime');
-  if (state.tradingUptimeBaseSeconds === null) {
-    uptimeEl.textContent = '—';
-    return;
-  }
-  const elapsedSeconds = state.tradingUptimeBaseSeconds +
-    Math.floor((performance.now() - state.tradingUptimeUpdatedAt) / 1000);
-  const totalMinutes = Math.floor(elapsedSeconds / 60);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  uptimeEl.textContent = `${days}天 ${hours}小时 ${minutes}分`;
 }
 
 export function switchView(view) {
@@ -47,11 +48,18 @@ export function switchView(view) {
   const tabs = ['positions', 'fills', 'ranking'];
   tabs.forEach(v => {
     const btn = document.getElementById(`tab-${v}`);
-    const el = document.getElementById(`view-${v}`);
+    const panel = document.getElementById(`view-${v}`);
     const isSelected = (v === view);
     btn.setAttribute('aria-selected', String(isSelected));
     btn.tabIndex = isSelected ? 0 : -1;
-    el.classList.toggle('hidden', !isSelected);
+    if (isSelected) {
+      panel.hidden = false;
+      panel.tabIndex = 0;
+      btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    } else {
+      panel.hidden = 'until-found';
+      panel.removeAttribute('tabindex');
+    }
   });
 
   document.getElementById('tier-filter-group').style.display = (view === 'positions') ? 'inline-flex' : 'none';
@@ -79,7 +87,7 @@ export function handleSearchInput() {
   }
 }
 
-// Initialize Roving Tabindex for WAI-ARIA tablist
+// Accessible Tablist (selection follows focus + find-in-page beforematch sync)
 function initAccessibleTabs() {
   const tablistEl = document.querySelector('[role="tablist"]');
 
@@ -102,8 +110,15 @@ function initAccessibleTabs() {
       e.preventDefault();
       const targetTab = tabs[nextIndex];
       targetTab.focus();
-      targetTab.click();
+      switchView(targetTab.dataset.view);
     }
+  });
+
+  ['positions', 'fills', 'ranking'].forEach(view => {
+    const panel = document.getElementById(`view-${view}`);
+    panel.addEventListener('beforematch', () => {
+      switchView(view);
+    });
   });
 }
 
@@ -121,12 +136,22 @@ function bindControls() {
     btn.addEventListener('click', () => filterTier(btn.dataset.tier));
   });
   document.getElementById('symbol-search').addEventListener('input', handleSearchInput);
-  document.querySelectorAll('.sort-header-btn').forEach(btn => {
-    btn.addEventListener('click', () => handleSort(btn.dataset.sort));
+
+  // Invoker commands for sortable table headers with feature-detected fallback
+  const positionsTable = document.getElementById('positions-table');
+  positionsTable.addEventListener('command', (event) => {
+    if (event.command === '--sort' && event.source?.dataset?.sort) {
+      handleSort(event.source.dataset.sort);
+    }
   });
+  if (!('commandForElement' in HTMLButtonElement.prototype)) {
+    positionsTable.tHead.querySelectorAll('button[command="--sort"]').forEach(btn => {
+      btn.addEventListener('click', () => handleSort(btn.dataset.sort));
+    });
+  }
 }
 
-// Timers and Page Lifecycle Management (efficient background processing)
+// Timers and Page Lifecycle Management
 let pollIntervalId = null;
 let countdownIntervalId = null;
 let uptimeIntervalId = null;
@@ -160,13 +185,11 @@ function stopTimers() {
   }
 }
 
-// Conserve CPU & battery by pausing background timers when tab is hidden
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     stopTimers();
   } else {
     startTimers();
-    // Immediately catch up with fresh data upon foregrounding
     fetchData();
   }
 });

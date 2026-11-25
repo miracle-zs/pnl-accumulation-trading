@@ -4,6 +4,7 @@ import { renderRetinaChart } from './chart.js';
 import {
   state,
   formatSignedUsd,
+  renderTradingUptime,
   renderPositions,
   updatePositionStatusKpi,
   renderDrawdown,
@@ -18,45 +19,89 @@ import {
 let activeAbortController = null;
 let equityAbortController = null;
 
+function setStatusBadge(variant, label, title) {
+  const badge = document.getElementById('system-status-badge');
+  const textEl = document.getElementById('system-status-text');
+  badge.className = `status-pill ${variant}`;
+  textEl.textContent = label;
+  if (title !== undefined) {
+    badge.title = title;
+  }
+}
+
 function applyEquity(eq) {
   renderDrawdown(eq);
   const snapshotStatus = document.getElementById('equity-snapshot-status');
   snapshotStatus.textContent = eq.latest
-    ? `采样时间：${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 等待下一轮快照'}`
+    ? `采样：${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 等待本轮快照'}`
     : '等待账户净值采样';
-  snapshotStatus.className = `text-xs mt-0.5 ${eq.latest && !eq.latest.is_current_slot ? 'text-amber-400' : 'text-slate-400'}`;
+  snapshotStatus.className = `text-xs mt-0.5 tabular-nums ${
+    eq.latest && !eq.latest.is_current_slot ? 'text-[#985506] font-medium' : 'text-[#526a73]'
+  }`;
 
   const kpiEquity = document.getElementById('kpi-equity');
   const kpiAvailable = document.getElementById('kpi-available');
   const kpiNotional = document.getElementById('kpi-notional');
   const kpiLeverage = document.getElementById('kpi-actual-leverage');
   const kpiUnrealized = document.getElementById('kpi-unrealized-pnl');
+  const kpiCushion = document.getElementById('kpi-margin-cushion');
+
+  const kpiBaseClass = 'font-display text-[22px] sm:text-[28px] lg:text-[30px] leading-none font-bold tabular-nums tracking-tight';
 
   if (eq.latest) {
-    kpiEquity.textContent = `$${eq.latest.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    kpiAvailable.textContent = `$${eq.latest.available_balance.toFixed(2)}`;
-    kpiNotional.textContent = `$${eq.latest.position_notional.toFixed(2)}`;
-    kpiLeverage.textContent = eq.latest.leverage !== null ? `实际杠杆 ${eq.latest.leverage.toFixed(2)}x` : '实际杠杆 —';
+    kpiEquity.textContent = `$${eq.latest.equity.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    kpiAvailable.textContent = `$${eq.latest.available_balance.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    kpiNotional.textContent = `$${eq.latest.position_notional.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+    kpiLeverage.textContent = eq.latest.leverage !== null
+      ? `实际杠杆 ${eq.latest.leverage.toFixed(2)}x`
+      : '实际杠杆 —';
 
     const unpnl = eq.latest.unrealized_pnl;
     kpiUnrealized.textContent = formatSignedUsd(unpnl);
-    kpiUnrealized.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${unpnl >= 0 ? 'text-emerald-400' : 'text-amber-400'}`;
+    kpiUnrealized.className = `${kpiBaseClass} ${
+      unpnl > 0 ? 'text-[#0a7052]' : unpnl < 0 ? 'text-[#bd2b2b]' : 'text-[#102128]'
+    }`;
+
+    if (eq.latest.equity > 0 && Number.isFinite(eq.latest.available_balance)) {
+      const cushionPct = (eq.latest.available_balance / eq.latest.equity) * 100;
+      kpiCushion.textContent = `${cushionPct.toFixed(1)}%`;
+      kpiCushion.className = `font-display font-semibold tabular-nums ${
+        cushionPct < 25 ? 'text-[#bd2b2b]' : cushionPct < 45 ? 'text-[#985506]' : 'text-[#0a7052]'
+      }`;
+    } else {
+      kpiCushion.textContent = '—';
+      kpiCushion.className = 'font-display font-medium tabular-nums text-[#526a73]';
+    }
   } else {
     kpiEquity.textContent = '—';
     kpiAvailable.textContent = '—';
     kpiNotional.textContent = '—';
     kpiLeverage.textContent = '实际杠杆 —';
     kpiUnrealized.textContent = '—';
+    kpiUnrealized.className = `${kpiBaseClass} text-[#102128]`;
+    kpiCushion.textContent = '—';
+    kpiCushion.className = 'font-display font-medium tabular-nums text-[#526a73]';
   }
 
   const badge = document.getElementById('equity-change-badge');
   if (eq.change !== null) {
     const percentage = eq.change_pct === null ? '' : ` (${formatSignedUsd(eq.change_pct).replace('$', '')}%)`;
     badge.textContent = `${formatSignedUsd(eq.change)}${percentage}`;
-    badge.className = `font-mono text-xs px-1.5 py-0.5 rounded ${eq.change >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`;
+    badge.className = `font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded ${
+      eq.change >= 0 ? 'bg-[#e6f5ef] text-[#0a7052]' : 'bg-[#fcecec] text-[#bd2b2b]'
+    }`;
   } else {
     badge.textContent = '—';
-    badge.className = 'font-mono text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-300';
+    badge.className = 'font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded bg-[#eaf0ee] text-[#3f5760]';
   }
 
   state.chartHistoryPoints = eq.points;
@@ -108,9 +153,8 @@ export async function fetchData() {
   const refreshIcon = document.getElementById('refresh-icon');
   const refreshText = document.getElementById('refresh-text');
   refreshIcon.classList.add('animate-spin');
-  refreshText.textContent = '刷新中...';
+  refreshText.textContent = '同步中';
 
-  const statusBadge = document.getElementById('system-status-badge');
   try {
     const response = await fetch(
       `api/dashboard?period=${state.currentPeriod}&fills_limit=12`,
@@ -138,30 +182,37 @@ export async function fetchData() {
       ? ov.trading_uptime_seconds
       : null;
     state.tradingUptimeUpdatedAt = performance.now();
+    renderTradingUptime();
+
     state.ledgerAvailable = ov.status === 'LOCAL_LEDGER_ONLY';
     const pendingCloseFills = ov.pending_close_fill_count;
 
     if (!state.ledgerAvailable) {
-      statusBadge.textContent = '等待账本数据';
-      statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30';
+      setStatusBadge('status-shell-warn', '等待账本数据', '等待 state.sqlite3 生成');
     } else if (pendingCloseFills > 0) {
-      statusBadge.textContent = `平仓流水待对账 ${pendingCloseFills} 笔`;
-      statusBadge.title = '等待币安撮合流水归档，暂缓统计净利润';
-      statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/30';
+      setStatusBadge(
+        'status-shell-warn',
+        `待对账 ${pendingCloseFills} 笔`,
+        '等待币安撮合流水归档，暂缓统计净利润',
+      );
     } else {
-      statusBadge.textContent = '只读本地账本';
-      statusBadge.title = '只读监控 · 数据源自本地 SQLite 状态库';
-      statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700';
+      setStatusBadge('status-shell-ok', '只读本地账本', '只读监控 · 数据源自本地 SQLite 状态库');
     }
 
     const realizedCash = state.ledgerAvailable ? ov.realized_cash : null;
     const realizedEl = document.getElementById('kpi-realized-cash');
     realizedEl.textContent = formatSignedUsd(realizedCash);
-    realizedEl.className = `text-2xl lg:text-3xl font-bold font-mono tracking-tight ${realizedCash === null ? 'text-slate-400' : realizedCash >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
-    realizedEl.title = pendingCloseFills > 0 ? '平仓明细待补录，净利润暂不可用' : ov.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '';
+    realizedEl.className = `font-display text-[22px] sm:text-[28px] lg:text-[30px] leading-none font-bold tabular-nums tracking-tight ${
+      realizedCash === null ? 'text-[#526a73]' : realizedCash >= 0 ? 'text-[#0a7052]' : 'text-[#bd2b2b]'
+    }`;
+    realizedEl.title = pendingCloseFills > 0
+      ? '平仓明细待补录，净利润暂不可用'
+      : ov.other_fee_count > 0
+        ? '包含非 USDT 手续费，无法准确计算净利润'
+        : '';
 
     document.getElementById('kpi-fill-count').textContent = state.ledgerAvailable ? `${ov.fill_count} 笔成交` : '—';
-    document.getElementById('kpi-active-symbols').textContent = state.ledgerAvailable ? `${ov.active_positions_count} 个在管标的` : '—';
+    document.getElementById('kpi-active-symbols').textContent = state.ledgerAvailable ? `${ov.active_positions_count} 个标的` : '—';
 
     applyEquity(eq);
 
@@ -169,8 +220,13 @@ export async function fetchData() {
     const todayPendingCloseFills = an.today.pending_close_fill_count;
     const realizedNet = state.ledgerAvailable ? an.today.realized_net : null;
     todayPnl.textContent = formatSignedUsd(realizedNet);
-    todayPnl.title = todayPendingCloseFills > 0 ? '今日平仓明细待补录，净利润暂不可用' : (an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '');
-    todayPnl.className = `font-mono ${realizedNet === null ? 'text-slate-400' : realizedNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+    todayPnl.title = todayPendingCloseFills > 0
+      ? '今日平仓明细待补录，净利润暂不可用'
+      : (an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '');
+    todayPnl.className = `font-display font-semibold tabular-nums ${
+      realizedNet === null ? 'text-[#526a73]' : realizedNet >= 0 ? 'text-[#0a7052]' : 'text-[#bd2b2b]'
+    }`;
+
     renderRanking(an.symbols, pendingCloseFills);
     renderCosts(an.costs);
     renderExecutionIssues(an.execution_issues);
@@ -181,7 +237,7 @@ export async function fetchData() {
       document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
       document.getElementById('tier-cnt-t3').textContent = `${td.t3} 币`;
       document.getElementById('tier-cnt-t31').textContent = `${td.t31 + td.t32} 币`;
-      document.getElementById('tier-total-badge').textContent = `${td.total} 个在管标的`;
+      document.getElementById('tier-total-badge').textContent = `${td.total} 个标的`;
 
       const percentagePerSymbol = td.total > 0 ? 100 / td.total : 0;
       document.getElementById('bar-t1').style.width = `${td.t1 * percentagePerSymbol}%`;
@@ -192,7 +248,7 @@ export async function fetchData() {
       ['tier-cnt-t1', 'tier-cnt-t2', 'tier-cnt-t3', 'tier-cnt-t31'].forEach(id => {
         document.getElementById(id).textContent = '—';
       });
-      document.getElementById('tier-total-badge').textContent = '— 个在管标的';
+      document.getElementById('tier-total-badge').textContent = '— 个标的';
       ['bar-t1', 'bar-t2', 'bar-t3', 'bar-t31'].forEach(id => {
         document.getElementById(id).style.width = '0%';
       });
@@ -210,8 +266,7 @@ export async function fetchData() {
     if (err.name === 'AbortError' || activeAbortController !== controller) {
       return;
     }
-    statusBadge.textContent = '数据刷新失败';
-    statusBadge.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/30';
+    setStatusBadge('status-shell-error', '数据刷新失败', '本地看板接口请求失败');
     console.warn('API poll notice:', err);
   } finally {
     if (activeAbortController === controller) {
