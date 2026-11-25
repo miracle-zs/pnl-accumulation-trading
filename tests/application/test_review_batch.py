@@ -163,6 +163,132 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 store.close()
 
+    async def test_cleared_unadmitted_position_is_excluded_and_clears_dashboard_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteStateStore(Path(directory) / "state.sqlite3")
+            try:
+                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                seed_buy_execution(
+                    store,
+                    idle,
+                    action=Action.OPEN_T1,
+                    quantity=D("1"),
+                    price=D("10"),
+                    intent_id="open-btc",
+                    timestamp_ms=200,
+                )
+                store.record_dashboard_issue(
+                    symbol="BTCUSDT",
+                    category="REVIEW_ERROR",
+                    detail="old error",
+                    occurred_at_ms=250,
+                )
+                source = ReconciledReviewBatchSource(
+                    store=store,
+                    positions=_PositionSource(D("0")),
+                    signals=_StaticSignalSource((ReviewSignal("BTCUSDT", admitted=False, delisted=False),)),
+                    clock_ms=lambda: 300,
+                )
+
+                batch = await source.load_review_batch(0)
+
+                self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.IDLE)
+                self.assertEqual(batch.candidates, ())
+                issues = store._connection.execute("SELECT * FROM dashboard_issues").fetchall()
+                self.assertEqual(issues, [])
+            finally:
+                store.close()
+
+    async def test_unadmitted_reopen_pending_resets_to_idle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteStateStore(Path(directory) / "state.sqlite3")
+            try:
+                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                opened = seed_buy_execution(
+                    store,
+                    idle,
+                    action=Action.OPEN_T1,
+                    quantity=D("1"),
+                    price=D("10"),
+                    intent_id="open-btc",
+                    timestamp_ms=200,
+                )
+                close_intent = OrderIntent(
+                    intent_id="close-btc",
+                    symbol="BTCUSDT",
+                    action=Action.CLOSE_T1,
+                    created_at_ms=250,
+                    target_cumulative_sold_qty=opened.tier_entry_qty,
+                )
+                store.create_order_intent(close_intent)
+                store.create_order_attempt(close_intent.intent_id, requested_qty=opened.qty)
+                store.confirm_full_close(
+                    close_intent.intent_id,
+                    expected=IntentStatus.PENDING,
+                    filled_qty=opened.qty,
+                    updated_at_ms=260,
+                )
+                self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.REOPEN_PENDING)
+
+                source = ReconciledReviewBatchSource(
+                    store=store,
+                    positions=_PositionSource(D("0")),
+                    signals=_StaticSignalSource((ReviewSignal("BTCUSDT", admitted=False, delisted=False),)),
+                    clock_ms=lambda: 300,
+                )
+                batch = await source.load_review_batch(0)
+
+                self.assertEqual(store.load_symbol_state("BTCUSDT").lifecycle, Lifecycle.IDLE)
+                self.assertEqual(batch.candidates, ())
+            finally:
+                store.close()
+
+    async def test_delisted_symbol_with_open_position_keeps_dashboard_issue_until_review(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteStateStore(Path(directory) / "state.sqlite3")
+            try:
+                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                seed_buy_execution(
+                    store,
+                    idle,
+                    action=Action.OPEN_T1,
+                    quantity=D("1"),
+                    price=D("10"),
+                    intent_id="open-btc",
+                    timestamp_ms=200,
+                )
+                store.record_dashboard_issue(
+                    symbol="BTCUSDT",
+                    category="REVIEW_ERROR",
+                    detail="awaiting delivery",
+                    occurred_at_ms=250,
+                )
+                source = ReconciledReviewBatchSource(
+                    store=store,
+                    positions=_PositionSource(D("1")),
+                    signals=_DelistedSignalSource(),
+                    clock_ms=lambda: 300,
+                )
+
+                await source.load_review_batch(0)
+
+                issues = store._connection.execute("SELECT symbol FROM dashboard_issues").fetchall()
+                self.assertEqual([row["symbol"] for row in issues], ["BTCUSDT"])
+            finally:
+                store.close()
+
+
+class _StaticSignalSource:
+    def __init__(self, signals: tuple[ReviewSignal, ...]) -> None:
+        self._signals = signals
+
+    async def load_review_signals(
+        self,
+        *,
+        managed_symbols: tuple[str, ...],
+    ) -> tuple[ReviewSignal, ...]:
+        return self._signals
+
 
 class _PositionSource:
     def __init__(self, quantity: Decimal) -> None:

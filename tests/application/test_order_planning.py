@@ -2,7 +2,7 @@ from decimal import Decimal
 import unittest
 
 from pnl_trader.application.market_models import InstrumentRules, MarketQuantityRules
-from pnl_trader.application.order_planning import plan_market_order
+from pnl_trader.application.order_planning import OrderRuleUnavailable, plan_market_order
 from pnl_trader.domain import (
     Action, Decision, Lifecycle, Observation, SymbolState, Tier, decide_strategy,
 )
@@ -136,6 +136,28 @@ class MarketOrderPlanningTests(unittest.TestCase):
         self.assertEqual(plan.action, Action.CLOSE_T2_FULL)
         self.assertEqual(plan.quantity, D("0.5"))
         self.assertLess(plan.quantity * D("9"), self.rules.min_market_notional)
+
+    def test_full_close_unaligned_position_raises_order_rule_unavailable(self) -> None:
+        state = SymbolState(
+            symbol="TESTUSDT",
+            tier=Tier.T1,
+            lifecycle=Lifecycle.OPEN,
+            qty=D("0.015"),
+            avg_entry_price=D("10"),
+            tier_entry_qty=D("0.015"),
+            tier_anchor_price=D("10"),
+        )
+
+        with self.assertRaisesRegex(
+            OrderRuleUnavailable,
+            "not aligned to the market quantity grid",
+        ):
+            plan_market_order(
+                Decision(Action.CLOSE_T1, close_qty=D("0.015")),
+                state,
+                self.rules,
+                D("12"),
+            )
 
 
 

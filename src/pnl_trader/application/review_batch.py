@@ -73,20 +73,16 @@ class ReconciledReviewBatchSource:
 
         positions_by_symbol = self._index_positions(position_snapshot)
         signals_by_symbol = {signal.symbol: signal for signal in signals}
-        inactive_symbols = {
-            symbol
-            for symbol, signal in signals_by_symbol.items()
-            if signal.delisted or (not signal.admitted and symbol not in managed_symbols)
-        }
-        self._store.clear_dashboard_issues(tuple(sorted(inactive_symbols)))
         for symbol, state in states.items():
             position = positions_by_symbol.get(symbol)
             actual_qty = position.position_amt if position is not None else ZERO
-            if (
-                state.qty > ZERO
-                and symbol not in intents_by_symbol
-                and actual_qty == ZERO
-            ):
+            if symbol in intents_by_symbol or actual_qty != ZERO:
+                continue
+            signal = signals_by_symbol.get(symbol)
+            stale_reopen = state.lifecycle is Lifecycle.REOPEN_PENDING and (
+                signal is None or signal.delisted or not signal.admitted
+            )
+            if state.qty > ZERO or stale_reopen:
                 states[symbol] = self._store.clear_flat_symbol_state(
                     symbol,
                     updated_at_ms=now_ms,
@@ -95,16 +91,25 @@ class ReconciledReviewBatchSource:
 
         self._reconcile_positions(states, positions_by_symbol, intents_by_symbol)
 
+        active_managed_symbols = {
+            state.symbol for state in states.values()
+            if state.lifecycle in _MANAGED_LIFECYCLES
+        }
+        active_managed_symbols.update(intents_by_symbol)
+
         candidate_symbols = {
             symbol
             for symbol, signal in signals_by_symbol.items()
-            if not signal.delisted and (signal.admitted or symbol in managed_symbols)
+            if not signal.delisted and (signal.admitted or symbol in active_managed_symbols)
         }
         candidate_symbols.update(
             symbol for symbol, position in positions_by_symbol.items()
             if position.position_amt != ZERO
         )
         candidate_symbols.update(intents_by_symbol)
+
+        inactive_symbols = set(signals_by_symbol) - candidate_symbols
+        self._store.clear_dashboard_issues(tuple(sorted(inactive_symbols)))
 
         candidates: list[ReviewCandidate] = []
         for symbol in candidate_symbols:

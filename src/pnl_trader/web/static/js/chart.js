@@ -6,6 +6,7 @@ export function renderRetinaChart(points) {
   if (!canvas || !container) return;
 
   const rect = container.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
   const dpr = window.devicePixelRatio || 1;
 
   canvas.width = rect.width * dpr;
@@ -44,6 +45,7 @@ export function renderRetinaChart(points) {
   const paddingBottom = 30;
   const plotW = w - paddingLeft - paddingRight;
   const plotH = h - paddingTop - paddingBottom;
+  if (plotW <= 0 || plotH <= 0) return;
 
   const values = points.map(p => p.equity);
   let minVal = Math.min(...values);
@@ -232,15 +234,8 @@ export function setupCanvasHover(canvas, points, getX, getY) {
 export function initChartResizeObserver(containerId, getPoints) {
   const containerEl = document.getElementById(containerId);
   if (!containerEl) return;
-  const observer = new ResizeObserver((entries) => {
-    for (const entry of entries) {
-      if (entry.contentBoxSize) {
-        const points = getPoints();
-        if (points && points.length > 0) {
-          renderRetinaChart(points);
-        }
-      }
-    }
+  const observer = new ResizeObserver(() => {
+    renderRetinaChart(getPoints());
   });
   observer.observe(containerEl);
   return observer;

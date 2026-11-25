@@ -84,11 +84,13 @@ export function renderPositions() {
 
   // Stable sorting using Intl.Collator for strings and numerical comparison for values
   filtered.sort((a, b) => {
-    let valA = a[state.currentSortKey];
-    let valB = b[state.currentSortKey];
-
-    if (valA === null || valA === undefined) valA = -Infinity;
-    if (valB === null || valB === undefined) valB = -Infinity;
+    const valA = a[state.currentSortKey];
+    const valB = b[state.currentSortKey];
+    const missingA = valA === null || valA === undefined;
+    const missingB = valB === null || valB === undefined;
+    if (missingA && missingB) return 0;
+    if (missingA) return 1;
+    if (missingB) return -1;
 
     if (typeof valA === 'string' && typeof valB === 'string') {
       return state.currentSortDirection === 'asc'
@@ -114,7 +116,7 @@ export function renderPositions() {
         ? ((p.scan_price - p.avg_entry_price) / p.avg_entry_price * 100)
         : 0;
       const pnlClass = pnlVal > 0 ? 'text-emerald-400' : pnlVal < 0 ? 'text-rose-400' : 'text-slate-300';
-      const sign = pnlVal > 0 ? '+' : '';
+      const sign = pnlPct > 0 ? '+' : '';
       const pctStr = `${sign}${pnlPct.toFixed(2)}%`;
 
       const amountSpan = createNode('span', `font-bold ${pnlClass}`, formatSignedUsd(pnlVal));

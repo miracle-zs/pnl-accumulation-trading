@@ -8,6 +8,7 @@ import unittest
 
 from pnl_trader.adapters.sqlite import SQLiteStateStore
 from pnl_trader.application.account_models import AccountSnapshot
+from pnl_trader.application.exchange_errors import ExchangeOperationError
 from pnl_trader.application.execution import ExecutionCoordinator
 from pnl_trader.application.execution_models import (
     ExchangeOrderSnapshot,
@@ -298,6 +299,57 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     store.close()
 
+    async def test_unaligned_full_close_is_isolated_to_single_symbol(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with SQLiteStateStore(Path(directory) / "state.sqlite3") as store:
+                idle_btc = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                seed_buy_execution(
+                    store,
+                    idle_btc,
+                    action=Action.OPEN_T1,
+                    quantity=D("0.105"),
+                    price=D("10"),
+                    intent_id="seed-unaligned-btc",
+                    timestamp_ms=200,
+                )
+                store.ensure_idle_symbol_state("ETHUSDT", created_at_ms=100)
+
+                exchange = _FilledExchange(price=D("12"))
+                exchange._rules = replace(
+                    exchange._rules,
+                    market_quantity=MarketQuantityRules(
+                        min_qty=D("0.01"),
+                        max_qty=D("1000"),
+                        step_size=D("0.01"),
+                    ),
+                )
+                exchange.extra_prices = {"ETHUSDT": D("12")}
+                execution = ExecutionCoordinator(store=store, exchange=exchange)
+
+                class _TwoSymbolBatchSource:
+                    async def load_review_batch(self, slot_start_ms: int) -> ReviewBatch:
+                        return ReviewBatch(
+                            slot_start_ms=slot_start_ms,
+                            candidates=(
+                                ReviewCandidate("BTCUSDT", admitted=True, priority=ReviewPriority.POSITION),
+                                ReviewCandidate("ETHUSDT", admitted=True, priority=ReviewPriority.ENTRY),
+                            ),
+                        )
+
+                reviews = ReviewRunCoordinator(
+                    store=store,
+                    execution=execution,
+                    symbol_reviews=SymbolReviewExecutor(store=store, exchange=exchange, execution=execution),
+                    batch_source=_TwoSymbolBatchSource(),
+                    market_prices=exchange,
+                )
+                with self.assertLogs("pnl_trader.application.review_run", level="WARNING"):
+                    result = await reviews.run_slot(slot_start_ms=SLOT_START_MS)
+
+                self.assertEqual(dict(result.result_counts)["ERROR"], 1)
+                self.assertEqual(store.load_symbol_state("ETHUSDT").tier, Tier.T1)
+                self.assertEqual(store.load_symbol_state("BTCUSDT").qty, D("0.105"))
+
 class _OneSymbolBatchSource:
     async def load_review_batch(
         self,
@@ -374,10 +426,12 @@ class _FilledExchange:
         return AccountSnapshot(D("100"), D("-5"), D("75"), D("200"))
 
     async def get_latest_prices(self) -> dict[str, Decimal]:
-        return {"BTCUSDT": self.price}
+        prices = {"BTCUSDT": self.price}
+        prices.update(getattr(self, "extra_prices", {}))
+        return prices
 
     async def get_instrument_rules(self, symbol: str) -> InstrumentRules:
-        return self._rules
+        return replace(self._rules, symbol=symbol)
 
     async def submit_market_order(self, request: MarketOrderRequest) -> SubmissionResult:
         self.submitted_sides.append(request.side)
@@ -421,7 +475,7 @@ class _FilledExchange:
     ) -> tuple[TradeFillRecord, ...]:
         self.events.append(f"fills {order_side}")
         if order_side == "SELL" and not self.close_fills_available:
-            raise RuntimeError("close fills are not available yet")
+            raise ExchangeOperationError("close fills are not available yet")
         return self._fills_by_exchange_order_id[order_snapshot.exchange_order_id]
 
 

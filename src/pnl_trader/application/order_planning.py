@@ -94,7 +94,7 @@ def plan_market_order(
 
     quantity = rules.market_quantity.align_down(decision.close_qty)
     if not batch_close and quantity != state.qty:
-        raise ValueError(
+        raise OrderRuleUnavailable(
             "the complete remaining position is not aligned to the market quantity grid",
         )
     action = decision.action

@@ -192,6 +192,11 @@ class ExecutionCoordinator:
 
     async def _recover_record(self, record: PersistedOrderIntent) -> None:
         if record.status is IntentStatus.PREPARED:
+            self._store.transition_intent(
+                record.intent.intent_id,
+                expected=IntentStatus.PREPARED,
+                target=IntentStatus.CANCELED,
+            )
             return
         requested_qty = record.requested_qty
         if requested_qty is None:

@@ -609,6 +609,36 @@ class ExecutionAcceptanceTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_recover_pending_cancels_stale_prepared_intent_before_reconciliation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteStateStore(Path(directory) / "state.sqlite3")
+            try:
+                _seed_open_t1(store)
+                intent = OrderIntent(
+                    intent_id="stale-prepared-close",
+                    symbol="BTCUSDT",
+                    action=Action.CLOSE_T1,
+                    created_at_ms=2_000,
+                    target_cumulative_sold_qty=D("1"),
+                )
+                store.create_order_intent(intent)
+                gateway = ScriptedExchangeGateway({})
+                execution = ExecutionCoordinator(
+                    store=store,
+                    exchange=gateway,
+                    clock_ms=lambda: 3_000,
+                )
+
+                asyncio.run(execution.recover_pending())
+
+                self.assertEqual(
+                    store.get_intent_status(intent.intent_id),
+                    IntentStatus.CANCELED,
+                )
+                self.assertEqual(store.list_active_order_intents(), ())
+            finally:
+                store.close()
+
 
 class _ControllableExchangeGateway:
     """External exchange boundary with delayed order visibility."""

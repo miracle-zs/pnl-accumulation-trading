@@ -205,6 +205,59 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(requests[0].url.path, "/fapi/v2/ticker/price")
         self.assertEqual(dict(requests[0].url.params), {})
 
+    async def test_exchange_info_cache_refreshes_on_next_quarter_hour_boundary(self) -> None:
+        requests: list[httpx.Request] = []
+        now_ms = 0
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            nonlocal now_ms
+            requests.append(request)
+            now_ms += 400
+            return httpx.Response(
+                200,
+                json={
+                    "symbols": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "quoteAsset": "USDT",
+                            "marginAsset": "USDT",
+                            "contractType": "PERPETUAL",
+                            "status": "TRADING",
+                            "underlyingType": "COIN",
+                            "underlyingSubType": [],
+                            "filters": [
+                                {
+                                    "filterType": "MARKET_LOT_SIZE",
+                                    "minQty": "0.001",
+                                    "maxQty": "1000",
+                                    "stepSize": "0.001",
+                                },
+                                {
+                                    "filterType": "MIN_NOTIONAL",
+                                    "notional": "5",
+                                },
+                            ],
+                        }
+                    ]
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(
+                client=client,
+                api_key="test-api-key",
+                api_secret="test-api-secret",
+                clock_ms=lambda: now_ms,
+            )
+            await gateway.get_exchange_info_snapshot()
+            now_ms = 60_000
+            await gateway.get_instrument_rules("BTCUSDT")
+            self.assertEqual(len(requests), 1)
+
+            now_ms = 900_000
+            await gateway.get_exchange_info_snapshot()
+            self.assertEqual(len(requests), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

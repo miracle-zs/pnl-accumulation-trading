@@ -47,7 +47,7 @@ from ...domain.models import TradeFillRecord, ZERO
 
 BINANCE_USDM_FUTURES_URL = "https://fapi.binance.com"
 BINANCE_RECV_WINDOW_MS = 5_000
-EXCHANGE_INFO_CACHE_TTL_MS = 15 * 60 * 1_000
+EXCHANGE_INFO_CACHE_TTL_MS = 14 * 60 * 1_000
 ORDER_SUBMISSION_LIMIT_10S = 299
 ORDER_SUBMISSION_LIMIT_1M = 1_199
 ORDER_SUBMISSION_WINDOW_10S_SECONDS = 10.0
@@ -210,10 +210,9 @@ class BinanceFuturesGateway:
                 )
             )
 
-        loaded_at_ms = self._clock_ms()
         result = tuple(instruments)
         self._exchange_info_by_symbol = {item.symbol: item for item in result}
-        self._exchange_info_cache = (loaded_at_ms, result)
+        self._exchange_info_cache = (now_ms, result)
         return result
 
     async def get_latest_prices(self) -> dict[str, Decimal]:

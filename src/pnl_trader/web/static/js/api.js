@@ -14,18 +14,16 @@ import {
 } from './analytics.js';
 import { renderFills, renderRanking } from './fills.js';
 
-let refreshInProgress = false;
-let refreshQueued = false;
 let activeAbortController = null;
 
 export async function fetchData() {
   // If an existing request is in-flight, cancel it to avoid race conditions
-  if (refreshInProgress && activeAbortController) {
+  if (activeAbortController) {
     activeAbortController.abort();
   }
-  refreshInProgress = true;
-  activeAbortController = new AbortController();
-  const { signal } = activeAbortController;
+  const controller = new AbortController();
+  activeAbortController = controller;
+  const { signal } = controller;
 
   const refreshIcon = document.getElementById('refresh-icon');
   const refreshText = document.getElementById('refresh-text');
@@ -46,11 +44,15 @@ export async function fetchData() {
     if (responses.some(response => !response.ok)) {
       throw new Error('Dashboard API returned an unsuccessful response');
     }
-    const [overviewRes, equityRes, tierRes, posRes, buyFillsRes, sellFillsRes, analyticsRes] = responses;
+    const [ov, eq, td, positions, buyFills, sellFills, an] = await Promise.all(
+      responses.map(response => response.json()),
+    );
+    if (signal.aborted || activeAbortController !== controller) {
+      return;
+    }
 
     let pendingCloseFills = null;
     {
-      const ov = await overviewRes.json();
       state.tradingUptimeBaseSeconds = Number.isFinite(ov.trading_uptime_seconds)
         ? ov.trading_uptime_seconds
         : null;
@@ -87,7 +89,6 @@ export async function fetchData() {
     }
 
     {
-      const eq = await equityRes.json();
       renderDrawdown(eq);
       const snapshotStatus = document.getElementById('equity-snapshot-status');
       if (snapshotStatus) {
@@ -139,7 +140,6 @@ export async function fetchData() {
     }
 
     {
-      const an = await analyticsRes.json();
       const todayPnl = document.getElementById('kpi-today-pnl');
       const todayPendingCloseFills = an.today ? an.today.pending_close_fill_count : 0;
       const realizedNet = state.ledgerAvailable && an.today ? an.today.realized_net : null;
@@ -154,7 +154,6 @@ export async function fetchData() {
     }
 
     {
-      const td = await tierRes.json();
       renderTierExposure(td.exposure);
       if (state.ledgerAvailable) {
         const cntT1 = document.getElementById('tier-cnt-t1');
@@ -192,20 +191,20 @@ export async function fetchData() {
     }
 
     {
-      state.allPositions = await posRes.json();
+      state.allPositions = positions;
       renderPositions();
       renderLosingPositions(state.allPositions);
       updatePositionStatusKpi(state.allPositions);
     }
 
     {
-      state.rawBuyFills = await buyFillsRes.json();
-      state.rawSellFills = await sellFillsRes.json();
+      state.rawBuyFills = buyFills;
+      state.rawSellFills = sellFills;
       renderFills(state.rawBuyFills, state.rawSellFills);
     }
   } catch (err) {
-    if (err.name === 'AbortError') {
-      return; // Silently ignore cancelled requests
+    if (err.name === 'AbortError' || activeAbortController !== controller) {
+      return; // Silently ignore cancelled or superseded requests
     }
     if (statusBadge) {
       statusBadge.textContent = '数据刷新失败';
@@ -213,13 +212,10 @@ export async function fetchData() {
     }
     console.warn('API poll notice:', err);
   } finally {
-    refreshInProgress = false;
-    if (refreshIcon) refreshIcon.classList.remove('animate-spin');
-    if (refreshText) refreshText.textContent = '刷新';
-
-    if (refreshQueued) {
-      refreshQueued = false;
-      void fetchData();
+    if (activeAbortController === controller) {
+      activeAbortController = null;
+      if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+      if (refreshText) refreshText.textContent = '刷新';
     }
   }
 }
