@@ -1,6 +1,13 @@
 // High-Resolution Retina HTML5 Canvas Financial Equity Chart with Interactive Crosshair
 
-import { formatUsd, formatSignedUsd } from './renderers.js?v=20261126-3';
+import {
+  PERIOD_LABELS,
+  formatUsd,
+  formatSignedUsd,
+  formatBeijingHm,
+  formatBeijingShortDateTime,
+  formatBeijingDateHm,
+} from './renderers.js?v=20261126-4';
 
 let activeHoverIndex = null;
 let lastTooltipIndex = null;
@@ -8,16 +15,18 @@ let lastRenderedPoints = [];
 let lastRenderedPeriod = null;
 let currentGeometry = null;
 let boundCanvas = null;
+let boundOutsideHandler = null;
 let hoverRafId = null;
 let pendingClientPos = null;
 let pendingKeyIndex = null;
+let staticCanvas = null;
+let staticCacheMeta = null;
 
 const CHART_FONT_FAMILY =
   '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
-const PERIOD_LABELS = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
 const SINGLE_POINT_NOTE = '当前仅 1 个权益采样点（需至少 2 个采样点以绘制走势曲线）';
 
-function stepPrecision(step) {
+export function stepPrecision(step) {
   if (!Number.isFinite(step) || step <= 0) return 2;
   const mag = Math.floor(Math.log10(step));
   let decimals = Math.max(0, -mag);
@@ -29,11 +38,17 @@ function stepPrecision(step) {
   return Math.min(20, decimals);
 }
 
-function formatChartUsd(val, decimals, { signed = false, epsilon = 1e-12 } = {}) {
-  const cleanVal = Math.abs(val) < epsilon ? 0 : val;
+export function formatChartUsd(val, decimals, { signed = false, epsilon = 1e-12 } = {}) {
+  const num = Number(val);
+  if (!Number.isFinite(num)) return '—';
+  const rawClean = Math.abs(num) < epsilon ? 0 : num;
+  const factor = 10 ** Math.min(decimals, 8);
+  const rounded = decimals <= 8 ? Math.round(rawClean * factor) / factor : rawClean;
+  const cleanVal = rounded === 0 ? 0 : rawClean;
+
   if (decimals === 2) {
     if (signed) return formatSignedUsd(cleanVal);
-    if (cleanVal >= 0) return formatUsd(cleanVal);
+    return formatUsd(cleanVal);
   }
   const sign = cleanVal < 0 ? '-' : (signed && cleanVal > 0 ? '+' : '');
   const formatted = Math.abs(cleanVal).toLocaleString('en-US', {
@@ -43,7 +58,7 @@ function formatChartUsd(val, decimals, { signed = false, epsilon = 1e-12 } = {})
   return `${sign}$${formatted}`;
 }
 
-function computeNiceScale(rawMin, rawMax, targetTicks = 4) {
+export function computeNiceScale(rawMin, rawMax, targetTicks = 4) {
   let min = rawMin;
   let max = rawMax;
   if (min === max || !Number.isFinite(max - min) || max - min <= 0) {
@@ -86,35 +101,51 @@ function formatAxisLabel(val, step) {
 }
 
 function formatTickTime(ms, spanMs) {
-  const d = new Date(ms);
   if (spanMs <= 36 * 3_600_000) {
-    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    return formatBeijingHm(ms);
   }
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hour = String(d.getHours()).padStart(2, '0');
-  const minute = String(d.getMinutes()).padStart(2, '0');
-  return `${month}/${day} ${hour}:${minute}`;
+  return formatBeijingShortDateTime(ms);
 }
 
-function drawChartFrame(canvas, container, points, hoverIndex) {
-  const rect = container.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  const dpr = window.devicePixelRatio || 1;
+function sanitizePoints(points) {
+  if (!Array.isArray(points) || points.length === 0) return [];
+  const clean = [];
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const equity = Number(p?.equity);
+    const ts = Number(p?.captured_at_ms);
+    if (Number.isFinite(equity) && Number.isFinite(ts)) {
+      clean.push({ captured_at_ms: ts, equity });
+    }
+  }
+  return clean;
+}
 
-  const targetW = Math.round(rect.width * dpr);
-  const targetH = Math.round(rect.height * dpr);
-  if (canvas.width !== targetW || canvas.height !== targetH) {
-    canvas.width = targetW;
-    canvas.height = targetH;
+function computeMinMax(points) {
+  let min = Infinity;
+  let max = -Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const v = points[i].equity;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
+
+function buildStaticLayer(points, w, h, dpr) {
+  if (!staticCanvas) {
+    staticCanvas = document.createElement('canvas');
+  }
+  const targetW = Math.round(w * dpr);
+  const targetH = Math.round(h * dpr);
+  if (staticCanvas.width !== targetW || staticCanvas.height !== targetH) {
+    staticCanvas.width = targetW;
+    staticCanvas.height = targetH;
   }
 
-  const ctx = canvas.getContext('2d');
+  const ctx = staticCanvas.getContext('2d');
   ctx.resetTransform();
   ctx.scale(dpr, dpr);
-
-  const w = rect.width;
-  const h = rect.height;
   ctx.clearRect(0, 0, w, h);
 
   if (points.length === 0) {
@@ -126,8 +157,8 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
   }
 
   const isSinglePoint = points.length === 1;
-  const values = points.map(p => p.equity);
-  const { minVal, maxVal, step, ticks } = computeNiceScale(Math.min(...values), Math.max(...values), 4);
+  const { min, max } = computeMinMax(points);
+  const { minVal, maxVal, step, ticks } = computeNiceScale(min, max, 4);
 
   const axisFont = `500 12px ${CHART_FONT_FAMILY}`;
   ctx.font = axisFont;
@@ -226,7 +257,7 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
     ctx.restore();
   }
 
-  // Period-open baseline rule with subtle inline value tag
+  // Period-open baseline dashed rule
   const baseY = Math.round(getY(startEquity)) + 0.5;
   ctx.save();
   ctx.setLineDash([4, 4]);
@@ -236,37 +267,23 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
   ctx.moveTo(paddingLeft, baseY);
   ctx.lineTo(w - paddingRight, baseY);
   ctx.stroke();
-
-  const openTag = `期初 ${formatAxisLabel(startEquity, step)}`;
-  ctx.font = `600 12px ${CHART_FONT_FAMILY}`;
-  const tagWidth = ctx.measureText(openTag).width + 10;
-  const tagHeight = 18;
-  const tagX = w - paddingRight - tagWidth;
-  const tagY = Math.max(
-    paddingTop + 2,
-    Math.min(paddingTop + plotH - (tagHeight + 2), baseY - (tagHeight + 1)),
-  );
-  ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(243, 246, 245, 0.92)';
-  ctx.fillRect(tagX, tagY, tagWidth, tagHeight);
-  ctx.fillStyle = '#3f5760';
-  ctx.textAlign = 'right';
-  ctx.fillText(openTag, w - paddingRight - 5, tagY + 13);
   ctx.restore();
 
   const bottomY = paddingTop + plotH;
   if (isSinglePoint) {
+    // Place single-point hint cleanly below the center anchor dot so it never collides with top gridline
     ctx.save();
     ctx.fillStyle = '#526a73';
     ctx.font = `500 12px ${CHART_FONT_FAMILY}`;
     ctx.textAlign = 'center';
     const centerX = paddingLeft + plotW / 2;
+    const noteY = Math.min(bottomY - 12, paddingTop + plotH * 0.78);
     if (ctx.measureText(SINGLE_POINT_NOTE).width <= plotW - 12) {
-      ctx.fillText(SINGLE_POINT_NOTE, centerX, paddingTop + 14);
+      ctx.fillText(SINGLE_POINT_NOTE, centerX, noteY);
     } else {
       const splitIdx = SINGLE_POINT_NOTE.indexOf('（');
-      ctx.fillText(SINGLE_POINT_NOTE.slice(0, splitIdx), centerX, paddingTop + 12);
-      ctx.fillText(SINGLE_POINT_NOTE.slice(splitIdx), centerX, paddingTop + 28);
+      ctx.fillText(SINGLE_POINT_NOTE.slice(0, splitIdx), centerX, noteY - 14);
+      ctx.fillText(SINGLE_POINT_NOTE.slice(splitIdx), centerX, noteY + 2);
     }
     ctx.restore();
   } else {
@@ -298,8 +315,101 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
     ctx.restore();
   }
 
-  // Interactive crosshair
+  // Latest sample anchor dot
+  const curX = getX(points.length - 1);
+  const curY = getY(endEquity);
+  ctx.beginPath();
+  ctx.arc(curX, curY, 3.75, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+
+  // Draw period-open badge AFTER curve/dot, anchored on the left away from curX with crisp pill backdrop
+  const tagDecimals = Math.max(2, stepPrecision(step));
+  const openTag = `期初 ${formatChartUsd(startEquity, tagDecimals)}`;
+  ctx.save();
+  ctx.font = `600 12px ${CHART_FONT_FAMILY}`;
+  const tagWidth = ctx.measureText(openTag).width + 12;
+  const tagHeight = 20;
+  const tagX = paddingLeft + 6;
+  const preferAbove = baseY - tagHeight - 4 >= paddingTop + 2;
+  const tagY = preferAbove
+    ? baseY - tagHeight - 4
+    : Math.min(bottomY - tagHeight - 2, baseY + 4);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+  ctx.strokeStyle = '#d4dfdc';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(tagX, tagY, tagWidth, tagHeight, 3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#3f5760';
+  ctx.textAlign = 'left';
+  ctx.fillText(openTag, tagX + 6, tagY + 14);
+  ctx.restore();
+
+  return {
+    width: w,
+    height: h,
+    paddingLeft,
+    paddingRight,
+    paddingTop,
+    plotW,
+    plotH,
+    hasTimeSpan,
+    getX,
+    getY,
+    startEquity,
+    lineColor,
+    step,
+  };
+}
+
+function drawChartFrame(canvas, container, points, hoverIndex, { forceStatic = false } = {}) {
+  const rect = container.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const w = rect.width;
+  const h = rect.height;
+
+  const targetW = Math.round(w * dpr);
+  const targetH = Math.round(h * dpr);
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+  }
+
+  const staticNeedsRebuild = forceStatic
+    || !staticCacheMeta
+    || staticCacheMeta.points !== points
+    || staticCacheMeta.w !== w
+    || staticCacheMeta.h !== h
+    || staticCacheMeta.dpr !== dpr;
+
+  if (staticNeedsRebuild) {
+    currentGeometry = buildStaticLayer(points, w, h, dpr);
+    staticCacheMeta = { points, w, h, dpr };
+  }
+
+  const ctx = canvas.getContext('2d');
+  ctx.resetTransform();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  if (staticCanvas && staticCanvas.width > 0 && staticCanvas.height > 0) {
+    ctx.drawImage(staticCanvas, 0, 0, w, h);
+  }
+
+  if (!currentGeometry || points.length === 0) {
+    return currentGeometry;
+  }
+
+  // Interactive crosshair overlay
   if (hoverIndex !== null && hoverIndex >= 0 && hoverIndex < points.length) {
+    const { paddingLeft, paddingRight, paddingTop, plotH, getX, getY, lineColor } = currentGeometry;
+    const bottomY = paddingTop + plotH;
     const hx = getX(hoverIndex);
     const hy = getY(points[hoverIndex].equity);
 
@@ -328,42 +438,13 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
     ctx.stroke();
   }
 
-  // Latest sample anchor dot
-  const curX = getX(points.length - 1);
-  const curY = getY(endEquity);
-  ctx.beginPath();
-  ctx.arc(curX, curY, 3.75, 0, Math.PI * 2);
-  ctx.fillStyle = lineColor;
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#ffffff';
-  ctx.stroke();
-
-  return {
-    width: w,
-    height: h,
-    paddingLeft,
-    paddingRight,
-    paddingTop,
-    plotW,
-    plotH,
-    hasTimeSpan,
-    getX,
-    getY,
-    startEquity,
-    step,
-  };
+  return currentGeometry;
 }
 
 function resolveActivePeriod(explicitPeriod = null) {
   if (explicitPeriod) return explicitPeriod;
   const activeBtn = document.querySelector('.period-btn[aria-pressed="true"]');
   return activeBtn?.dataset?.period || null;
-}
-
-function formatEndpointTimestamp(ms) {
-  const d = new Date(ms);
-  return `${d.toLocaleDateString('zh-CN')} ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 function updateStaticChartDom(canvas, points, period, step) {
@@ -374,7 +455,9 @@ function updateStaticChartDom(canvas, points, period, step) {
 
   if (points.length === 0) {
     startEl.textContent = '—';
+    startEl.removeAttribute('datetime');
     latestEl.textContent = '—';
+    latestEl.removeAttribute('datetime');
     indicatorEl.style.backgroundColor = '#9eb9c0';
     canvas.setAttribute('aria-label', `账户权益走势图（${periodLabel}）：暂无权益采样数据`);
     return;
@@ -382,8 +465,10 @@ function updateStaticChartDom(canvas, points, period, step) {
 
   const firstTimestamp = points[0].captured_at_ms;
   const lastTimestamp = points[points.length - 1].captured_at_ms;
-  startEl.textContent = formatEndpointTimestamp(firstTimestamp);
-  latestEl.textContent = formatEndpointTimestamp(lastTimestamp);
+  startEl.textContent = formatBeijingDateHm(firstTimestamp);
+  startEl.dateTime = new Date(firstTimestamp).toISOString();
+  latestEl.textContent = formatBeijingDateHm(lastTimestamp);
+  latestEl.dateTime = new Date(lastTimestamp).toISOString();
 
   const startEquity = points[0].equity;
   const endEquity = points[points.length - 1].equity;
@@ -416,11 +501,16 @@ function hideTooltip() {
   document.getElementById('chart-tooltip').classList.add('hidden');
 }
 
-function updateTooltip(rect, geometry, points, index) {
-  const tooltip = document.getElementById('chart-tooltip');
-  if (lastTooltipIndex === index && !tooltip.classList.contains('hidden')) {
-    return;
+function updateChartSrReadout(text) {
+  const srEl = document.getElementById('chart-sr-status');
+  if (srEl) {
+    srEl.textContent = text;
   }
+}
+
+function updateTooltip(rect, geometry, points, index, { announceSr = false } = {}) {
+  const tooltip = document.getElementById('chart-tooltip');
+  const alreadyShown = lastTooltipIndex === index && !tooltip.classList.contains('hidden');
 
   const tooltipTime = document.getElementById('tooltip-time');
   const tooltipVal = document.getElementById('tooltip-val');
@@ -431,39 +521,44 @@ function updateTooltip(rect, geometry, points, index) {
   const targetX = getX(index);
   const targetY = getY(p.equity);
 
-  tooltipTime.textContent = new Date(p.captured_at_ms).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const timeText = formatBeijingShortDateTime(p.captured_at_ms);
   const valueDecimals = Math.max(2, stepPrecision(step));
-  tooltipVal.textContent = formatChartUsd(p.equity, valueDecimals);
+  const valText = formatChartUsd(p.equity, valueDecimals);
 
   const diff = p.equity - startEquity;
   const sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
   const pct = startEquity !== 0 ? ` (${sign}${Math.abs((diff / startEquity) * 100).toFixed(2)}%)` : '';
-  tooltipDelta.textContent = `较期初 ${formatChartUsd(diff, valueDecimals, { signed: true })}${pct}`;
-  tooltipDelta.style.color = diff > 0 ? '#6ee7b7' : diff < 0 ? '#fca5a5' : '#9eb9c0';
+  const deltaText = `较期初 ${formatChartUsd(diff, valueDecimals, { signed: true })}${pct}`;
 
-  tooltip.classList.remove('hidden');
-  const tooltipWidth = tooltip.offsetWidth || 160;
-  const tooltipHeight = tooltip.offsetHeight || 68;
-  const margin = 8;
+  if (!alreadyShown) {
+    tooltipTime.textContent = timeText;
+    tooltipVal.textContent = valText;
+    tooltipDelta.textContent = deltaText;
+    tooltipDelta.style.color = diff > 0 ? '#6ee7b7' : diff < 0 ? '#fca5a5' : '#9eb9c0';
 
-  const rawLeft = targetX + 14 + tooltipWidth > rect.width - margin
-    ? targetX - tooltipWidth - 14
-    : targetX + 14;
-  const leftPos = Math.max(margin, Math.min(Math.max(margin, rect.width - tooltipWidth - margin), rawLeft));
+    tooltip.classList.remove('hidden');
+    const tooltipWidth = tooltip.offsetWidth || 160;
+    const tooltipHeight = tooltip.offsetHeight || 68;
+    const margin = 8;
 
-  const rawTop = targetY - tooltipHeight - 12 < margin
-    ? targetY + 14
-    : targetY - tooltipHeight - 12;
-  const topPos = Math.max(margin, Math.min(Math.max(margin, rect.height - tooltipHeight - margin), rawTop));
+    const rawLeft = targetX + 14 + tooltipWidth > rect.width - margin
+      ? targetX - tooltipWidth - 14
+      : targetX + 14;
+    const leftPos = Math.max(margin, Math.min(Math.max(margin, rect.width - tooltipWidth - margin), rawLeft));
 
-  tooltip.style.left = `${leftPos}px`;
-  tooltip.style.top = `${topPos}px`;
-  lastTooltipIndex = index;
+    const rawTop = targetY - tooltipHeight - 12 < margin
+      ? targetY + 14
+      : targetY - tooltipHeight - 12;
+    const topPos = Math.max(margin, Math.min(Math.max(margin, rect.height - tooltipHeight - margin), rawTop));
+
+    tooltip.style.left = `${leftPos}px`;
+    tooltip.style.top = `${topPos}px`;
+    lastTooltipIndex = index;
+  }
+
+  if (announceSr) {
+    updateChartSrReadout(`第 ${index + 1}/${points.length} 点，${timeText}，权益 ${valText}，${deltaText}`);
+  }
 }
 
 function cancelHoverFrame() {
@@ -477,6 +572,7 @@ function cancelHoverFrame() {
 
 function clearHoverState(canvas, container) {
   hideTooltip();
+  updateChartSrReadout('');
   if (activeHoverIndex !== null) {
     activeHoverIndex = null;
     if (lastRenderedPoints.length > 0) {
@@ -538,6 +634,7 @@ function scheduleHoverFrame(canvas, container) {
     }
 
     let nextIndex = null;
+    let announceSr = false;
     if (pendingClientPos !== null) {
       const { clientX, clientY, pointerType } = pendingClientPos;
       pendingClientPos = null;
@@ -556,6 +653,7 @@ function scheduleHoverFrame(canvas, container) {
     } else if (pendingKeyIndex !== null) {
       nextIndex = Math.max(0, Math.min(lastRenderedPoints.length - 1, pendingKeyIndex));
       pendingKeyIndex = null;
+      announceSr = true;
     } else {
       return;
     }
@@ -564,7 +662,7 @@ function scheduleHoverFrame(canvas, container) {
       activeHoverIndex = nextIndex;
       currentGeometry = drawChartFrame(canvas, container, lastRenderedPoints, activeHoverIndex) || currentGeometry;
     }
-    updateTooltip(rect, currentGeometry, lastRenderedPoints, activeHoverIndex);
+    updateTooltip(rect, currentGeometry, lastRenderedPoints, activeHoverIndex, { announceSr });
   });
 }
 
@@ -581,12 +679,6 @@ function bindCanvasInteractions(canvas, container) {
 
   canvas.addEventListener('pointermove', handlePointerUpdate);
   canvas.addEventListener('pointerdown', handlePointerUpdate);
-  canvas.addEventListener('pointerup', (e) => {
-    if (e.pointerType === 'touch') {
-      // Keep tap tooltip visible until pointercancel, tapping outside points, or blur
-      return;
-    }
-  });
   canvas.addEventListener('pointercancel', () => {
     cancelHoverFrame();
     clearHoverState(canvas, container);
@@ -600,6 +692,18 @@ function bindCanvasInteractions(canvas, container) {
     cancelHoverFrame();
     clearHoverState(canvas, container);
   });
+
+  if (boundOutsideHandler) {
+    document.removeEventListener('pointerdown', boundOutsideHandler);
+  }
+  boundOutsideHandler = (e) => {
+    if (activeHoverIndex !== null && !container.contains(e.target)) {
+      cancelHoverFrame();
+      clearHoverState(canvas, container);
+    }
+  };
+  document.addEventListener('pointerdown', boundOutsideHandler);
+
   canvas.addEventListener('keydown', (e) => {
     const n = lastRenderedPoints.length;
     if (n === 0 || !currentGeometry) {
@@ -637,14 +741,32 @@ function bindCanvasInteractions(canvas, container) {
   });
 }
 
+export function setChartVisualState(mode, message = '') {
+  const container = document.getElementById('canvas-container');
+  const overlay = document.getElementById('chart-empty-overlay');
+  if (!container || !overlay) return;
+
+  container.classList.toggle('opacity-60', mode === 'switching');
+  if (mode === 'loading' || mode === 'error') {
+    overlay.textContent = message;
+    overlay.className = `absolute inset-0 flex items-center justify-center text-xs px-4 text-center pointer-events-none ${
+      mode === 'error' ? 'text-[#bd2b2b] font-medium' : 'text-[#526a73]'
+    }`;
+    overlay.classList.remove('hidden');
+  } else {
+    overlay.classList.add('hidden');
+  }
+}
+
 export function renderRetinaChart(points, period = null) {
   const canvas = document.getElementById('equity-canvas');
   const container = document.getElementById('canvas-container');
-  const safePoints = Array.isArray(points) ? points : [];
+  const safePoints = sanitizePoints(points);
   const resolvedPeriod = resolveActivePeriod(period);
 
   cancelHoverFrame();
   bindCanvasInteractions(canvas, container);
+  setChartVisualState('ready');
 
   if (lastRenderedPeriod !== null && resolvedPeriod !== lastRenderedPeriod) {
     activeHoverIndex = null;
@@ -662,7 +784,7 @@ export function renderRetinaChart(points, period = null) {
     activeHoverIndex = null;
   }
 
-  currentGeometry = drawChartFrame(canvas, container, safePoints, activeHoverIndex);
+  currentGeometry = drawChartFrame(canvas, container, safePoints, activeHoverIndex, { forceStatic: true });
   updateStaticChartDom(canvas, safePoints, resolvedPeriod, currentGeometry?.step ?? 1);
 
   if (currentGeometry && activeHoverIndex !== null) {
@@ -690,5 +812,13 @@ export function initChartResizeObserver(containerId, getPoints) {
     });
   });
   observer.observe(containerEl);
-  return observer;
+  return {
+    disconnect() {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      observer.disconnect();
+    },
+  };
 }

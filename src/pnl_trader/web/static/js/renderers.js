@@ -1,9 +1,16 @@
-// Centralized UI State, Formatters, and Dashboard Panel Renderers
+// Centralized UI State, Shared Formatters, and Dashboard Panel Renderers
+
+export const PERIOD_LABELS = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
+export const DRAWDOWN_PERIOD_LABELS = { '24h': '最近 24 小时', '7d': '最近 7 天', '30d': '最近 30 天' };
 
 export const state = {
   allPositions: [],
   currentTierFilter: 'ALL',
   currentPeriod: '7d',
+  displayedPeriod: '7d',
+  lastSyncedAtMs: null,
+  lastSnapshotCapturedAtMs: null,
+  lastSnapshotIsCurrentSlot: true,
   chartHistoryPoints: [],
   ledgerAvailable: false,
   tradingUptimeBaseSeconds: null,
@@ -13,7 +20,75 @@ export const state = {
   rawSellFills: [],
   currentSortKey: 'tier',
   currentSortDirection: 'desc',
+  searchQuery: '',
 };
+
+const BEIJING_TIMEZONE = 'Asia/Shanghai';
+
+const beijingDateTimeFmt = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: BEIJING_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+const beijingDateHmFmt = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: BEIJING_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const beijingShortDateTimeFmt = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: BEIJING_TIMEZONE,
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+const beijingTimeFmt = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: BEIJING_TIMEZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+const beijingHmFmt = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: BEIJING_TIMEZONE,
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+export function formatBeijingDateTime(epochMs) {
+  return beijingDateTimeFmt.format(new Date(epochMs));
+}
+
+export function formatBeijingDateHm(epochMs) {
+  return beijingDateHmFmt.format(new Date(epochMs));
+}
+
+export function formatBeijingShortDateTime(epochMs) {
+  return beijingShortDateTimeFmt.format(new Date(epochMs));
+}
+
+export function formatBeijingTime(epochMs) {
+  return beijingTimeFmt.format(new Date(epochMs));
+}
+
+export function formatBeijingHm(epochMs) {
+  return beijingHmFmt.format(new Date(epochMs));
+}
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 const renderCache = new WeakMap();
@@ -46,38 +121,50 @@ const CRITICAL_ISSUE_CATEGORIES = new Set([
   'LEVERAGE_UNAVAILABLE',
 ]);
 
+function normalizeRoundedZero(amount, decimals = 2) {
+  const factor = 10 ** decimals;
+  const rounded = Math.round(amount * factor) / factor;
+  return rounded === 0 ? 0 : rounded;
+}
+
 export function formatSignedUsd(value) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+  if (value === null || value === undefined || value === '') return '—';
   const amount = Number(value);
-  const sign = amount > 0 ? '+' : amount < 0 ? '-' : '';
-  return `${sign}$${Math.abs(amount).toLocaleString('en-US', {
+  if (!Number.isFinite(amount)) return '—';
+  const clean = normalizeRoundedZero(amount, 2);
+  const sign = clean > 0 ? '+' : clean < 0 ? '-' : '';
+  return `${sign}$${Math.abs(clean).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
 export function formatUsd(value) {
-  if (value === null || value === undefined) return '—';
+  if (value === null || value === undefined || value === '') return '—';
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '—';
-  return `$${amount.toLocaleString('en-US', {
+  const clean = normalizeRoundedZero(amount, 2);
+  const sign = clean < 0 ? '-' : '';
+  return `${sign}$${Math.abs(clean).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
 export function formatSignedPercent(value, decimals = 2) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+  if (value === null || value === undefined || value === '') return '—';
   const amount = Number(value);
-  const sign = amount > 0 ? '+' : amount < 0 ? '-' : '';
-  return `${sign}${Math.abs(amount).toLocaleString('en-US', {
+  if (!Number.isFinite(amount)) return '—';
+  const clean = normalizeRoundedZero(amount, decimals);
+  const sign = clean > 0 ? '+' : clean < 0 ? '-' : '';
+  return `${sign}${Math.abs(clean).toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })}%`;
 }
 
 export function formatPrice(value) {
-  if (value === null || value === undefined) return '—';
+  if (value === null || value === undefined || value === '') return '—';
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '—';
   if (amount === 0) return '0';
@@ -87,15 +174,22 @@ export function formatPrice(value) {
   return amount.toLocaleString('en-US', { maximumFractionDigits: fractionDigits });
 }
 
+export function formatUsdPrice(value) {
+  const formatted = formatPrice(value);
+  return formatted === '—' ? '—' : `$${formatted}`;
+}
+
 export function formatQty(value) {
   return formatPrice(value);
 }
 
 function pnlColorClass(value, { zeroClass = 'text-[#3f5760]', nullClass = 'text-[#526a73]' } = {}) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return nullClass;
+  if (value === null || value === undefined || value === '') return nullClass;
   const amount = Number(value);
-  if (amount > 0) return 'text-[#0a7052]';
-  if (amount < 0) return 'text-[#bd2b2b]';
+  if (!Number.isFinite(amount)) return nullClass;
+  const clean = normalizeRoundedZero(amount, 2);
+  if (clean > 0) return 'text-[#0a7052]';
+  if (clean < 0) return 'text-[#bd2b2b]';
   return zeroClass;
 }
 
@@ -106,22 +200,77 @@ function createNode(tag, className, text) {
   return element;
 }
 
-function showTableMessage(container, columns, className, message) {
-  const cell = createNode('td', className, message);
+function createTimeNode(epochMs, className, formatter) {
+  const node = createNode('time', className, formatter(epochMs));
+  node.dateTime = new Date(epochMs).toISOString();
+  return node;
+}
+
+function showTableMessage(container, columns, className, message, { withResetBtn = false } = {}) {
+  const cell = createNode('td', className);
   cell.colSpan = columns;
+  if (withResetBtn) {
+    const wrap = createNode('div', 'inline-flex flex-wrap items-center justify-center gap-2');
+    wrap.append(createNode('span', '', message));
+    const resetBtn = createNode(
+      'button',
+      'min-h-6 px-2.5 py-1 rounded border border-[#d4dfdc] bg-white text-xs font-semibold text-[#135d73] hover:bg-[#f2f7f5] transition-colors',
+      '重置筛选',
+    );
+    resetBtn.type = 'button';
+    resetBtn.dataset.resetFilters = 'true';
+    wrap.append(resetBtn);
+    cell.append(wrap);
+  } else {
+    cell.textContent = message;
+  }
   const row = document.createElement('tr');
   row.append(cell);
   container.replaceChildren(row);
 }
 
-function showMessage(container, className, message) {
-  container.replaceChildren(createNode('div', className, message));
+function showMessage(container, className, message, { withResetBtn = false } = {}) {
+  if (!withResetBtn) {
+    container.replaceChildren(createNode('div', className, message));
+    return;
+  }
+  const wrap = createNode('div', className);
+  wrap.append(createNode('span', 'mr-2', message));
+  const resetBtn = createNode(
+    'button',
+    'min-h-6 px-2.5 py-1 rounded border border-[#d4dfdc] bg-white text-xs font-semibold text-[#135d73] hover:bg-[#f2f7f5] transition-colors',
+    '重置筛选',
+  );
+  resetBtn.type = 'button';
+  resetBtn.dataset.resetFilters = 'true';
+  wrap.append(resetBtn);
+  container.replaceChildren(wrap);
+}
+
+function isClosingPosition(position) {
+  return position?.lifecycle === 'CLOSING'
+    || (typeof position?.tier_label === 'string' && position.tier_label.includes('待全平'));
 }
 
 function tierBadgeClass(position) {
+  if (isClosingPosition(position)) return 'badge-closing';
   if (position.tier === 2) return position.completed_batches > 0 ? 'badge-t21' : 'badge-t2';
   if (position.tier === 3) return position.completed_batches > 0 ? 'badge-t31' : 'badge-t3';
   return 'badge-t1';
+}
+
+function buildTierBadgeNode(position, extraClass = '') {
+  const badge = createNode(
+    'span',
+    `tier-badge ${extraClass} ${tierBadgeClass(position)}`.trim(),
+  );
+  if (isClosingPosition(position)) {
+    const dot = createNode('span', 'w-1.5 h-1.5 rounded-full bg-[#985506] shrink-0');
+    dot.setAttribute('aria-hidden', 'true');
+    badge.append(dot);
+  }
+  badge.append(document.createTextNode(position.tier_label));
+  return badge;
 }
 
 export function renderTradingUptime() {
@@ -173,28 +322,51 @@ export function updatePositionStatusKpi(positions) {
     statusEl.className = 'font-display font-medium tabular-nums text-[#526a73]';
     return;
   }
-  const priced = positions.filter(p => Number.isFinite(p.estimated_unrealized_pnl));
+  const priced = positions.filter(p => Number.isFinite(Number(p.estimated_unrealized_pnl)) && p.estimated_unrealized_pnl !== null);
   if (priced.length === 0) {
     statusEl.textContent = '价格采样中';
     statusEl.className = 'font-display font-medium tabular-nums text-[#526a73]';
     return;
   }
-  const profitCount = priced.filter(p => p.estimated_unrealized_pnl > 0).length;
-  const lossCount = priced.filter(p => p.estimated_unrealized_pnl < 0).length;
+  const profitCount = priced.filter(p => Number(p.estimated_unrealized_pnl) > 0).length;
+  const lossCount = priced.filter(p => Number(p.estimated_unrealized_pnl) < 0).length;
   statusEl.textContent = `${profitCount} 盈 / ${lossCount} 亏`;
   const toneClass = lossCount > 0 ? 'text-[#985506]' : profitCount > 0 ? 'text-[#0a7052]' : 'text-[#3f5760]';
   statusEl.className = `font-display font-semibold tabular-nums ${toneClass}`;
 }
 
-export function renderEquitySummary(eq) {
+export function renderSnapshotStatusFromState() {
   const snapshotStatus = document.getElementById('equity-snapshot-status');
   snapshotStatus.setAttribute('aria-busy', 'false');
-  snapshotStatus.textContent = eq.latest
-    ? `采样：${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 等待本轮快照'}`
-    : '等待账户净值采样';
-  snapshotStatus.className = `text-xs mt-0.5 tabular-nums ${
-    eq.latest && !eq.latest.is_current_slot ? 'text-[#985506] font-medium' : 'text-[#526a73]'
-  }`;
+  const pointCount = state.chartHistoryPoints?.length ?? 0;
+  if (state.lastSnapshotCapturedAtMs === null) {
+    snapshotStatus.textContent = '等待账户净值采样';
+    snapshotStatus.className = 'text-xs mt-0.5 tabular-nums text-[#526a73]';
+    return;
+  }
+  const isWarn = !state.lastSnapshotIsCurrentSlot;
+  snapshotStatus.replaceChildren(
+    document.createTextNode('采样：'),
+    createTimeNode(state.lastSnapshotCapturedAtMs, 'font-mono tabular-nums', formatBeijingDateTime),
+  );
+  if (isWarn) {
+    snapshotStatus.append(document.createTextNode(' · 等待本轮快照'));
+  }
+  if (pointCount === 1) {
+    snapshotStatus.append(document.createTextNode(' · 仅 1 个采样点（需至少 2 点绘线）'));
+  }
+  snapshotStatus.className = `text-xs mt-0.5 tabular-nums ${isWarn ? 'text-[#985506] font-medium' : 'text-[#526a73]'}`;
+}
+
+export function renderEquitySummary(eq) {
+  if (eq.latest && Number.isFinite(Number(eq.latest.captured_at_ms))) {
+    state.lastSnapshotCapturedAtMs = Number(eq.latest.captured_at_ms);
+    state.lastSnapshotIsCurrentSlot = Boolean(eq.latest.is_current_slot);
+  } else {
+    state.lastSnapshotCapturedAtMs = null;
+    state.lastSnapshotIsCurrentSlot = true;
+  }
+  renderSnapshotStatusFromState();
 
   const kpiEquity = document.getElementById('kpi-equity');
   const kpiAvailable = document.getElementById('kpi-available');
@@ -203,22 +375,25 @@ export function renderEquitySummary(eq) {
   const kpiUnrealized = document.getElementById('kpi-unrealized-pnl');
   const kpiCushion = document.getElementById('kpi-margin-cushion');
 
-  const kpiBaseClass = 'font-display text-xl sm:text-[22px] xl:text-[26px] leading-none font-bold tabular-nums tracking-tight min-w-0';
+  const kpiBaseClass = 'font-display text-[22px] xl:text-[28px] leading-none font-bold tabular-nums tracking-tight min-w-0';
 
   if (eq.latest) {
     kpiEquity.textContent = formatUsd(eq.latest.equity);
     kpiAvailable.textContent = formatUsd(eq.latest.available_balance);
     kpiNotional.textContent = formatUsd(eq.latest.position_notional);
-    kpiLeverage.textContent = eq.latest.leverage !== null
-      ? `实际杠杆 ${eq.latest.leverage.toFixed(2)}x`
+    const lev = Number(eq.latest.leverage);
+    kpiLeverage.textContent = eq.latest.leverage !== null && Number.isFinite(lev)
+      ? `实际杠杆 ${lev.toFixed(2)}x`
       : '实际杠杆 —';
 
     const unpnl = eq.latest.unrealized_pnl;
     kpiUnrealized.textContent = formatSignedUsd(unpnl);
     kpiUnrealized.className = `${kpiBaseClass} ${pnlColorClass(unpnl)}`;
 
-    if (eq.latest.equity > 0 && Number.isFinite(eq.latest.available_balance)) {
-      const cushionPct = (eq.latest.available_balance / eq.latest.equity) * 100;
+    const eqNum = Number(eq.latest.equity);
+    const availNum = Number(eq.latest.available_balance);
+    if (Number.isFinite(eqNum) && eqNum > 0 && Number.isFinite(availNum)) {
+      const cushionPct = (availNum / eqNum) * 100;
       let cushionStatus = '充裕';
       let cushionColor = 'text-[#0a7052]';
       if (cushionPct < 25) {
@@ -246,12 +421,13 @@ export function renderEquitySummary(eq) {
   }
 
   const badge = document.getElementById('equity-change-badge');
+  const periodPrefix = PERIOD_LABELS[eq.period] ? `近${PERIOD_LABELS[eq.period].replace(' ', '')} ` : '';
   if (eq.change !== null && eq.change !== undefined && Number.isFinite(Number(eq.change))) {
-    const changeVal = Number(eq.change);
-    const percentage = eq.change_pct === null || eq.change_pct === undefined
+    const changeVal = normalizeRoundedZero(Number(eq.change), 2);
+    const percentage = eq.change_pct === null || eq.change_pct === undefined || !Number.isFinite(Number(eq.change_pct))
       ? ''
       : ` (${formatSignedPercent(eq.change_pct)})`;
-    badge.textContent = `${formatSignedUsd(changeVal)}${percentage}`;
+    badge.textContent = `${periodPrefix}${formatSignedUsd(changeVal)}${percentage}`;
     const badgeTone = changeVal > 0
       ? 'bg-[#e6f5ef] text-[#0a7052]'
       : changeVal < 0
@@ -259,18 +435,18 @@ export function renderEquitySummary(eq) {
         : 'bg-[#eaf0ee] text-[#3f5760]';
     badge.className = `font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded ${badgeTone}`;
   } else {
-    badge.textContent = '—';
+    badge.textContent = periodPrefix ? `${periodPrefix.trim()} —` : '—';
     badge.className = 'font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded bg-[#eaf0ee] text-[#3f5760]';
   }
 }
 
 export function renderAccountKpis(ov, an) {
-  const pendingCloseFills = ov.pending_close_fill_count;
+  const pendingCloseFills = ov.pending_close_fill_count ?? 0;
   const realizedCash = state.ledgerAvailable ? ov.realized_cash : null;
   const realizedEl = document.getElementById('kpi-realized-cash');
   const realizedNoteEl = document.getElementById('kpi-realized-note');
   realizedEl.textContent = formatSignedUsd(realizedCash);
-  realizedEl.className = `font-display text-xl sm:text-[22px] xl:text-[26px] leading-none font-bold tabular-nums tracking-tight min-w-0 ${
+  realizedEl.className = `font-display text-[22px] xl:text-[28px] leading-none font-bold tabular-nums tracking-tight min-w-0 ${
     pnlColorClass(realizedCash)
   }`;
 
@@ -278,20 +454,17 @@ export function renderAccountKpis(ov, an) {
   if (pendingCloseFills > 0) {
     realizedCaveats.push(`含 ${pendingCloseFills} 笔平仓待补录`);
   }
-  if (ov.other_fee_count > 0) {
+  if ((ov.other_fee_count ?? 0) > 0) {
     realizedCaveats.push(`含 ${ov.other_fee_count} 笔非 USDT 手续费`);
   }
   if (!state.ledgerAvailable) {
-    realizedEl.title = '';
     realizedNoteEl.textContent = '等待账本 · 已扣手续费，未计资金费用';
     realizedNoteEl.className = 'text-xs text-[#526a73] leading-snug mt-1.5';
   } else if (realizedCaveats.length > 0) {
     const detailText = `${realizedCaveats.join('，')}，净盈亏暂缓统计（未计资金费用）`;
-    realizedEl.title = detailText;
     realizedNoteEl.textContent = detailText;
     realizedNoteEl.className = 'text-xs text-[#985506] font-medium leading-snug mt-1.5';
   } else {
-    realizedEl.title = '';
     realizedNoteEl.textContent = '已扣手续费 · 未计资金费用';
     realizedNoteEl.className = 'text-xs text-[#526a73] leading-snug mt-1.5';
   }
@@ -301,7 +474,7 @@ export function renderAccountKpis(ov, an) {
 
   const todayPnl = document.getElementById('kpi-today-pnl');
   const todayNoteEl = document.getElementById('kpi-today-note');
-  const todayPendingCloseFills = an.today.pending_close_fill_count;
+  const todayPendingCloseFills = an.today.pending_close_fill_count ?? 0;
   const realizedNet = state.ledgerAvailable ? an.today.realized_net : null;
   todayPnl.textContent = formatSignedUsd(realizedNet);
   todayPnl.className = `font-display font-semibold tabular-nums ${pnlColorClass(realizedNet)}`;
@@ -310,16 +483,14 @@ export function renderAccountKpis(ov, an) {
   if (todayPendingCloseFills > 0) {
     todayCaveats.push(`今日 ${todayPendingCloseFills} 笔平仓待补录`);
   }
-  if (an.today.other_fee_count > 0) {
+  if ((an.today.other_fee_count ?? 0) > 0) {
     todayCaveats.push(`今日 ${an.today.other_fee_count} 笔非 USDT 费用`);
   }
   if (state.ledgerAvailable && todayCaveats.length > 0) {
     const todayDetail = `${todayCaveats.join('，')}，暂不统计`;
-    todayPnl.title = todayDetail;
     todayNoteEl.textContent = todayDetail;
     todayNoteEl.classList.remove('hidden');
   } else {
-    todayPnl.title = '';
     todayNoteEl.textContent = '';
     todayNoteEl.classList.add('hidden');
   }
@@ -350,15 +521,48 @@ export function renderTierBars(td) {
 }
 
 export function renderDrawdown(equity) {
-  const periodNames = { '24h': '最近 24 小时', '7d': '最近 7 天', '30d': '最近 30 天' };
-  document.getElementById('drawdown-period').textContent = periodNames[equity.period];
-  const hasSamples = equity.points.length > 0;
-  document.getElementById('max-drawdown').textContent = hasSamples && equity.max_drawdown !== null
-    ? formatUsd(equity.max_drawdown) : '—';
-  document.getElementById('max-drawdown-pct').textContent = hasSamples && equity.max_drawdown_pct !== null
-    ? `${equity.max_drawdown_pct.toFixed(2)}%` : '采样不足';
-  document.getElementById('current-drawdown-pct').textContent = hasSamples && equity.current_drawdown_pct !== null
-    ? `${equity.current_drawdown_pct.toFixed(2)}%` : '—';
+  const periodText = DRAWDOWN_PERIOD_LABELS[equity.period] || equity.period || '—';
+  document.getElementById('drawdown-period').textContent = periodText;
+
+  const points = Array.isArray(equity.points) ? equity.points : [];
+  const hasSamples = points.length >= 2;
+  const maxDd = Number(equity.max_drawdown);
+  const maxDdPct = Number(equity.max_drawdown_pct);
+  const curDdPct = Number(equity.current_drawdown_pct);
+
+  const maxDdEl = document.getElementById('max-drawdown');
+  const maxDdPctEl = document.getElementById('max-drawdown-pct');
+  const curDdPctEl = document.getElementById('current-drawdown-pct');
+
+  if (hasSamples && equity.max_drawdown !== null && Number.isFinite(maxDd)) {
+    maxDdEl.textContent = formatUsd(maxDd);
+    maxDdEl.className = `font-display text-xl font-bold tabular-nums mt-1 ${
+      maxDd > 0 ? 'text-[#bd2b2b]' : 'text-[#3f5760]'
+    }`;
+  } else {
+    maxDdEl.textContent = '—';
+    maxDdEl.className = 'font-display text-xl font-bold tabular-nums text-[#526a73] mt-1';
+  }
+
+  if (hasSamples && equity.max_drawdown_pct !== null && Number.isFinite(maxDdPct)) {
+    maxDdPctEl.textContent = `${normalizeRoundedZero(maxDdPct, 2).toFixed(2)}%`;
+    maxDdPctEl.className = `font-display text-xs font-medium tabular-nums mt-0.5 ${
+      maxDdPct > 0 ? 'text-[#3f5760]' : 'text-[#526a73]'
+    }`;
+  } else {
+    maxDdPctEl.textContent = '采样不足';
+    maxDdPctEl.className = 'font-display text-xs font-medium tabular-nums text-[#526a73] mt-0.5';
+  }
+
+  if (hasSamples && equity.current_drawdown_pct !== null && Number.isFinite(curDdPct)) {
+    curDdPctEl.textContent = `${normalizeRoundedZero(curDdPct, 2).toFixed(2)}%`;
+    curDdPctEl.className = `font-display text-xl font-bold tabular-nums mt-1 ${
+      curDdPct > 0 ? 'text-[#985506]' : 'text-[#3f5760]'
+    }`;
+  } else {
+    curDdPctEl.textContent = '—';
+    curDdPctEl.className = 'font-display text-xl font-bold tabular-nums text-[#526a73] mt-1';
+  }
 }
 
 export function renderLosingPositions(positions) {
@@ -382,10 +586,12 @@ export function renderLosingPositions(positions) {
     return;
   }
   const pricedPositions = positions
-    .filter(position => Number.isFinite(position.estimated_unrealized_pnl));
+    .filter(position => position.estimated_unrealized_pnl !== null
+      && position.estimated_unrealized_pnl !== undefined
+      && Number.isFinite(Number(position.estimated_unrealized_pnl)));
   const losses = pricedPositions
-    .filter(position => position.estimated_unrealized_pnl < 0)
-    .sort((a, b) => a.estimated_unrealized_pnl - b.estimated_unrealized_pnl);
+    .filter(position => Number(position.estimated_unrealized_pnl) < 0)
+    .sort((a, b) => Number(a.estimated_unrealized_pnl) - Number(b.estimated_unrealized_pnl));
 
   const topLosses = losses.slice(0, 6);
   const key = JSON.stringify([
@@ -395,6 +601,7 @@ export function renderLosingPositions(positions) {
     topLosses.map(p => [
       p.symbol,
       p.tier,
+      p.lifecycle,
       p.tier_label,
       p.completed_batches,
       p.estimated_unrealized_pnl,
@@ -417,21 +624,22 @@ export function renderLosingPositions(positions) {
   }
 
   const rows = topLosses.map(position => {
-    const sampledAt = position.price_captured_at_ms
-      ? new Date(position.price_captured_at_ms).toLocaleTimeString('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        })
-      : '—';
     const row = createNode('tr', 'hover:bg-[#f2f7f5] transition-colors');
-    const tierCell = createNode('td', 'py-2 px-2');
-    tierCell.append(createNode('span', `tier-badge ${tierBadgeClass(position)}`, position.tier_label));
+    const tierCell = createNode('td', 'py-2 px-1.5 sm:px-2');
+    tierCell.append(buildTierBadgeNode(position));
+
+    const timeCell = createNode('td', 'py-2 pl-1.5 sm:pl-2 text-right font-mono tabular-nums text-[#526a73] whitespace-nowrap');
+    if (Number.isFinite(Number(position.price_captured_at_ms))) {
+      timeCell.append(createTimeNode(Number(position.price_captured_at_ms), '', formatBeijingHm));
+    } else {
+      timeCell.textContent = '—';
+    }
+
     row.append(
-      createNode('td', 'py-2 pr-2 font-display font-semibold text-[#102128]', position.symbol),
+      createNode('td', 'py-2 pr-1.5 sm:pr-2 font-display font-semibold text-[#102128] whitespace-nowrap', position.symbol),
       tierCell,
-      createNode('td', 'py-2 px-2 text-right font-display tabular-nums font-semibold text-[#bd2b2b]', formatSignedUsd(position.estimated_unrealized_pnl)),
-      createNode('td', 'py-2 pl-2 text-right font-mono tabular-nums text-[#526a73]', sampledAt),
+      createNode('td', 'py-2 px-1.5 sm:px-2 text-right font-display tabular-nums font-semibold text-[#bd2b2b] whitespace-nowrap', formatSignedUsd(position.estimated_unrealized_pnl)),
+      timeCell,
     );
     return row;
   });
@@ -466,17 +674,12 @@ export function renderTierExposure(exposure) {
 
   const tiers = [
     { key: 't1', label: 'T1 敞口', barColor: '#1a7692' },
-    { key: 't2', label: 'T2 敞口', barColor: '#b86c0e' },
-    {
-      key: 't3',
-      label: 'T3 敞口',
-      barColor: '#cc3b3b',
-      caveat: '含 T3 深度补仓与 T3.1/T3.2 阶梯减仓合计',
-    },
+    { key: 't2', label: 'T2 敞口 (含半仓)', barColor: '#b86c0e' },
+    { key: 't3', label: 'T3 敞口 (含减仓)', barColor: '#cc3b3b' },
   ];
 
   const rows = tiers.map(tier => {
-    const amount = exposure[tier.key];
+    const amount = Number(exposure[tier.key]) || 0;
     const ratio = exposure.total > 0 ? (amount / exposure.total) * 100 : 0;
     const row = document.createElement('div');
     const labels = createNode('div', 'flex items-center justify-between gap-2 text-xs mb-1.5');
@@ -487,15 +690,12 @@ export function renderTierExposure(exposure) {
     );
     labels.append(createNode('span', 'text-[#3f5760]', tier.label), amountLabel);
 
-    const track = createNode('div', 'h-2 rounded-sm bg-[#eaf0ee] overflow-hidden');
-    const bar = createNode('div', 'h-full rounded-sm');
+    const track = createNode('div', 'viz-bar-track h-2 rounded-sm bg-[#eaf0ee] overflow-hidden');
+    const bar = createNode('div', 'viz-bar-fill h-full rounded-sm');
     bar.style.width = `${ratio}%`;
     bar.style.backgroundColor = tier.barColor;
     track.append(bar);
     row.append(labels, track);
-    if (tier.caveat && amount > 0) {
-      row.append(createNode('p', 'text-xs text-[#526a73] mt-1 leading-snug', tier.caveat));
-    }
     return row;
   });
 
@@ -560,8 +760,8 @@ export function renderCosts(costs) {
     date.dateTime = day.day;
 
     const barWrap = createNode('div', 'flex items-center gap-2 min-w-0');
-    const track = createNode('div', 'flex-1 h-1.5 rounded-sm bg-[#eaf0ee] overflow-hidden');
-    const fill = createNode('div', 'h-full rounded-sm bg-[#1a7692]');
+    const track = createNode('div', 'viz-bar-track flex-1 h-1.5 rounded-sm bg-[#eaf0ee] overflow-hidden');
+    const fill = createNode('div', 'viz-bar-fill h-full rounded-sm bg-[#1a7692]');
     fill.style.width = `${day.commission_usdt > 0 ? Math.max(6, ratio) : 0}%`;
     track.append(fill);
     barWrap.append(track, createNode('span', 'text-xs tabular-nums text-[#526a73] w-9 text-right shrink-0', `${day.fill_count}笔`));
@@ -569,12 +769,21 @@ export function renderCosts(costs) {
     row.append(
       date,
       barWrap,
-      createNode('span', 'text-[#102128] font-mono tabular-nums font-medium text-right min-w-[3.5rem] w-auto shrink-0', formatUsd(day.commission_usdt)),
+      createNode('span', 'text-[#102128] font-display tabular-nums font-semibold text-right min-w-[3.5rem] w-auto shrink-0', formatUsd(day.commission_usdt)),
     );
     return row;
   });
   rows.replaceChildren(...dayRows);
   saveRenderSnapshot(rows, key);
+}
+
+export function updateExecutionIssuesScrollHint() {
+  const container = document.getElementById('execution-issues');
+  const hint = document.getElementById('execution-issues-hint');
+  if (!container || !hint) return;
+  const hasOverflow = container.scrollHeight > container.clientHeight + 2;
+  const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 2;
+  hint.classList.toggle('hidden', !hasOverflow || atBottom);
 }
 
 export function renderExecutionIssues(issues) {
@@ -603,15 +812,26 @@ export function renderExecutionIssues(issues) {
     countEl.className = 'text-xs tabular-nums px-2 py-0.5 rounded-full bg-[#eaf0ee] text-[#3f5760]';
     showMessage(container, 'text-xs text-[#526a73] py-6 text-center', '等待账本数据');
     saveRenderSnapshot(container, key);
+    updateExecutionIssuesScrollHint();
     return;
   }
 
-  const key = JSON.stringify(
-    issues.map(i => [i.symbol, i.category, i.detail, i.occurred_at_ms]),
-  );
-  if (isRenderUnchanged(container, key)) return;
+  const sortedIssues = issues.toSorted((a, b) => {
+    const aCrit = CRITICAL_ISSUE_CATEGORIES.has(a.category) ? 0 : 1;
+    const bCrit = CRITICAL_ISSUE_CATEGORIES.has(b.category) ? 0 : 1;
+    if (aCrit !== bCrit) return aCrit - bCrit;
+    return Number(b.occurred_at_ms) - Number(a.occurred_at_ms);
+  });
 
-  if (issues.length === 0) {
+  const key = JSON.stringify(
+    sortedIssues.map(i => [i.symbol, i.category, i.detail, i.occurred_at_ms]),
+  );
+  if (isRenderUnchanged(container, key)) {
+    updateExecutionIssuesScrollHint();
+    return;
+  }
+
+  if (sortedIssues.length === 0) {
     countEl.textContent = '正常 · 0 项';
     countEl.className = 'text-xs tabular-nums font-semibold px-2 py-0.5 rounded-full bg-[#e6f5ef] text-[#0a7052] border border-[#a5dcc8]';
 
@@ -625,16 +845,17 @@ export function renderExecutionIssues(issues) {
     `;
     container.replaceChildren(okRow);
     saveRenderSnapshot(container, key);
+    updateExecutionIssuesScrollHint();
     return;
   }
 
-  const criticalCount = issues.filter(i => CRITICAL_ISSUE_CATEGORIES.has(i.category)).length;
-  countEl.textContent = criticalCount > 0 ? `${issues.length} 项 (${criticalCount} 高优)` : `${issues.length} 项提示`;
+  const criticalCount = sortedIssues.filter(i => CRITICAL_ISSUE_CATEGORIES.has(i.category)).length;
+  countEl.textContent = criticalCount > 0 ? `${sortedIssues.length} 项 (${criticalCount} 高优)` : `${sortedIssues.length} 项提示`;
   countEl.className = criticalCount > 0
     ? 'text-xs tabular-nums font-semibold px-2 py-0.5 rounded-full bg-[#fcecec] text-[#bd2b2b] border border-[#f0b5b5]'
     : 'text-xs tabular-nums font-semibold px-2 py-0.5 rounded-full bg-[#fdf4e3] text-[#985506] border border-[#ebcc94]';
 
-  container.replaceChildren(...issues.map(issue => {
+  container.replaceChildren(...sortedIssues.map(issue => {
     const isCritical = CRITICAL_ISSUE_CATEGORIES.has(issue.category);
     const item = createNode('article', 'py-3 first:pt-2.5 last:pb-1');
     const header = createNode('div', 'flex items-center justify-between gap-2');
@@ -656,17 +877,19 @@ export function renderExecutionIssues(issues) {
     header.append(titleWrap, createNode('span', badgeClass, labels[issue.category] || issue.category));
 
     const detail = createNode('p', 'text-xs text-[#3f5760] mt-1.5 break-words leading-relaxed', issue.detail);
-    const time = createNode('time', 'block text-xs text-[#526a73] font-mono tabular-nums mt-1', new Date(issue.occurred_at_ms).toLocaleString('zh-CN'));
-    time.dateTime = new Date(issue.occurred_at_ms).toISOString();
+    const time = createTimeNode(issue.occurred_at_ms, 'block text-xs text-[#526a73] font-mono tabular-nums mt-1', formatBeijingDateTime);
     item.append(header, detail, time);
     return item;
   }));
   saveRenderSnapshot(container, key);
+  updateExecutionIssuesScrollHint();
 }
 
-function compareValues(valA, valB, type, direction) {
-  const missingA = valA === null || valA === undefined || valA === '';
-  const missingB = valB === null || valB === undefined || valB === '';
+export function compareValues(valA, valB, type, direction) {
+  const numA = type === 'number' ? Number(valA) : NaN;
+  const numB = type === 'number' ? Number(valB) : NaN;
+  const missingA = valA === null || valA === undefined || valA === '' || (type === 'number' && !Number.isFinite(numA));
+  const missingB = valB === null || valB === undefined || valB === '' || (type === 'number' && !Number.isFinite(numB));
   if (missingA && missingB) return 0;
   if (missingA) return 1;
   if (missingB) return -1;
@@ -675,7 +898,153 @@ function compareValues(valA, valB, type, direction) {
   if (type === 'string') {
     return factor * collator.compare(String(valA), String(valB));
   }
-  return factor * (Number(valA) - Number(valB));
+  return factor * (numA - numB);
+}
+
+function getFilteredSortedPositions(query) {
+  const filtered = state.allPositions.filter(p => {
+    const matchesQuery = p.symbol.includes(query);
+    let matchesTier = true;
+    if (state.currentTierFilter === 'T1') matchesTier = (p.tier === 1);
+    else if (state.currentTierFilter === 'T2') matchesTier = (p.tier === 2);
+    else if (state.currentTierFilter === 'T3') matchesTier = (p.tier === 3);
+    return matchesQuery && matchesTier;
+  });
+
+  const activeTh = document.getElementById(`th-${state.currentSortKey}`);
+  const sortType = activeTh ? activeTh.dataset.type || 'number' : 'number';
+  filtered.sort((a, b) => {
+    const cmp = compareValues(
+      a[state.currentSortKey],
+      b[state.currentSortKey],
+      sortType,
+      state.currentSortDirection,
+    );
+    if (cmp !== 0) return cmp;
+    return collator.compare(a.symbol, b.symbol);
+  });
+  return filtered;
+}
+
+function buildPositionsRenderKey(filtered, query) {
+  return JSON.stringify([
+    state.allPositions.length,
+    state.currentTierFilter,
+    query,
+    state.currentSortKey,
+    state.currentSortDirection,
+    filtered.map(p => [
+      p.symbol,
+      p.tier,
+      p.lifecycle,
+      p.tier_label,
+      p.completed_batches,
+      p.avg_entry_price,
+      p.scan_price,
+      p.tp_price,
+      p.writeoff_price,
+      p.dca_price,
+      p.qty,
+      p.entry_notional,
+      p.estimated_unrealized_pnl,
+    ]),
+  ]);
+}
+
+function populatePositionRow(row, p) {
+  row.dataset.symbol = p.symbol;
+  row.dataset.tier = String(p.tier);
+  row.dataset.scan_price = p.scan_price === null || p.scan_price === undefined ? '' : String(p.scan_price);
+  row.dataset.entry_notional = p.entry_notional === null || p.entry_notional === undefined ? '' : String(p.entry_notional);
+  row.dataset.estimated_unrealized_pnl =
+    p.estimated_unrealized_pnl === null || p.estimated_unrealized_pnl === undefined
+      ? ''
+      : String(p.estimated_unrealized_pnl);
+
+  const symbolHeader = createNode('th', 'font-display', p.symbol);
+  symbolHeader.scope = 'row';
+
+  const tierCell = createNode('td', '');
+  tierCell.append(buildTierBadgeNode(p, 'font-sans'));
+
+  const tpHasPrice = p.tp_price !== null && p.tp_price !== undefined && Number.isFinite(Number(p.tp_price));
+  const tpCell = createNode(
+    'td',
+    tpHasPrice
+      ? 'text-right font-mono tabular-nums text-[#0a7052] font-semibold'
+      : 'text-right font-mono tabular-nums text-[#526a73]',
+    tpHasPrice ? formatUsdPrice(p.tp_price) : '—',
+  );
+
+  const scanPriceStr = formatUsdPrice(p.scan_price);
+  const scanHasPrice = scanPriceStr !== '—';
+
+  const riskCell = createNode('td', 'text-right tabular-nums');
+  if (p.writeoff_price !== null && p.writeoff_price !== undefined && Number.isFinite(Number(p.writeoff_price))) {
+    const wrap = createNode('span', 'text-[#5c3d91] font-semibold');
+    wrap.append(
+      document.createTextNode('注销价 '),
+      createNode('span', 'font-mono', formatUsdPrice(p.writeoff_price)),
+    );
+    riskCell.append(wrap);
+  } else if (p.dca_price !== null && p.dca_price !== undefined && Number.isFinite(Number(p.dca_price))) {
+    const wrap = createNode('span', 'text-[#985506]');
+    wrap.append(
+      createNode('span', 'font-mono', formatUsdPrice(p.dca_price)),
+      document.createTextNode(' -50%'),
+    );
+    riskCell.append(wrap);
+  } else {
+    riskCell.textContent = '—';
+    riskCell.className = 'text-right tabular-nums text-[#526a73]';
+  }
+
+  const unpnlCell = createNode('td', 'text-right font-display tabular-nums pr-4');
+  if (
+    p.estimated_unrealized_pnl !== null
+    && p.estimated_unrealized_pnl !== undefined
+    && Number.isFinite(Number(p.estimated_unrealized_pnl))
+  ) {
+    const pnlVal = Number(p.estimated_unrealized_pnl);
+    const pnlClass = pnlColorClass(pnlVal);
+    const avgEntryPrice = Number(p.avg_entry_price);
+    const scanPrice = Number(p.scan_price);
+    const pnlPct = (
+      p.avg_entry_price !== null
+      && p.avg_entry_price !== undefined
+      && Number.isFinite(avgEntryPrice)
+      && avgEntryPrice > 0
+      && p.scan_price !== null
+      && p.scan_price !== undefined
+      && Number.isFinite(scanPrice)
+    ) ? ((scanPrice - avgEntryPrice) / avgEntryPrice) * 100 : null;
+    unpnlCell.append(createNode('span', `font-bold ${pnlClass}`, formatSignedUsd(pnlVal)));
+    if (pnlPct !== null) {
+      unpnlCell.append(createNode('span', `text-xs ml-1.5 font-medium ${pnlClass}`, formatSignedPercent(pnlPct)));
+    }
+  } else {
+    unpnlCell.textContent = '—';
+    unpnlCell.className = 'text-right font-display tabular-nums pr-4 text-[#526a73]';
+  }
+
+  row.replaceChildren(
+    symbolHeader,
+    tierCell,
+    createNode('td', 'text-right font-mono tabular-nums text-[#3f5760]', formatUsdPrice(p.avg_entry_price)),
+    createNode(
+      'td',
+      scanHasPrice
+        ? 'text-right font-mono tabular-nums text-[#102128] font-medium'
+        : 'text-right font-mono tabular-nums text-[#526a73]',
+      scanPriceStr,
+    ),
+    tpCell,
+    riskCell,
+    createNode('td', 'text-right font-mono tabular-nums text-[#3f5760]', formatQty(p.qty)),
+    createNode('td', 'text-right font-display tabular-nums text-[#102128] font-semibold', formatUsd(p.entry_notional)),
+    unpnlCell,
+  );
+  return row;
 }
 
 function reorderRowsInPlace(tbody, sortKey, sortType, direction) {
@@ -685,12 +1054,14 @@ function reorderRowsInPlace(tbody, sortKey, sortType, direction) {
   rows.sort((rowA, rowB) => {
     const rawA = rowA.dataset[sortKey];
     const rawB = rowB.dataset[sortKey];
-    return compareValues(
+    const cmp = compareValues(
       rawA === '' ? null : rawA,
       rawB === '' ? null : rawB,
       sortType,
       direction,
     );
+    if (cmp !== 0) return cmp;
+    return collator.compare(rowA.dataset.symbol || '', rowB.dataset.symbol || '');
   });
 
   const canMoveBefore = typeof tbody.moveBefore === 'function';
@@ -711,13 +1082,13 @@ export function handleSort(key) {
     state.currentSortDirection = key === 'symbol' ? 'asc' : 'desc';
   }
 
-  const sortKeys = ['symbol', 'tier', 'scan_price', 'entry_notional', 'estimated_unrealized_pnl'];
+  const sortHeaders = document.querySelectorAll('#positions-table thead th[id^="th-"]');
   let activeLabel = key;
   let activeType = 'number';
 
-  sortKeys.forEach(k => {
-    const th = document.getElementById('th-' + k);
-    if (k === state.currentSortKey) {
+  sortHeaders.forEach(th => {
+    const headerKey = th.id.slice(3);
+    if (headerKey === state.currentSortKey) {
       th.setAttribute('aria-sort', state.currentSortDirection === 'asc' ? 'ascending' : 'descending');
       activeLabel = th.textContent.trim();
       activeType = th.dataset.type || 'number';
@@ -730,6 +1101,9 @@ export function handleSort(key) {
   const existingDataRows = Array.from(tbody.rows).filter(row => row.dataset.symbol);
   if (existingDataRows.length > 0) {
     reorderRowsInPlace(tbody, state.currentSortKey, activeType, state.currentSortDirection);
+    const query = getSearchQuery();
+    const sorted = getFilteredSortedPositions(query);
+    saveRenderSnapshot(tbody, buildPositionsRenderKey(sorted, query));
     const status = document.getElementById('positions-sort-status');
     const dirLabel = state.currentSortDirection === 'asc' ? '升序' : '降序';
     status.textContent = `已按${activeLabel}${dirLabel}排列，共 ${existingDataRows.length} 行`;
@@ -741,11 +1115,34 @@ export function handleSort(key) {
 export function filterTier(tier) {
   state.currentTierFilter = tier;
   ['all', 't1', 't2', 't3'].forEach(k => {
-    const btn = document.getElementById('filter-' + k);
+    const btn = document.getElementById(`filter-${k}`);
     const isActive = k.toUpperCase() === tier || (k === 'all' && tier === 'ALL');
     btn.setAttribute('aria-pressed', String(isActive));
   });
   renderPositions();
+}
+
+function getSearchQuery() {
+  if (state.searchQuery) return state.searchQuery;
+  const input = document.getElementById('symbol-search');
+  return input ? input.value.trim().toUpperCase() : '';
+}
+
+export function updateTableScrollAffordance() {
+  const wrap = document.querySelector('.table-shell-wrap');
+  const shell = document.querySelector('.table-shell');
+  const hint = document.getElementById('table-scroll-hint');
+  if (!wrap || !shell) return;
+
+  const hasHorizontalOverflow = shell.scrollWidth > shell.clientWidth + 1;
+  const isScrolledX = shell.scrollLeft > 1;
+  const hasMoreRight = shell.scrollLeft + shell.clientWidth < shell.scrollWidth - 1;
+
+  shell.classList.toggle('is-scrolled-x', isScrolledX);
+  wrap.classList.toggle('has-overflow-right', hasHorizontalOverflow && hasMoreRight);
+  if (hint) {
+    hint.classList.toggle('hidden', !hasHorizontalOverflow);
+  }
 }
 
 export function renderPositions() {
@@ -758,6 +1155,7 @@ export function renderPositions() {
     showTableMessage(tbody, 9, 'py-12 text-center text-[#526a73] font-sans', '等待账本数据');
     summaryEl.textContent = '托管持仓: —';
     saveRenderSnapshot(tbody, key);
+    updateTableScrollAffordance();
     return;
   }
   if (state.allPositions.length === 0) {
@@ -766,145 +1164,57 @@ export function renderPositions() {
     showTableMessage(tbody, 9, 'py-12 text-center text-[#526a73] font-sans', '暂无托管持仓记录');
     summaryEl.textContent = '托管持仓: 0 个标的';
     saveRenderSnapshot(tbody, key);
+    updateTableScrollAffordance();
     return;
   }
 
-  const query = document.getElementById('symbol-search').value.trim().toUpperCase();
-  const filtered = state.allPositions.filter(p => {
-    const matchesQuery = p.symbol.includes(query);
-    let matchesTier = true;
-    if (state.currentTierFilter === 'T1') matchesTier = (p.tier === 1);
-    else if (state.currentTierFilter === 'T2') matchesTier = (p.tier === 2);
-    else if (state.currentTierFilter === 'T3') matchesTier = (p.tier === 3);
-    return matchesQuery && matchesTier;
-  });
-
-  const activeTh = document.getElementById('th-' + state.currentSortKey);
-  const sortType = activeTh ? activeTh.dataset.type || 'number' : 'number';
-  filtered.sort((a, b) => compareValues(
-    a[state.currentSortKey],
-    b[state.currentSortKey],
-    sortType,
-    state.currentSortDirection,
-  ));
-
-  const key = JSON.stringify([
-    state.allPositions.length,
-    state.currentTierFilter,
-    query,
-    state.currentSortKey,
-    state.currentSortDirection,
-    filtered.map(p => [
-      p.symbol,
-      p.tier,
-      p.tier_label,
-      p.completed_batches,
-      p.avg_entry_price,
-      p.scan_price,
-      p.tp_price,
-      p.writeoff_price,
-      p.dca_price,
-      p.qty,
-      p.entry_notional,
-      p.estimated_unrealized_pnl,
-    ]),
-  ]);
-  if (isRenderUnchanged(tbody, key)) return;
+  const query = getSearchQuery();
+  const filtered = getFilteredSortedPositions(query);
+  const key = buildPositionsRenderKey(filtered, query);
+  if (isRenderUnchanged(tbody, key)) {
+    updateTableScrollAffordance();
+    return;
+  }
 
   if (filtered.length === 0) {
-    showTableMessage(tbody, 9, 'py-10 text-center text-[#526a73] font-sans', '无符合当前筛选条件的托管标的');
+    showTableMessage(tbody, 9, 'py-10 text-center text-[#526a73] font-sans', '无符合当前筛选条件的托管标的', {
+      withResetBtn: true,
+    });
     summaryEl.textContent = `显示 0 / ${state.allPositions.length} 个托管标的`;
     saveRenderSnapshot(tbody, key);
+    updateTableScrollAffordance();
     return;
   }
 
-  const rows = filtered.map(p => {
-    const row = document.createElement('tr');
-    row.dataset.symbol = p.symbol;
-    row.dataset.tier = String(p.tier);
-    row.dataset.scan_price = p.scan_price === null ? '' : String(p.scan_price);
-    row.dataset.entry_notional = String(p.entry_notional);
-    row.dataset.estimated_unrealized_pnl = p.estimated_unrealized_pnl === null ? '' : String(p.estimated_unrealized_pnl);
-
-    const symbolHeader = createNode('th', 'font-display', p.symbol);
-    symbolHeader.scope = 'row';
-
-    const tierCell = createNode('td', '');
-    tierCell.append(createNode('span', `tier-badge font-sans ${tierBadgeClass(p)}`, p.tier_label));
-
-    const tpStr = p.tp_price === null ? '—' : `$${formatPrice(p.tp_price)}`;
-    const scanPriceStr = p.scan_price !== null ? `$${formatPrice(p.scan_price)}` : '—';
-
-    const riskCell = createNode('td', 'text-right tabular-nums');
-    if (p.writeoff_price) {
-      const wrap = createNode('span', 'text-[#5c3d91] font-semibold');
-      wrap.append(
-        document.createTextNode('注销价 '),
-        createNode('span', 'font-mono', `$${formatPrice(p.writeoff_price)}`),
-        document.createTextNode(' 出清'),
-      );
-      riskCell.append(wrap);
-    } else if (p.dca_price) {
-      const wrap = createNode('span', 'text-[#985506]');
-      wrap.append(
-        createNode('span', 'font-mono', `$${formatPrice(p.dca_price)}`),
-        document.createTextNode(' -50%'),
-      );
-      riskCell.append(wrap);
-    } else {
-      riskCell.textContent = '—';
-      riskCell.className = 'text-right tabular-nums text-[#526a73]';
+  const existingBySymbol = new Map();
+  for (const row of Array.from(tbody.rows)) {
+    if (row.dataset.symbol) {
+      existingBySymbol.set(row.dataset.symbol, row);
     }
+  }
 
-    const unpnlCell = createNode('td', 'text-right font-display tabular-nums pr-4');
-    if (
-      p.estimated_unrealized_pnl !== null
-      && p.estimated_unrealized_pnl !== undefined
-      && Number.isFinite(Number(p.estimated_unrealized_pnl))
-    ) {
-      const pnlVal = Number(p.estimated_unrealized_pnl);
-      const pnlClass = pnlColorClass(pnlVal);
-      const avgEntryPrice = Number(p.avg_entry_price);
-      const scanPrice = Number(p.scan_price);
-      const pnlPct = (
-        p.avg_entry_price !== null
-        && p.avg_entry_price !== undefined
-        && Number.isFinite(avgEntryPrice)
-        && avgEntryPrice > 0
-        && p.scan_price !== null
-        && p.scan_price !== undefined
-        && Number.isFinite(scanPrice)
-      ) ? ((scanPrice - avgEntryPrice) / avgEntryPrice) * 100 : null;
-      unpnlCell.append(createNode('span', `font-bold ${pnlClass}`, formatSignedUsd(pnlVal)));
-      if (pnlPct !== null) {
-        unpnlCell.append(createNode('span', `text-xs ml-1.5 font-medium ${pnlClass}`, formatSignedPercent(pnlPct)));
-      }
-    } else {
-      unpnlCell.textContent = '—';
-      unpnlCell.className = 'text-right font-display tabular-nums pr-4 text-[#526a73]';
-    }
+  const sameSequence = existingBySymbol.size === filtered.length
+    && Array.from(tbody.rows).every((row, idx) => row.dataset.symbol === filtered[idx].symbol);
 
-    row.append(
-      symbolHeader,
-      tierCell,
-      createNode('td', 'text-right font-mono tabular-nums text-[#3f5760]', `$${formatPrice(p.avg_entry_price)}`),
-      createNode('td', 'text-right font-mono tabular-nums text-[#102128] font-medium', scanPriceStr),
-      createNode('td', 'text-right font-mono tabular-nums text-[#0a7052] font-semibold', tpStr),
-      riskCell,
-      createNode('td', 'text-right font-mono tabular-nums text-[#3f5760]', formatQty(p.qty)),
-      createNode('td', 'text-right font-display tabular-nums text-[#102128] font-semibold', formatUsd(p.entry_notional)),
-      unpnlCell,
-    );
-    return row;
-  });
+  if (sameSequence) {
+    filtered.forEach((p, idx) => {
+      populatePositionRow(tbody.rows[idx], p);
+    });
+  } else {
+    const rows = filtered.map(p => {
+      const row = existingBySymbol.get(p.symbol) || document.createElement('tr');
+      return populatePositionRow(row, p);
+    });
+    tbody.replaceChildren(...rows);
+  }
 
-  tbody.replaceChildren(...rows);
   summaryEl.textContent = `显示 ${filtered.length} / ${state.allPositions.length} 个托管标的`;
   saveRenderSnapshot(tbody, key);
+  updateTableScrollAffordance();
 }
 
 export function renderFills(buyFills, sellFills) {
-  const query = document.getElementById('symbol-search').value.trim().toUpperCase();
+  const query = getSearchQuery();
   const filteredBuys = query ? buyFills.filter(f => f.symbol.includes(query)) : buyFills;
   const filteredSells = query ? sellFills.filter(f => f.symbol.includes(query)) : sellFills;
 
@@ -941,14 +1251,14 @@ function renderFillGroup(listId, countId, fills, side, totalCount = fills.length
     const emptyText = isFiltered
       ? '无匹配该标的的成交记录'
       : (side === 'BUY' ? '暂无买入成交明细' : '暂无卖出成交明细');
-    showMessage(list, 'text-[#526a73] text-xs py-6 text-center', emptyText);
+    showMessage(list, 'text-[#526a73] text-xs py-6 text-center', emptyText, {
+      withResetBtn: isFiltered,
+    });
     saveRenderSnapshot(list, key);
     return;
   }
 
   const items = fills.map(fill => {
-    const tradedAt = new Date(fill.traded_at_ms);
-    const time = tradedAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const isBuy = side === 'BUY';
     const amount = isBuy
       ? formatUsd(Number(fill.price) * Number(fill.qty))
@@ -960,12 +1270,15 @@ function renderFillGroup(listId, countId, fills, side, totalCount = fills.length
     const identity = createNode('div', 'min-w-0');
     identity.append(
       createNode('p', 'font-display font-semibold text-[#102128] truncate', fill.symbol),
-      createNode('p', 'text-[#526a73] text-xs mt-0.5 font-mono tabular-nums', `均价 $${formatPrice(fill.price)} · 数量 ${formatQty(fill.qty)}`),
+      createNode(
+        'p',
+        'text-[#526a73] text-xs mt-0.5 font-mono tabular-nums',
+        `均价 ${formatUsdPrice(fill.price)} · 数量 ${formatQty(fill.qty)}`,
+      ),
     );
 
     const details = createNode('div', 'shrink-0 text-right');
-    const timeNode = createNode('time', 'block mt-0.5 text-xs text-[#526a73] font-mono tabular-nums', time);
-    timeNode.dateTime = tradedAt.toISOString();
+    const timeNode = createTimeNode(fill.traded_at_ms, 'block mt-0.5 text-xs text-[#526a73] font-mono tabular-nums', formatBeijingTime);
     details.append(
       createNode('span', 'block text-xs text-[#526a73]', amountLabel),
       createNode('span', `block font-display font-semibold tabular-nums ${amountClass}`, amount),
@@ -1009,7 +1322,7 @@ export function renderRanking(symbols, pendingCloseFills) {
 
     const row = createNode(
       'div',
-      'grid grid-cols-[24px_minmax(0,1fr)_auto] sm:grid-cols-[32px_minmax(88px,112px)_minmax(80px,1fr)_auto] items-center gap-x-2 gap-y-1.5 sm:gap-3 rounded border border-[#d4dfdc] bg-[#f7faf9] px-3.5 py-2.5 text-xs',
+      'grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[32px_minmax(104px,140px)_minmax(80px,1fr)_auto] items-center gap-x-2.5 gap-y-1.5 sm:gap-3 px-2 py-2.5 border-b border-[#eaf0ee] hover:bg-[#f2f7f5] transition-colors text-xs',
     );
     const rankEl = createNode(
       'span',
@@ -1018,8 +1331,8 @@ export function renderRanking(symbols, pendingCloseFills) {
     );
     const symEl = createNode('span', 'font-display font-semibold text-[#102128] min-w-0 truncate', symbol.symbol);
 
-    const track = createNode('div', 'col-span-full sm:col-span-1 order-last sm:order-none h-2 rounded-sm bg-[#eaf0ee] overflow-hidden');
-    const fill = createNode('div', 'h-full rounded-sm');
+    const track = createNode('div', 'viz-bar-track col-span-full sm:col-span-1 order-last sm:order-none h-2 rounded-sm bg-[#eaf0ee] overflow-hidden');
+    const fill = createNode('div', 'viz-bar-fill h-full rounded-sm');
     fill.style.width = `${widthPct}%`;
     fill.style.backgroundColor = val > 0 ? '#0a7052' : val < 0 ? '#bd2b2b' : '#768d88';
     track.append(fill);

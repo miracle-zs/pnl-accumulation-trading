@@ -1,22 +1,29 @@
 // Main Application Entry Point (ES Module)
 
-import { fetchData, fetchEquity, syncPeriodButtons, abortInFlightRequests } from './api.js?v=20261126-3';
-import { initChartResizeObserver, renderRetinaChart } from './chart.js?v=20261126-3';
+import {
+  fetchData,
+  fetchEquity,
+  syncPeriodButtons,
+  abortInFlightRequests,
+  setRetryHandler,
+  setOfflineBadge,
+} from './api.js?v=20261126-4';
+import { initChartResizeObserver, renderRetinaChart } from './chart.js?v=20261126-4';
 import {
   state,
+  formatBeijingHm,
   renderTradingUptime,
   renderPositions,
   handleSort,
   filterTier,
   renderFills,
-} from './renderers.js?v=20261126-3';
+  updateTableScrollAffordance,
+  updateExecutionIssuesScrollHint,
+} from './renderers.js?v=20261126-4';
 
 const SLOT_MS = 900_000;
-
-function formatHm(epochMs) {
-  const d = new Date(epochMs);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // 15-Minute Slot Cadence Rail & Boundary Refresh
 let lastReviewSlot = Math.floor(Date.now() / SLOT_MS);
@@ -48,7 +55,7 @@ function updateCountdown() {
     countdownEl.textContent = countdownText;
   }
 
-  const slotWindowText = `${formatHm(slotStartMs)}–${formatHm(slotEndMs)}`;
+  const slotWindowText = `${formatBeijingHm(slotStartMs)}–${formatBeijingHm(slotEndMs)}`;
   if (slotWindowText !== lastSlotWindowText) {
     lastSlotWindowText = slotWindowText;
     slotWindowLabelEl.textContent = slotWindowText;
@@ -72,7 +79,7 @@ function updateCountdown() {
   }
 }
 
-export function switchView(view) {
+export function switchView(view, { skipScrollIntoView = false } = {}) {
   state.currentView = view;
   const tabs = ['positions', 'fills', 'ranking'];
   tabs.forEach(v => {
@@ -83,8 +90,15 @@ export function switchView(view) {
     btn.tabIndex = isSelected ? 0 : -1;
     if (isSelected) {
       panel.hidden = false;
-      panel.tabIndex = 0;
-      btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const hasFocusableChild = panel.querySelector(FOCUSABLE_SELECTOR) !== null;
+      if (hasFocusableChild) {
+        panel.removeAttribute('tabindex');
+      } else {
+        panel.tabIndex = 0;
+      }
+      if (!skipScrollIntoView) {
+        btn.scrollIntoView({ block: 'nearest', inline: 'nearest', container: 'nearest' });
+      }
     } else {
       panel.hidden = 'until-found';
       panel.removeAttribute('tabindex');
@@ -97,6 +111,7 @@ export function switchView(view) {
 
   if (view === 'positions') {
     renderPositions();
+    updateTableScrollAffordance();
   } else if (view === 'fills') {
     renderFills(state.rawBuyFills, state.rawSellFills);
   }
@@ -110,23 +125,39 @@ export function selectPeriod(p) {
 
 let searchRafId = null;
 
+function applySearchFilter() {
+  const input = document.getElementById('symbol-search');
+  state.searchQuery = input ? input.value.trim().toUpperCase() : '';
+  if (state.currentView === 'positions') {
+    renderPositions();
+  } else if (state.currentView === 'fills') {
+    renderFills(state.rawBuyFills, state.rawSellFills);
+  }
+}
+
 function scheduleSearchFilter() {
   if (searchRafId !== null) {
     cancelAnimationFrame(searchRafId);
   }
   searchRafId = requestAnimationFrame(() => {
     searchRafId = null;
-    if (state.currentView === 'positions') {
-      renderPositions();
-    } else if (state.currentView === 'fills') {
-      renderFills(state.rawBuyFills, state.rawSellFills);
-    }
+    applySearchFilter();
   });
 }
 
 export function handleSearchInput(e) {
   if (e?.isComposing) return;
   scheduleSearchFilter();
+}
+
+function resetFilters() {
+  const input = document.getElementById('symbol-search');
+  if (input) input.value = '';
+  state.searchQuery = '';
+  filterTier('ALL');
+  if (state.currentView === 'fills') {
+    renderFills(state.rawBuyFills, state.rawSellFills);
+  }
 }
 
 // Accessible Tablist (selection follows focus + find-in-page beforematch sync)
@@ -159,12 +190,14 @@ function initAccessibleTabs() {
   ['positions', 'fills', 'ranking'].forEach(view => {
     const panel = document.getElementById(`view-${view}`);
     panel.addEventListener('beforematch', () => {
-      switchView(view);
+      switchView(view, { skipScrollIntoView: true });
     });
   });
 }
 
 function bindControls() {
+  setRetryHandler(() => runDashboardFetch());
+
   document.getElementById('btn-refresh').addEventListener('click', () => {
     runDashboardFetch();
   });
@@ -184,6 +217,30 @@ function bindControls() {
   symbolSearchInput.addEventListener('input', handleSearchInput);
   symbolSearchInput.addEventListener('compositionend', scheduleSearchFilter);
 
+  // Filter reset delegation on empty search/filter results
+  ['view-positions', 'view-fills'].forEach(panelId => {
+    document.getElementById(panelId).addEventListener('click', (e) => {
+      if (e.target.closest('[data-reset-filters]')) {
+        resetFilters();
+        symbolSearchInput.focus();
+      }
+    });
+  });
+
+  // Table horizontal scroll shadow/hint & execution issues scroll hint
+  const tableShell = document.querySelector('.table-shell');
+  if (tableShell) {
+    tableShell.addEventListener('scroll', updateTableScrollAffordance, { passive: true });
+  }
+  const issuesEl = document.getElementById('execution-issues');
+  if (issuesEl) {
+    issuesEl.addEventListener('scroll', updateExecutionIssuesScrollHint, { passive: true });
+  }
+  window.addEventListener('resize', () => {
+    updateTableScrollAffordance();
+    updateExecutionIssuesScrollHint();
+  }, { passive: true });
+
   // Invoker commands for sortable table headers with feature-detected fallback
   const positionsTable = document.getElementById('positions-table');
   positionsTable.addEventListener('command', (event) => {
@@ -200,11 +257,13 @@ function bindControls() {
 
 // Timers and Page Lifecycle Management
 const POLL_INTERVAL_MS = 30_000;
+const MAX_BACKOFF_MS = 120_000;
 let pollTimeoutId = null;
 let countdownIntervalId = null;
 let uptimeIntervalId = null;
 let timersActive = false;
 let activeFetchSeq = 0;
+let consecutiveFailures = 0;
 let chartResizeObserver = null;
 let cleanupDprListener = null;
 
@@ -215,20 +274,32 @@ function clearScheduledPoll() {
   }
 }
 
+function nextPollDelayMs() {
+  if (consecutiveFailures === 0) return POLL_INTERVAL_MS;
+  const backoff = Math.min(MAX_BACKOFF_MS, POLL_INTERVAL_MS * Math.pow(1.5, consecutiveFailures));
+  const jitter = Math.floor(Math.random() * 2000);
+  return Math.round(backoff + jitter);
+}
+
 function scheduleNextPoll() {
   clearScheduledPoll();
-  if (!timersActive || document.hidden) return;
+  if (!timersActive || document.hidden || navigator.onLine === false) return;
   pollTimeoutId = setTimeout(() => {
     pollTimeoutId = null;
     runDashboardFetch();
-  }, POLL_INTERVAL_MS);
+  }, nextPollDelayMs());
 }
 
 async function runDashboardFetch() {
   clearScheduledPoll();
   const seq = ++activeFetchSeq;
   try {
-    await fetchData();
+    const result = await fetchData();
+    if (result?.ok) {
+      consecutiveFailures = 0;
+    } else if (!result?.aborted) {
+      consecutiveFailures += 1;
+    }
   } finally {
     if (seq === activeFetchSeq) {
       scheduleNextPoll();
@@ -236,7 +307,7 @@ async function runDashboardFetch() {
   }
 }
 
-function startTimers() {
+function startTimers({ schedulePoll = true } = {}) {
   timersActive = true;
   if (!countdownIntervalId) {
     updateCountdown();
@@ -244,9 +315,9 @@ function startTimers() {
   }
   if (!uptimeIntervalId) {
     renderTradingUptime();
-    uptimeIntervalId = setInterval(renderTradingUptime, 1000);
+    uptimeIntervalId = setInterval(renderTradingUptime, 15_000);
   }
-  if (pollTimeoutId === null) {
+  if (schedulePoll && pollTimeoutId === null) {
     scheduleNextPoll();
   }
 }
@@ -315,7 +386,20 @@ document.addEventListener('visibilitychange', () => {
     abortInFlightRequests();
   } else {
     lastReviewSlot = Math.floor(Date.now() / SLOT_MS);
-    startTimers();
+    startTimers({ schedulePoll: false });
+    runDashboardFetch();
+  }
+});
+
+window.addEventListener('offline', () => {
+  clearScheduledPoll();
+  abortInFlightRequests();
+  setOfflineBadge();
+});
+
+window.addEventListener('online', () => {
+  consecutiveFailures = 0;
+  if (!document.hidden) {
     runDashboardFetch();
   }
 });
@@ -338,7 +422,7 @@ window.addEventListener('pageshow', (event) => {
   renderRetinaChart(state.chartHistoryPoints);
   if (!document.hidden) {
     lastReviewSlot = Math.floor(Date.now() / SLOT_MS);
-    startTimers();
+    startTimers({ schedulePoll: false });
     runDashboardFetch();
   }
 });
@@ -346,5 +430,5 @@ window.addEventListener('pageshow', (event) => {
 bindControls();
 initAccessibleTabs();
 initChartObservers();
-startTimers();
+startTimers({ schedulePoll: false });
 runDashboardFetch();

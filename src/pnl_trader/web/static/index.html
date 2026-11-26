@@ -5,13 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <title>PNL Periodic Review Trader · 15分钟周期巡检看板</title>
-  <link rel="stylesheet" href="tailwind.css?v=20261126-3">
-  <link rel="modulepreload" href="js/app.js?v=20261126-3">
-  <link rel="modulepreload" href="js/api.js?v=20261126-3">
-  <link rel="modulepreload" href="js/chart.js?v=20261126-3">
-  <link rel="modulepreload" href="js/renderers.js?v=20261126-3">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Crect width='24' height='24' rx='4' fill='%230e2a33'/%3E%3Cpath d='M4 16.5L9 11.5l3.5 3L20 7' stroke='%2334d399' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M15.5 7H20v4.5' stroke='%2334d399' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preload" href="fonts/barlow-latin-600.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-latin-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="tailwind.css?v=20261126-4">
+  <link rel="modulepreload" href="js/app.js?v=20261126-4">
+  <link rel="modulepreload" href="js/api.js?v=20261126-4">
+  <link rel="modulepreload" href="js/chart.js?v=20261126-4">
+  <link rel="modulepreload" href="js/renderers.js?v=20261126-4">
 </head>
 <body class="min-h-screen flex flex-col">
+  <a href="#main-content" class="skip-link">跳至主要内容</a>
 
   <!-- Full-bleed Committed Deep Slate-Teal Command Bar -->
   <header class="command-shell md:sticky md:top-0 z-30">
@@ -34,7 +38,10 @@
                 <span id="system-status-text">只读本地账本</span>
               </span>
             </div>
-            <p class="text-xs text-[#9eb9c0] leading-tight mt-0.5 hidden sm:block">币安 USDT 永续合约 · 15 分钟周期巡检<span id="last-sync-label" class="tabular-nums"></span></p>
+            <p class="text-xs text-[#9eb9c0] leading-tight mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span class="hidden sm:inline">币安 USDT 永续合约 · 15 分钟周期巡检</span>
+              <span id="last-sync-label" class="tabular-nums empty:hidden"></span>
+            </p>
           </div>
         </div>
       </div>
@@ -72,7 +79,7 @@
   </header>
 
   <!-- Main Operational Workspace -->
-  <main class="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 flex flex-col gap-4 sm:gap-5">
+  <main id="main-content" tabindex="-1" class="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 flex flex-col gap-4 sm:gap-5 focus:outline-none">
 
     <!-- Workspace Error / Stale-Data Banner (shown when API sync fails) -->
     <div id="dashboard-error-banner" role="alert" class="hidden rounded border border-[#f0b5b5] bg-[#fcecec] px-4 py-3 text-xs text-[#102128]">
@@ -98,31 +105,29 @@
     <section class="ledger-plane" aria-label="核心账户指标">
       <div class="grid grid-cols-2 lg:grid-cols-4">
         <!-- Metric 1: Total Equity -->
-        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col justify-between gap-2.5 border-b border-r lg:border-b-0 border-[#d4dfdc]">
-          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1">
+        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col gap-2.5 border-b border-r lg:border-b-0 border-[#d4dfdc]">
+          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1 min-h-[1.5rem]">
             <span class="text-xs font-medium text-[#3f5760]">账户总权益 (USDT)</span>
             <span id="equity-change-badge" class="font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded bg-[#eaf0ee] text-[#3f5760]">—</span>
           </div>
-          <div id="kpi-equity" class="font-display text-xl sm:text-[22px] xl:text-[26px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
-          <div class="flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-[#ebf1ef]">
+          <div id="kpi-equity" class="font-display text-[22px] xl:text-[28px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
+          <div class="mt-auto flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-[#ebf1ef]">
             <span class="text-[#526a73]">可用余额</span>
             <span id="kpi-available" class="font-display font-semibold tabular-nums text-[#102128]">—</span>
           </div>
         </div>
 
         <!-- Metric 2: Cumulative Realized Net -->
-        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col justify-between gap-2.5 border-b lg:border-b-0 lg:border-r border-[#d4dfdc]">
-          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1">
+        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col gap-2.5 border-b lg:border-b-0 lg:border-r border-[#d4dfdc]">
+          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1 min-h-[1.5rem]">
             <span class="text-xs font-medium text-[#3f5760]">累计已实现净盈亏</span>
             <span id="kpi-fill-count" class="text-xs leading-5 tabular-nums text-[#526a73]">—</span>
           </div>
-          <div class="min-w-0">
-            <div id="kpi-realized-cash" class="font-display text-xl sm:text-[22px] xl:text-[26px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
-            <p id="kpi-realized-note" class="text-xs text-[#526a73] leading-snug mt-1.5">已扣手续费 · 未计资金费用</p>
-          </div>
-          <div class="pt-2 border-t border-[#ebf1ef]">
+          <div id="kpi-realized-cash" class="font-display text-[22px] xl:text-[28px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
+          <p id="kpi-realized-note" class="text-xs text-[#526a73] leading-snug">已扣手续费 · 未计资金费用</p>
+          <div class="mt-auto pt-2 border-t border-[#ebf1ef]">
             <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span class="text-[#526a73]">今日已实现</span>
+              <span class="text-[#526a73]">今日已实现净盈亏</span>
               <span id="kpi-today-pnl" class="font-display font-semibold tabular-nums text-[#102128]">—</span>
             </div>
             <p id="kpi-today-note" class="hidden text-xs text-[#985506] mt-0.5 leading-snug"></p>
@@ -130,26 +135,26 @@
         </div>
 
         <!-- Metric 3: Floating Unrealized PnL -->
-        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col justify-between gap-2.5 border-r border-[#d4dfdc]">
-          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1">
+        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col gap-2.5 border-r border-[#d4dfdc]">
+          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1 min-h-[1.5rem]">
             <span class="text-xs font-medium text-[#3f5760]">持仓浮动盈亏</span>
             <span id="kpi-active-symbols" class="text-xs leading-5 tabular-nums text-[#526a73]">—</span>
           </div>
-          <div id="kpi-unrealized-pnl" class="font-display text-xl sm:text-[22px] xl:text-[26px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
-          <div class="flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-[#ebf1ef]">
+          <div id="kpi-unrealized-pnl" class="font-display text-[22px] xl:text-[28px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
+          <div class="mt-auto flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-[#ebf1ef]">
             <span class="text-[#526a73]">盈亏分布</span>
             <span id="kpi-position-status" class="font-display font-semibold tabular-nums text-[#3f5760]">—</span>
           </div>
         </div>
 
         <!-- Metric 4: Position Notional & Leverage -->
-        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col justify-between gap-2.5">
-          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1">
+        <div class="min-w-0 p-3.5 sm:p-4 lg:p-5 flex flex-col gap-2.5">
+          <div class="flex flex-wrap flex-col sm:flex-row sm:items-center sm:justify-between items-start gap-1 min-h-[1.5rem]">
             <span class="text-xs font-medium text-[#3f5760]">持仓名义总额</span>
             <span id="kpi-actual-leverage" class="font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded bg-[#e7f3f6] text-[#135d73]">实际杠杆 —</span>
           </div>
-          <div id="kpi-notional" class="font-display text-xl sm:text-[22px] xl:text-[26px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
-          <div class="flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-[#ebf1ef]">
+          <div id="kpi-notional" class="font-display text-[22px] xl:text-[28px] leading-none font-bold tabular-nums tracking-tight text-[#102128] min-w-0">—</div>
+          <div class="mt-auto flex flex-wrap items-center justify-between gap-2 text-xs pt-2 border-t border-[#ebf1ef]">
             <span class="text-[#526a73]">可用保证金占比</span>
             <span id="kpi-margin-cushion" class="font-display font-semibold tabular-nums text-[#102128]">—</span>
           </div>
@@ -158,13 +163,13 @@
     </section>
 
     <!-- Primary First-Viewport Split: Equity Trajectory (Left 8) + Risk & Anomaly Triage (Right 4) -->
-    <section class="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-5" aria-label="权益走势与风险预警">
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-5">
       <!-- Equity Curve Canvas -->
-      <div class="xl:col-span-8 ledger-plane p-4 sm:p-5 flex flex-col justify-between">
+      <section class="xl:col-span-8 ledger-plane p-4 sm:p-5 flex flex-col justify-between">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-3 border-b border-[#eaf0ee]">
           <div>
             <h2 class="text-sm font-semibold text-[#102128]">账户权益走势</h2>
-            <p id="equity-snapshot-status" role="status" aria-live="polite" class="text-xs text-[#526a73] mt-0.5 tabular-nums">等待账户净值采样</p>
+            <p id="equity-snapshot-status" class="text-xs text-[#526a73] mt-0.5 tabular-nums">等待账户净值采样</p>
           </div>
 
           <div class="seg-group self-start sm:self-auto" role="group" aria-label="走势图时间跨度切换">
@@ -174,8 +179,10 @@
           </div>
         </div>
 
-        <div class="relative w-full h-64 sm:h-72 lg:h-80 mt-2 touch-none" id="canvas-container">
+        <div class="relative w-full h-64 sm:h-72 lg:h-80 mt-2 touch-pan-y transition-opacity duration-150" id="canvas-container">
           <canvas id="equity-canvas" role="img" tabindex="0" aria-label="账户权益走势图，正在加载采样数据" class="w-full h-full block cursor-crosshair"></canvas>
+          <div id="chart-empty-overlay" class="hidden absolute inset-0 flex items-center justify-center text-xs text-[#526a73] px-4 text-center pointer-events-none"></div>
+          <div id="chart-sr-status" role="status" aria-live="polite" class="sr-only"></div>
           <div id="chart-tooltip" class="chart-tooltip absolute hidden pointer-events-none px-3 py-2 text-xs z-20 min-w-[156px]">
             <div id="tooltip-time" class="text-[#9eb9c0] font-mono text-xs tabular-nums">--</div>
             <div class="flex items-center justify-between gap-3 mt-1">
@@ -189,11 +196,11 @@
           </div>
         </div>
 
-        <div class="flex items-center justify-between text-xs font-mono tabular-nums text-[#526a73] pt-2 border-t border-[#eaf0ee] mt-1">
-          <span id="chart-start-time">—</span>
-          <span id="chart-latest-time">—</span>
+        <div class="flex items-center justify-between text-xs font-mono tabular-nums text-[#526a73] pt-2 border-t border-[#eaf0ee] mt-1 pl-[68px] pr-[18px]">
+          <time id="chart-start-time">—</time>
+          <time id="chart-latest-time">—</time>
         </div>
-      </div>
+      </section>
 
       <!-- Consolidated Risk & Anomaly Triage Panel (flat hairline dividers, zero nested cards) -->
       <aside class="xl:col-span-4 ledger-plane flex flex-col overflow-hidden" aria-label="回撤与执行风险">
@@ -207,12 +214,12 @@
           <div class="grid grid-cols-2 divide-x divide-[#e3ece9] mt-3.5 pt-3 border-t border-[#ebf1ef]">
             <div class="pr-4">
               <div class="text-xs text-[#526a73]">区间最大回撤</div>
-              <div id="max-drawdown" class="font-display text-xl font-bold tabular-nums text-[#bd2b2b] mt-1">—</div>
+              <div id="max-drawdown" class="font-display text-xl font-bold tabular-nums text-[#526a73] mt-1">—</div>
               <div id="max-drawdown-pct" class="font-display text-xs font-medium tabular-nums text-[#526a73] mt-0.5">—</div>
             </div>
             <div class="pl-4">
               <div class="text-xs text-[#526a73]">当前回撤</div>
-              <div id="current-drawdown-pct" class="font-display text-xl font-bold tabular-nums text-[#985506] mt-1">—</div>
+              <div id="current-drawdown-pct" class="font-display text-xl font-bold tabular-nums text-[#526a73] mt-1">—</div>
               <div class="text-xs text-[#526a73] mt-0.5">相对区间高点</div>
             </div>
           </div>
@@ -228,12 +235,13 @@
           <div id="execution-issues" tabindex="0" role="region" aria-label="执行异常记录列表" class="flex-1 divide-y divide-[#eaf0ee] max-h-56 overflow-y-auto ledger-scroll pr-1">
             <div class="text-xs text-[#526a73] py-6 text-center">等待执行数据</div>
           </div>
+          <div id="execution-issues-hint" class="hidden pt-1.5 text-center text-xs text-[#135d73] font-medium border-t border-[#ebf1ef]">向下滚动查看更多异常记录 ↓</div>
         </div>
       </aside>
-    </section>
+    </div>
 
     <!-- Portfolio Diagnostics Band: Unified Tier & Exposure (5) + Top Losers (4) + 7D Trading Costs (3) -->
-    <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 sm:gap-5" aria-label="持仓结构与成本诊断">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 sm:gap-5">
       <!-- Unified Tier Ladder & Notional Exposure Ballast -->
       <section class="md:col-span-2 xl:col-span-5 ledger-plane p-4 sm:p-5 flex flex-col">
         <div class="flex items-center justify-between gap-2 mb-3">
@@ -287,14 +295,20 @@
           </div>
 
           <!-- Valued Notional Exposure per Tier (distributed to match height cleanly) -->
-          <div id="tier-exposure-list" class="flex flex-col justify-between gap-3 text-xs sm:border-l sm:border-[#e3ece9] sm:pl-4 py-1">
+          <div id="tier-exposure-list" class="flex flex-col justify-between gap-3 min-h-[168px] text-xs sm:border-l sm:border-[#e3ece9] sm:pl-4 py-1">
             <div class="text-[#526a73] py-4">等待持仓数据</div>
           </div>
         </div>
 
         <div class="mt-3 pt-3 border-t border-[#eaf0ee] flex flex-wrap items-center justify-between gap-2 text-xs">
           <span class="text-[#526a73]">注销价 / T3 出清机制</span>
-          <span class="text-[#3f5760] tabular-nums">价格 ≤ 5 USDT ÷ T3 初始数量全平；仍合格时重开 T1</span>
+          <button type="button" popovertarget="writeoff-rule-popover" class="min-h-6 px-2 py-0.5 rounded border border-[#d4dfdc] bg-[#f7faf9] text-xs font-medium text-[#135d73] hover:bg-[#eaf0ee] transition-colors">
+            查看触发阈值规则
+          </button>
+          <div id="writeoff-rule-popover" popover="auto" class="ledger-popover">
+            <p class="font-semibold text-[#102128] mb-1">注销价（T3 出清）规则</p>
+            <p class="text-[#3f5760] tabular-nums">当巡检价格 ≤ 5 USDT ÷ T3 初始数量时，触发全平并进入待全平确认；全部平掉且标的仍具备资格时重开 T1 周期。</p>
+          </div>
         </div>
       </section>
 
@@ -304,14 +318,14 @@
           <h2 class="text-sm font-semibold text-[#102128]">浮亏焦点 Top 6</h2>
           <span id="losers-count" class="text-xs tabular-nums text-[#526a73]">—</span>
         </div>
-        <div tabindex="0" role="region" aria-label="浮亏持仓列表" class="overflow-x-auto ledger-scroll flex-1">
+        <div id="losers-scroll-wrap" tabindex="0" role="region" aria-label="浮亏持仓列表" class="overflow-x-auto ledger-scroll flex-1 min-h-[180px]">
           <table class="w-full text-xs">
             <thead class="text-xs text-[#526a73] border-b border-[#d4dfdc]">
               <tr>
-                <th scope="col" class="text-left font-semibold py-2 pr-2">标的</th>
-                <th scope="col" class="text-left font-semibold py-2 px-2">层级</th>
-                <th scope="col" class="text-right font-semibold py-2 px-2">估算浮亏</th>
-                <th scope="col" class="text-right font-semibold py-2 pl-2">采样</th>
+                <th scope="col" class="text-left font-semibold py-2 pr-1.5 sm:pr-2 whitespace-nowrap">标的</th>
+                <th scope="col" class="text-left font-semibold py-2 px-1.5 sm:px-2 whitespace-nowrap">层级</th>
+                <th scope="col" class="text-right font-semibold py-2 px-1.5 sm:px-2 whitespace-nowrap">估算浮亏</th>
+                <th scope="col" class="text-right font-semibold py-2 pl-1.5 sm:pl-2 whitespace-nowrap">采样</th>
               </tr>
             </thead>
             <tbody id="losers-list" class="divide-y divide-[#eaf0ee]">
@@ -332,13 +346,13 @@
             <span class="text-xs text-[#526a73]">USDT 规费</span>
             <span id="weekly-commission" class="font-display text-xl font-bold tabular-nums text-[#102128]">—</span>
           </div>
-          <div id="cost-days" class="space-y-2 mt-3">
+          <div id="cost-days" class="space-y-2 mt-3 min-h-[152px]">
             <div class="text-xs text-[#526a73]">等待成交数据</div>
           </div>
         </div>
         <p id="other-fees-note" class="hidden text-xs text-[#985506] border-t border-[#ebcc94] pt-2.5 mt-3"></p>
       </section>
-    </section>
+    </div>
 
     <!-- Full-Width Ledger Workbench: Positions / Fills / Ranking -->
     <section class="ledger-plane overflow-hidden" aria-label="交易明细工作台">
@@ -366,19 +380,20 @@
             <button type="button" data-tier="T3" id="filter-t3" aria-pressed="false" class="seg-btn">T3</button>
           </div>
 
-          <div class="relative flex-1 sm:flex-none min-w-[160px]">
+          <search class="relative flex-1 sm:flex-none min-w-[160px]">
+            <label for="symbol-search" class="sr-only">搜索交易标的</label>
             <svg class="w-3.5 h-3.5 text-[#526a73] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"/>
               <path d="m21 21-4.3-4.3"/>
             </svg>
-            <input type="search" id="symbol-search" placeholder="搜索标的 (如 BTC, SOL)" aria-label="搜索交易标的" autocomplete="off" spellcheck="false" enterkeyhint="search" class="ledger-search pl-8 pr-2.5 py-1.5 w-full sm:w-48">
-          </div>
+            <input type="search" id="symbol-search" placeholder="搜索标的 (如 BTC, SOL)" autocomplete="off" spellcheck="false" enterkeyhint="search" class="ledger-search pl-8 pr-2.5 py-1.5 w-full sm:w-48">
+          </search>
         </div>
       </div>
 
       <!-- Tab Panel 1: Managed Positions Table -->
-      <div id="view-positions" role="tabpanel" aria-labelledby="tab-positions" tabindex="0">
-        <div id="positions-sort-status" role="status" class="sr-only"></div>
+      <div id="view-positions" role="tabpanel" aria-labelledby="tab-positions">
+        <div id="positions-sort-status" role="status" aria-live="polite" class="sr-only"></div>
         <div class="table-shell-wrap">
           <div tabindex="0" role="region" aria-labelledby="positions-caption" class="table-shell ledger-scroll">
             <table id="positions-table" class="positions-table text-xs">
@@ -416,9 +431,10 @@
                   <th scope="col" class="text-right">止盈触发价</th>
                   <th scope="col" class="text-right">补仓线 / 注销价 (T3 出清)</th>
                   <th scope="col" class="text-right">持仓数量</th>
-                  <th scope="col" id="th-entry_notional" data-type="number" class="text-right" title="持仓数量 × 持仓均价">
-                    <button type="button" class="sort-header-btn" commandfor="positions-table" command="--sort" data-sort="entry_notional">
+                  <th scope="col" id="th-entry_notional" data-type="number" class="text-right">
+                    <button type="button" class="sort-header-btn" commandfor="positions-table" command="--sort" data-sort="entry_notional" aria-describedby="entry-notional-desc">
                       <span>持仓成本</span>
+                      <span id="entry-notional-desc" class="sr-only">持仓数量乘以持仓均价</span>
                       <svg class="sort-icon" viewBox="0 0 10 12" fill="currentColor" aria-hidden="true">
                         <path class="chev-up" d="M5 1L9 5H1L5 1Z"/>
                         <path class="chev-down" d="M5 11L1 7H9L5 11Z"/>
@@ -453,7 +469,7 @@
             <section aria-labelledby="buy-fills-heading">
               <div class="flex items-center justify-between gap-3 pb-2.5 border-b border-[#d4dfdc]">
                 <h3 id="buy-fills-heading" class="text-sm font-semibold text-[#135d73]">多头买入 / 补仓明细</h3>
-                <span id="buy-fills-count" role="status" aria-live="polite" class="text-xs tabular-nums text-[#526a73]">0 笔</span>
+                <span id="buy-fills-count" class="text-xs tabular-nums text-[#526a73]">0 笔</span>
               </div>
               <div id="buy-fills-list" class="divide-y divide-[#eaf0ee]">
                 <div class="text-[#526a73] text-xs py-6 text-center">正在拉取买入成交...</div>
@@ -462,7 +478,7 @@
             <section aria-labelledby="sell-fills-heading">
               <div class="flex items-center justify-between gap-3 pb-2.5 border-b border-[#d4dfdc]">
                 <h3 id="sell-fills-heading" class="text-sm font-semibold text-[#bd2b2b]">平仓 / 止盈卖出明细</h3>
-                <span id="sell-fills-count" role="status" aria-live="polite" class="text-xs tabular-nums text-[#526a73]">0 笔</span>
+                <span id="sell-fills-count" class="text-xs tabular-nums text-[#526a73]">0 笔</span>
               </div>
               <div id="sell-fills-list" class="divide-y divide-[#eaf0ee]">
                 <div class="text-[#526a73] text-xs py-6 text-center">正在拉取卖出成交...</div>
@@ -476,7 +492,7 @@
       <div id="view-ranking" role="tabpanel" aria-labelledby="tab-ranking" hidden="until-found">
         <div class="p-4 sm:p-5">
           <p class="text-xs text-[#526a73] mb-3">收益排行 Top 10 · 按标的累计已实现毛盈亏排序（未扣减单币手续费与资金费）</p>
-          <div id="ranking-container" class="grid grid-cols-1 lg:grid-cols-2 gap-3 w-full">
+          <div id="ranking-container" class="grid grid-cols-1 lg:grid-cols-2 gap-x-8 w-full">
             <div class="col-span-full text-[#526a73] text-xs py-8 text-center">正在计算收益排行...</div>
           </div>
         </div>
@@ -484,15 +500,15 @@
 
       <!-- Workbench Footer -->
       <div id="position-footer" class="py-2.5 px-4 sm:px-5 bg-[#f7faf9] border-t border-[#d4dfdc] flex flex-wrap items-center justify-between gap-2 text-xs text-[#526a73]">
-        <div id="position-summary-text" role="status" aria-live="polite" class="tabular-nums">等待同步...</div>
+        <div id="position-summary-text" class="tabular-nums">等待同步...</div>
         <div class="flex items-center gap-3">
-          <span class="lg:hidden text-[#135d73] font-medium">左右滑动查看盈亏与成本列 →</span>
-          <span class="hidden sm:inline">Binance 动态候选永续合约池 (COIN / INDEX / RWA)</span>
+          <span id="table-scroll-hint" class="hidden text-[#135d73] font-medium">左右滑动查看盈亏与成本列 →</span>
+          <span class="hidden sm:inline">动态候选池 (COIN / INDEX / RWA) · 托管合约账本</span>
         </div>
       </div>
     </section>
   </main>
 
-  <script type="module" src="js/app.js?v=20261126-3"></script>
+  <script type="module" src="js/app.js?v=20261126-4"></script>
 </body>
 </html>

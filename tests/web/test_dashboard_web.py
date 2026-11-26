@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import closing
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -332,6 +333,7 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(distribution["total"], 4)
         self.assertEqual(distribution["t3"], 1)
         closing_position = next(position for position in positions if position["symbol"] == "ADAUSDT")
+        self.assertEqual(closing_position["lifecycle"], "CLOSING")
         self.assertIn("待全平", closing_position["tier_label"])
         self.assertIsNone(closing_position["tp_price"])
         self.assertIsNone(closing_position["dca_price"])
@@ -486,6 +488,52 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreaterEqual(overview_resp.json()["trading_uptime_seconds"], 59)
             self.assertEqual(dashboard_resp.status_code, 200)
             self.assertGreaterEqual(dashboard_resp.json()["overview"]["trading_uptime_seconds"], 59)
+
+    async def test_equity_change_pct_uses_abs_start_equity_and_critical_issues_sort_first(self) -> None:
+        self._init_sample_db()
+        with closing(sqlite3.connect(self._db_path)) as connection, connection:
+            connection.execute("DELETE FROM account_equity_snapshots")
+            connection.executemany(
+                "INSERT INTO account_equity_snapshots VALUES (?, ?, ?, ?, ?)",
+                [
+                    (1700000000000, "-100", "0", "0", "0"),
+                    (1700000001000, "-50", "0", "0", "0"),
+                ],
+            )
+            connection.executemany(
+                "INSERT INTO dashboard_issues VALUES (?, ?, ?, ?)",
+                [
+                    ("DOGEUSDT", "PRICE_MISSING", "newer info", 1700000002000),
+                    ("ORDIUSDT", "ORDER_REJECTED", "older critical", 1700000001000),
+                ],
+            )
+        app = create_app(data_dir=self._data_dir)
+        with patch("pnl_trader.clock.time.time_ns", return_value=1700000003000 * 1_000_000):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                snap = (await client.get("/api/dashboard?period=24h&fills_limit=12")).json()
+        self.assertEqual(snap["equity"]["change"], 50.0)
+        self.assertEqual(snap["equity"]["change_pct"], 50.0)
+        self.assertEqual(
+            [issue["symbol"] for issue in snap["analytics"]["execution_issues"]],
+            ["ORDIUSDT", "DOGEUSDT"],
+        )
+
+    async def test_root_supports_etag_conditional_304_and_consistent_asset_versions(self) -> None:
+        self._init_sample_db()
+        app = create_app(data_dir=self._data_dir)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            first = await client.get("/")
+            self.assertEqual(first.status_code, 200)
+            self.assertIn("etag", first.headers)
+            self.assertIn('rel="icon"', first.text)
+            second = await client.get("/", headers={"If-None-Match": first.headers["etag"]})
+            self.assertEqual(second.status_code, 304)
+
+        static_dir = Path(web_app.__file__).parent / "static"
+        versions: set[str] = set()
+        for file_path in [static_dir / "index.html", *(static_dir / "js").glob("*.js")]:
+            versions.update(re.findall(r"\?v=([A-Za-z0-9_-]+)", file_path.read_text(encoding="utf-8")))
+        self.assertEqual(len(versions), 1)
 
 
 if __name__ == "__main__":

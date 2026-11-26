@@ -1,8 +1,11 @@
 // API Fetching and Data Synchronization Service
 
-import { renderRetinaChart } from './chart.js?v=20261126-3';
+import { renderRetinaChart, setChartVisualState } from './chart.js?v=20261126-4';
 import {
   state,
+  PERIOD_LABELS,
+  formatBeijingTime,
+  renderSnapshotStatusFromState,
   renderTradingUptime,
   renderPositions,
   updatePositionStatusKpi,
@@ -16,18 +19,39 @@ import {
   renderExecutionIssues,
   renderFills,
   renderRanking,
-} from './renderers.js?v=20261126-3';
+} from './renderers.js?v=20261126-4';
 
 export { state };
+
+const REQUEST_TIMEOUT_MS = 10_000;
 
 let activeAbortController = null;
 let equityAbortController = null;
 let activeBannerSource = null;
+let lastRenderedBannerKey = null;
+let requestSeq = 0;
+let latestBannerSeq = 0;
+let latestEquityEventSeq = 0;
+let retryHandler = null;
 
-const PERIOD_LABELS = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
+export function setRetryHandler(handler) {
+  retryHandler = typeof handler === 'function' ? handler : null;
+}
 
-state.lastSyncedAtMs = state.lastSyncedAtMs ?? null;
-state.displayedPeriod = state.displayedPeriod ?? state.currentPeriod;
+function triggerRetry() {
+  if (retryHandler) {
+    retryHandler();
+  } else {
+    fetchData();
+  }
+}
+
+function composeRequestSignal(controllerSignal) {
+  if (typeof AbortSignal?.timeout === 'function' && typeof AbortSignal?.any === 'function') {
+    return AbortSignal.any([controllerSignal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+  }
+  return controllerSignal;
+}
 
 export function abortInFlightRequests() {
   if (activeAbortController) {
@@ -35,6 +59,11 @@ export function abortInFlightRequests() {
   }
   if (equityAbortController) {
     equityAbortController.abort();
+    const fallbackPeriod = state.displayedPeriod || '7d';
+    state.currentPeriod = fallbackPeriod;
+    syncPeriodButtons(fallbackPeriod);
+    setChartVisualState('ready');
+    renderSnapshotStatusFromState();
   }
 }
 
@@ -44,42 +73,49 @@ export function syncPeriodButtons(period) {
   });
 }
 
-function formatSyncTime(epochMs) {
-  return new Date(epochMs).toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
-function formatFetchError(err) {
-  if (err instanceof TypeError) return '网络连接异常';
+function formatFetchError(err, { isNetworkPhase = true } = {}) {
+  if (err?.name === 'TimeoutError') return '请求超时（超过 10 秒）';
+  if (isNetworkPhase && err instanceof TypeError) return '网络连接异常';
   return err?.message || '未知错误';
 }
 
 function updateLastSyncLabel() {
   const labelEl = document.getElementById('last-sync-label');
   if (!labelEl) return;
-  labelEl.textContent = state.lastSyncedAtMs !== null
-    ? ` · 最近同步 ${formatSyncTime(state.lastSyncedAtMs)}`
-    : '';
+  if (state.lastSyncedAtMs === null) {
+    labelEl.replaceChildren();
+    return;
+  }
+  const timeNode = document.createElement('time');
+  timeNode.className = 'font-mono tabular-nums';
+  timeNode.dateTime = new Date(state.lastSyncedAtMs).toISOString();
+  timeNode.textContent = formatBeijingTime(state.lastSyncedAtMs);
+  labelEl.replaceChildren(document.createTextNode('同步 '), timeNode);
 }
 
-function showErrorBanner(source, message) {
+function showErrorBanner(source, message, seq) {
   activeBannerSource = source;
+  latestBannerSeq = Math.max(latestBannerSeq, seq);
   const banner = document.getElementById('dashboard-error-banner');
   const msgEl = document.getElementById('error-banner-message');
   const metaEl = document.getElementById('error-banner-meta');
-  msgEl.textContent = message;
-  metaEl.textContent = state.lastSyncedAtMs !== null
-    ? `上次成功同步：${formatSyncTime(state.lastSyncedAtMs)}（当前界面保留上次成功快照）`
+  const metaText = state.lastSyncedAtMs !== null
+    ? `上次成功同步：${formatBeijingTime(state.lastSyncedAtMs)}（当前界面保留上次成功快照）`
     : '尚未成功获取本地账本快照，请检查看板服务是否正常运行。';
-  banner.classList.remove('hidden');
+  const bannerKey = `${source}|${message}|${metaText}`;
+  if (lastRenderedBannerKey !== bannerKey || banner.classList.contains('hidden')) {
+    msgEl.textContent = message;
+    metaEl.textContent = metaText;
+    lastRenderedBannerKey = bannerKey;
+    banner.classList.remove('hidden');
+  }
 }
 
-function hideErrorBanner(source = null) {
+function hideErrorBanner(source = null, seq = Infinity) {
+  if (seq < latestBannerSeq) return;
   if (source !== null && activeBannerSource !== source) return;
   activeBannerSource = null;
+  lastRenderedBannerKey = null;
   document.getElementById('dashboard-error-banner').classList.add('hidden');
 }
 
@@ -90,9 +126,9 @@ function buildRetryMessageNode(className, message) {
   text.textContent = `${message} `;
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'font-semibold text-[#135d73] underline hover:text-[#0e4a5c]';
+  btn.className = 'min-h-6 px-2 py-1 inline-flex items-center rounded font-semibold text-[#135d73] underline hover:text-[#0e4a5c]';
   btn.textContent = '点击重试';
-  btn.addEventListener('click', () => fetchData());
+  btn.addEventListener('click', () => triggerRetry());
   wrap.append(text, btn);
   return wrap;
 }
@@ -137,6 +173,7 @@ function renderInitialFailurePlaceholders(errDetail) {
   snapshotStatus.textContent = `账户净值采样加载失败（${errDetail}）`;
   snapshotStatus.className = 'text-xs mt-0.5 tabular-nums text-[#bd2b2b] font-medium';
   snapshotStatus.setAttribute('aria-busy', 'false');
+  setChartVisualState('error', `账户净值曲线加载失败（${errDetail}）`);
 
   document.getElementById('position-summary-text').textContent = '同步失败，请重试';
 
@@ -164,14 +201,18 @@ function setStatusBadge(variant, label, title) {
   }
 }
 
+export function setOfflineBadge() {
+  setStatusBadge('status-shell-warn', '网络已断开', '浏览器处于离线状态，恢复联网后将自动同步');
+}
+
 function applyEquity(eq) {
-  renderDrawdown(eq);
   state.displayedPeriod = eq.period;
   state.currentPeriod = eq.period;
   syncPeriodButtons(eq.period);
+  state.chartHistoryPoints = Array.isArray(eq.points) ? eq.points : [];
+  renderDrawdown(eq);
   renderEquitySummary(eq);
-  state.chartHistoryPoints = eq.points;
-  renderRetinaChart(state.chartHistoryPoints);
+  renderRetinaChart(state.chartHistoryPoints, eq.period);
 }
 
 export async function fetchEquity(period) {
@@ -180,46 +221,57 @@ export async function fetchEquity(period) {
   }
   const controller = new AbortController();
   equityAbortController = controller;
-  const { signal } = controller;
+  const seq = ++requestSeq;
+  latestEquityEventSeq = seq;
+  const signal = composeRequestSignal(controller.signal);
 
   const snapshotStatus = document.getElementById('equity-snapshot-status');
   const targetLabel = PERIOD_LABELS[period] || period;
-  snapshotStatus.textContent = `正在加载${targetLabel}权益走势...`;
+  snapshotStatus.textContent = `正在切换至「${targetLabel}」权益走势...`;
   snapshotStatus.className = 'text-xs mt-0.5 tabular-nums text-[#135d73] font-medium';
   snapshotStatus.setAttribute('aria-busy', 'true');
+  setChartVisualState('switching');
 
+  let eq;
   try {
-    const response = await fetch(`api/equity?period=${period}`, { signal, cache: 'no-store' });
+    const response = await fetch(`api/equity?period=${encodeURIComponent(period)}`, { signal, cache: 'no-store' });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`);
     }
-    const eq = await response.json();
-    if (signal.aborted || equityAbortController !== controller) {
-      return;
-    }
-    hideErrorBanner('equity');
-    if (state.currentPeriod === period) {
-      applyEquity(eq);
-    }
+    eq = await response.json();
   } catch (err) {
     if (err.name === 'AbortError' || equityAbortController !== controller) {
-      return;
+      return { ok: false, aborted: true };
     }
-    const errDetail = formatFetchError(err);
+    latestEquityEventSeq = Math.max(latestEquityEventSeq, seq);
+    const errDetail = formatFetchError(err, { isNetworkPhase: true });
     const fallbackPeriod = state.displayedPeriod || '7d';
     const fallbackLabel = PERIOD_LABELS[fallbackPeriod] || fallbackPeriod;
     state.currentPeriod = fallbackPeriod;
     syncPeriodButtons(fallbackPeriod);
+    setChartVisualState('ready');
 
     setEquityPeriodErrorStatus(period, fallbackPeriod, errDetail);
-    showErrorBanner('equity', `切换「${targetLabel}」权益数据失败（${errDetail}），已恢复显示「${fallbackLabel}」。`);
+    showErrorBanner('equity', `切换「${targetLabel}」权益数据失败（${errDetail}），已恢复显示「${fallbackLabel}」。`, seq);
     console.warn('Equity poll notice:', err);
+    return { ok: false, aborted: false };
   } finally {
     if (equityAbortController === controller) {
       equityAbortController = null;
       snapshotStatus.setAttribute('aria-busy', 'false');
     }
   }
+
+  if (controller.signal.aborted || seq < latestEquityEventSeq) {
+    return { ok: false, aborted: true };
+  }
+
+  setChartVisualState('ready');
+  hideErrorBanner('equity', seq);
+  if (state.currentPeriod === period) {
+    applyEquity(eq);
+  }
+  return { ok: true, aborted: false };
 }
 
 export async function fetchData() {
@@ -228,11 +280,11 @@ export async function fetchData() {
   }
   if (equityAbortController) {
     equityAbortController.abort();
-    equityAbortController = null;
   }
   const controller = new AbortController();
   activeAbortController = controller;
-  const { signal } = controller;
+  const seq = ++requestSeq;
+  const signal = composeRequestSignal(controller.signal);
   const requestedPeriod = state.currentPeriod;
 
   const refreshBtn = document.getElementById('btn-refresh');
@@ -246,23 +298,68 @@ export async function fetchData() {
     retryBtn.disabled = true;
     retryBtn.textContent = '同步中...';
   }
+  if (state.lastSyncedAtMs === null) {
+    setChartVisualState('loading', '正在同步本地账户权益曲线...');
+  }
 
+  let snapshot;
   try {
     const response = await fetch(
-      `api/dashboard?period=${requestedPeriod}&fills_limit=12`,
+      `api/dashboard?period=${encodeURIComponent(requestedPeriod)}&fills_limit=12`,
       { signal, cache: 'no-store' },
     );
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`);
     }
-    const snapshot = await response.json();
-    if (signal.aborted || activeAbortController !== controller) {
-      return;
+    snapshot = await response.json();
+  } catch (err) {
+    if (err.name === 'AbortError' || activeAbortController !== controller) {
+      return { ok: false, aborted: true };
     }
+    const errDetail = formatFetchError(err, { isNetworkPhase: true });
+    if (requestedPeriod === state.currentPeriod && requestedPeriod !== state.displayedPeriod) {
+      state.currentPeriod = state.displayedPeriod;
+      syncPeriodButtons(state.displayedPeriod);
+      if (state.lastSyncedAtMs !== null) {
+        setEquityPeriodErrorStatus(requestedPeriod, state.displayedPeriod, errDetail);
+      }
+    }
+    setStatusBadge(
+      'status-shell-error',
+      '数据刷新失败',
+      state.lastSyncedAtMs !== null
+        ? `本地看板接口请求失败（${errDetail}）· 上次同步 ${formatBeijingTime(state.lastSyncedAtMs)}`
+        : `本地看板接口请求失败（${errDetail}）`,
+    );
+    if (state.lastSyncedAtMs === null) {
+      renderInitialFailurePlaceholders(errDetail);
+      showErrorBanner('dashboard', `首次同步本地账本数据失败（${errDetail}）。`, seq);
+    } else {
+      showErrorBanner('dashboard', `定时同步本地账本失败（${errDetail}），当前展示可能为过期数据。`, seq);
+    }
+    console.warn('API poll notice:', err);
+    return { ok: false, aborted: false };
+  } finally {
+    if (activeAbortController === controller) {
+      activeAbortController = null;
+      refreshBtn.setAttribute('aria-busy', 'false');
+      refreshIcon.classList.remove('animate-spin');
+      refreshText.textContent = '刷新';
+      if (retryBtn) {
+        retryBtn.disabled = false;
+        retryBtn.textContent = '立即重试';
+      }
+    }
+  }
 
+  if (controller.signal.aborted) {
+    return { ok: false, aborted: true };
+  }
+
+  try {
     state.lastSyncedAtMs = Date.now();
     updateLastSyncLabel();
-    hideErrorBanner();
+    hideErrorBanner(null, seq);
 
     const {
       overview: ov,
@@ -274,14 +371,14 @@ export async function fetchData() {
       analytics: an,
     } = snapshot;
 
-    state.tradingUptimeBaseSeconds = Number.isFinite(ov.trading_uptime_seconds)
+    state.tradingUptimeBaseSeconds = ov.trading_uptime_seconds !== null && Number.isFinite(ov.trading_uptime_seconds)
       ? ov.trading_uptime_seconds
       : null;
     state.tradingUptimeUpdatedAt = performance.now();
     renderTradingUptime();
 
     state.ledgerAvailable = ov.status === 'LOCAL_LEDGER_ONLY';
-    const pendingCloseFills = ov.pending_close_fill_count;
+    const pendingCloseFills = ov.pending_close_fill_count ?? 0;
 
     if (!state.ledgerAvailable) {
       setStatusBadge('status-shell-warn', '等待账本数据', '等待 state.sqlite3 生成');
@@ -297,7 +394,7 @@ export async function fetchData() {
 
     renderAccountKpis(ov, an);
 
-    if (state.currentPeriod === requestedPeriod) {
+    if (state.currentPeriod === requestedPeriod && seq >= latestEquityEventSeq) {
       applyEquity(eq);
     }
 
@@ -316,42 +413,12 @@ export async function fetchData() {
     state.rawBuyFills = buyFills;
     state.rawSellFills = sellFills;
     renderFills(state.rawBuyFills, state.rawSellFills);
-  } catch (err) {
-    if (err.name === 'AbortError' || activeAbortController !== controller) {
-      return;
-    }
-    const errDetail = formatFetchError(err);
-    if (requestedPeriod === state.currentPeriod && requestedPeriod !== state.displayedPeriod) {
-      state.currentPeriod = state.displayedPeriod;
-      syncPeriodButtons(state.displayedPeriod);
-      if (state.lastSyncedAtMs !== null) {
-        setEquityPeriodErrorStatus(requestedPeriod, state.displayedPeriod, errDetail);
-      }
-    }
-    setStatusBadge(
-      'status-shell-error',
-      '数据刷新失败',
-      state.lastSyncedAtMs !== null
-        ? `本地看板接口请求失败（${errDetail}）· 上次同步 ${formatSyncTime(state.lastSyncedAtMs)}`
-        : `本地看板接口请求失败（${errDetail}）`,
-    );
-    if (state.lastSyncedAtMs === null) {
-      renderInitialFailurePlaceholders(errDetail);
-      showErrorBanner('dashboard', `首次同步本地账本数据失败（${errDetail}）。`);
-    } else {
-      showErrorBanner('dashboard', `定时同步本地账本失败（${errDetail}），当前展示可能为过期数据。`);
-    }
-    console.warn('API poll notice:', err);
-  } finally {
-    if (activeAbortController === controller) {
-      activeAbortController = null;
-      refreshBtn.setAttribute('aria-busy', 'false');
-      refreshIcon.classList.remove('animate-spin');
-      refreshText.textContent = '刷新';
-      if (retryBtn) {
-        retryBtn.disabled = false;
-        retryBtn.textContent = '立即重试';
-      }
-    }
+    return { ok: true, aborted: false };
+  } catch (renderErr) {
+    const errDetail = formatFetchError(renderErr, { isNetworkPhase: false });
+    setStatusBadge('status-shell-error', '界面渲染异常', `看板渲染出错：${errDetail}`);
+    showErrorBanner('render', `看板数据渲染异常（${errDetail}）。`, ++requestSeq);
+    console.error('Dashboard render error:', renderErr);
+    return { ok: false, aborted: false };
   }
 }

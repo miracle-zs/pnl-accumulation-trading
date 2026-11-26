@@ -7,6 +7,7 @@
   font-style: normal;
   font-weight: 500;
   font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+FEFF, U+FFFD;
   src: url("fonts/barlow-latin-500.woff2") format("woff2");
 }
 
@@ -15,6 +16,7 @@
   font-style: normal;
   font-weight: 600;
   font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+FEFF, U+FFFD;
   src: url("fonts/barlow-latin-600.woff2") format("woff2");
 }
 
@@ -23,6 +25,7 @@
   font-style: normal;
   font-weight: 700;
   font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+FEFF, U+FFFD;
   src: url("fonts/barlow-latin-700.woff2") format("woff2");
 }
 
@@ -106,9 +109,16 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  @media (min-width: 768px) {
+    html {
+      scroll-padding-top: 4.5rem;
+    }
+  }
+
   body {
     background-color: var(--bg);
     color: var(--ink);
+    font-weight: 500;
     line-height: 1.5;
   }
 
@@ -121,6 +131,33 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 50;
+  padding: 0.5rem 0.875rem;
+  border-radius: 4px;
+  background-color: var(--shell-bg);
+  color: var(--shell-text);
+  border: 2px solid var(--shell-beacon);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:not(:focus-visible) {
+  position: absolute;
+  clip-path: inset(50%);
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  white-space: nowrap;
 }
 
 .tabular-nums {
@@ -188,6 +225,24 @@
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+
+/* Native Popover Info Card */
+.ledger-popover {
+  margin: auto;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.75rem 0.875rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background-color: var(--surface);
+  color: var(--ink);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  box-shadow: 0 8px 24px rgba(16, 33, 40, 0.14);
+}
+
+.ledger-popover::backdrop {
+  background: rgba(16, 33, 40, 0.14);
 }
 
 /* Status Pills (paired with geometric dot for WCAG 1.4.1 non-color clarity) */
@@ -281,6 +336,12 @@
   border-color: var(--tier-t31-border);
 }
 
+.badge-closing {
+  background-color: var(--warn-bg);
+  color: var(--warn);
+  border: 1px dashed var(--warn);
+}
+
 /* Segmented Controls (Period Toggle & Tier Filter) */
 .seg-group {
   display: inline-flex;
@@ -362,15 +423,22 @@
   border-block-end: 2.5px solid var(--accent);
 }
 
-/* Search Input (accessible >= 3:1 border contrast) */
+/* Search Input (accessible >= 3:1 border contrast; 16px on mobile to avoid iOS focus auto-zoom) */
 .ledger-search {
   background-color: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 4px;
   color: var(--ink);
-  font-size: 0.75rem;
-  line-height: 1.25rem;
+  font-size: 1rem;
+  line-height: 1.375rem;
   transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+@media (min-width: 640px) {
+  .ledger-search {
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+  }
 }
 
 .ledger-search::placeholder {
@@ -383,19 +451,33 @@
   outline: 2px solid transparent;
 }
 
-/* Responsive & Sortable Data Table with Right-Edge Scroll Affordance */
+/* Responsive & Sortable Data Table with Right-Edge & Sticky-Column Scroll Affordances */
 .table-shell-wrap {
   position: relative;
+}
+
+.table-shell-wrap.has-overflow-right::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  pointer-events: none;
+  z-index: 4;
+  background: linear-gradient(to left, rgba(16, 33, 40, 0.1), transparent);
 }
 
 .table-shell {
   overflow: auto;
   max-inline-size: 100%;
   max-block-size: min(520px, 68vh);
-  background:
-    linear-gradient(to left, #ffffff 35%, transparent) right / 24px 100% no-repeat local,
-    radial-gradient(farthest-side at 100% 50%, rgba(16, 33, 40, 0.14), transparent) right / 10px 100% no-repeat scroll,
-    #ffffff;
+  background-color: #ffffff;
+}
+
+.table-shell.is-scrolled-x thead th:first-child,
+.table-shell.is-scrolled-x tbody th[scope="row"] {
+  box-shadow: 4px 0 8px -4px rgba(16, 33, 40, 0.16);
 }
 
 [role="tabpanel"]:focus-visible,
@@ -547,14 +629,19 @@ th[aria-sort="descending"] .sort-icon .chev-down {
   }
   .status-pill,
   .tier-badge,
-  .ledger-plane {
+  .ledger-plane,
+  .ledger-popover {
     border-color: CanvasText;
   }
-  .slot-rail {
+  .slot-rail,
+  .viz-bar-track,
+  #tier-ratio-bar {
     border: 1px solid CanvasText;
   }
-  .slot-rail-fill {
-    background-color: Highlight;
+  .slot-rail-fill,
+  .viz-bar-fill,
+  #tier-ratio-bar > div {
+    background-color: Highlight !important;
   }
 }
 

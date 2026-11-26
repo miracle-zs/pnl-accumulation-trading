@@ -242,7 +242,7 @@ class DashboardQueryService:
             raw_change = end_equity - start_equity
             change = round(raw_change, 2)
             if start_equity != 0:
-                change_pct = round(raw_change / start_equity * 100, 2)
+                change_pct = round(raw_change / abs(start_equity) * 100, 2)
 
         peak_equity = None
         max_drawdown = 0.0
@@ -339,7 +339,22 @@ class DashboardQueryService:
         ).fetchone()[0]
         issues = conn.execute(
             """SELECT symbol, category, detail, occurred_at_ms
-               FROM dashboard_issues ORDER BY occurred_at_ms DESC, symbol LIMIT 50"""
+               FROM dashboard_issues
+               ORDER BY CASE
+                   WHEN category IN (
+                       'REVIEW_RUN_ERROR',
+                       'REVIEW_ERROR',
+                       'ORDER_REJECTED',
+                       'ORDER_UNKNOWN',
+                       'ORDER_PARTIALLY_FILLED',
+                       'INTENT_CONFLICT',
+                       'LEVERAGE_UNAVAILABLE'
+                   ) THEN 0
+                   ELSE 1
+               END,
+               occurred_at_ms DESC,
+               symbol
+               LIMIT 50"""
         ).fetchall()
 
         cost_by_day = {row["day"]: row for row in cost_days}
@@ -473,6 +488,7 @@ class DashboardQueryService:
             positions.append({
                 "symbol": r["symbol"],
                 "tier": t,
+                "lifecycle": r["lifecycle"],
                 "tier_label": tier_label,
                 "completed_batches": batches,
                 "qty": q,

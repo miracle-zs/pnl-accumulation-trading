@@ -8,9 +8,9 @@ import threading
 import time
 from typing import Literal
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -175,13 +175,30 @@ def create_app(data_dir: Path | str) -> FastAPI:
     ) -> list[dict[str, object]]:
         return service.get_recent_fills(limit=limit, side=side)
 
-    @app.get("/", response_class=HTMLResponse)
-    def get_dashboard() -> HTMLResponse:
+    @app.get("/")
+    def get_dashboard(request: Request) -> Response:
         html_path = Path(__file__).parent / "static" / "index.html"
-        return HTMLResponse(
-            html_path.read_text(encoding="utf-8"),
+        response = FileResponse(
+            html_path,
+            media_type="text/html",
             headers={"Cache-Control": "no-cache"},
+            stat_result=html_path.stat(),
         )
+        etag = response.headers["etag"]
+        if_none_match = request.headers.get("if-none-match")
+        if if_none_match and (
+            if_none_match.strip() == "*"
+            or etag in [tag.strip().removeprefix("W/") for tag in if_none_match.split(",")]
+        ):
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Last-Modified": response.headers["last-modified"],
+                    "Cache-Control": "no-cache",
+                },
+            )
+        return response
 
     @app.get("/tailwind.css")
     def get_dashboard_stylesheet() -> FileResponse:
