@@ -16,7 +16,7 @@ colors:
   surface-subtle: "#eaf0ee"
   surface-hover: "#f2f7f5"
   border: "#d4dfdc"
-  border-strong: "#8fa5a0"
+  border-strong: "#768d88"
   ink: "#102128"
   ink-secondary: "#3f5760"
   ink-muted: "#526a73"
@@ -26,33 +26,38 @@ colors:
   loss-bg: "#fcecec"
   warn: "#985506"
   warn-bg: "#fdf4e3"
-  tier-t1: "#1a7692"
-  tier-t2: "#c97b18"
-  tier-t3: "#cc3b3b"
-  tier-t31: "#7250ad"
+  tier-t1: "#135d73"
+  tier-t1-bar: "#1a7692"
+  tier-t2: "#985506"
+  tier-t2-bar: "#b86c0e"
+  tier-t21: "#0a7052"
+  tier-t3: "#bd2b2b"
+  tier-t3-bar: "#cc3b3b"
+  tier-t31: "#5c3d91"
+  tier-t31-bar: "#7250ad"
 typography:
   display:
-    fontFamily: '"Barlow", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", -apple-system, sans-serif'
+    fontFamily: '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", sans-serif'
     fontSize: "1.875rem"
     fontWeight: 700
     lineHeight: 1
     letterSpacing: "-0.025em"
     fontFeature: '"tnum"'
   headline:
-    fontFamily: '"Barlow", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", -apple-system, sans-serif'
+    fontFamily: '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", sans-serif'
     fontSize: "1.125rem"
     fontWeight: 700
     lineHeight: 1.25
     letterSpacing: "-0.02em"
   title:
-    fontFamily: '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
+    fontFamily: '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", sans-serif'
     fontSize: "0.875rem"
     fontWeight: 600
     lineHeight: 1.35
   body:
-    fontFamily: '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif'
+    fontFamily: '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", sans-serif'
     fontSize: "0.75rem"
-    fontWeight: 400
+    fontWeight: 500
     lineHeight: 1.5
   mono:
     fontFamily: '"SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
@@ -76,7 +81,7 @@ components:
     backgroundColor: "{colors.shell-surface}"
     textColor: "{colors.shell-text}"
     rounded: "{rounded.md}"
-    padding: "8px 12px"
+    padding: "6px 10px (mobile) / 8px 12px (sm+)"
   segmented-button-active:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.accent}"
@@ -120,10 +125,13 @@ A Restrained-plus-Committed operational palette: deep slate-teal owns the persis
 - **Beacon Mint** (`shell-beacon`): Live 15-minute slot countdown readout, slot progress rail fill, and header focus rings on the dark shell.
 
 ### Secondary
-- **Sea Emerald** (`gain` / `gain-bg`): Positive realized PnL, floating profit, take-profit trigger prices, T2.1 half-position recovery, and healthy execution status.
-- **Crimson Coral** (`loss` / `loss-bg`): Negative PnL, maximum drawdown, T3 deep-DCA stress, and critical actionable execution issues.
-- **Buoy Amber** (`warn` / `warn-bg`): Current drawdown, T2 DCA stage, DCA trigger thresholds, and stale-snapshot / pending-reconciliation notices.
-- **Plum Slate** (`tier-t31`): T3.1 / T3.2 staged profit-recovery positions and T3 write-off prices.
+- **Sea Emerald** (`gain` / `gain-bg` / `tier-t21`): Positive realized PnL, floating profit, take-profit trigger prices, T2.1 half-position recovery (`tier-t21`: `#0a7052` AA text on `#e6f5ef`), and healthy execution status.
+- **Crimson Coral** (`loss` / `loss-bg` / `tier-t3` / `tier-t3-bar`): Negative PnL, maximum drawdown, T3 deep-DCA stress (`tier-t3`: `#bd2b2b` AA text; `tier-t3-bar`: `#cc3b3b` bar/dot), and critical actionable execution issues.
+- **Buoy Amber** (`warn` / `warn-bg` / `tier-t2` / `tier-t2-bar`): Current drawdown, T2 DCA stage (`tier-t2`: `#985506` AA text; `tier-t2-bar`: `#b86c0e` bar/dot with ≥ 3:1 contrast on `#eaf0ee`), DCA trigger thresholds, and stale-snapshot / pending-reconciliation notices.
+- **Plum Slate** (`tier-t31` / `tier-t31-bar`): T3.1 / T3.2 staged profit-recovery positions and T3 write-off prices (`tier-t31`: `#5c3d91` AA text; `tier-t31-bar`: `#7250ad` bar/dot).
+- **Harbor Teal Tier Accent** (`tier-t1` / `tier-t1-bar`): T1 base positions (`tier-t1`: `#135d73` AA text; `tier-t1-bar`: `#1a7692` bar/dot).
+
+*(Tier hue separation: `tier-*-bar` hues are calibrated for ≥ 3:1 non-text graphical contrast on `#eaf0ee` / `#ffffff`, while `tier-t1`, `tier-t2`, `tier-t21`, `tier-t3`, and `tier-t31` hues are darkened for ≥ 4.5:1 WCAG AA text contrast on their tinted badge surfaces.)*
 
 ### Neutral
 - **Chart Ivory** (`canvas-bg`): Cool sea-tinted page canvas separating flat data planes without drop shadows.
@@ -148,7 +156,7 @@ A Restrained-plus-Committed operational palette: deep slate-teal owns the persis
 - **Display** (`700`, `22px` mobile / `28px–30px` desktop, `line-height: 1`, `tabular-nums`): Primary KPI numerals (`账户总权益`, `累计已实现净盈亏`, `持仓浮动盈亏`, `持仓名义总额`).
 - **Headline** (`700`, `16px–18px`, `line-height: 1.25`): Brand title (`PNL Periodic Review Trader`) in the command shell.
 - **Title** (`600`, `14px`, `line-height: 1.35`): Section headings (`账户权益走势`, `权益回撤`, `执行异常`, `标的层级与名义敞口`, `浮亏焦点 Top 6`, `近 7 日交易成本`).
-- **Body** (`400–600`, `12px–14px`, `line-height: 1.5`): Operational tables, controls, tabs, issue descriptions, and diagnostic rows. Never drop body copy below `12px`.
+- **Body** (`500–600`, `12px–14px`, `line-height: 1.5`): Operational tables, controls, tabs, issue descriptions, and diagnostic rows. Never drop body copy below `12px`.
 - **Mono** (`500`, `12px`, `tabular-nums`): Exact prices, order quantities, countdowns, and timestamps.
 
 ### Named Rules
@@ -177,7 +185,7 @@ Tight architectural corners (`4px` on planes, inputs, and buttons; `3px` on tier
 
 ### Buttons
 - **Shape:** Tight architectural corners (`4px`).
-- **Shell Action (`#btn-refresh`):** Deep slate-teal elevated surface (`shell-surface`) with `1px` border (`shell-border`), `8px 12px` padding, subtle lighten on hover, `1px` press depression, and mint focus ring.
+- **Shell Action (`#btn-refresh`):** Deep slate-teal elevated surface (`shell-surface`) with `1px` border (`shell-border`), `6px 10px` (`px-2.5 py-1.5`) mobile / `8px 12px` (`sm:px-3 sm:py-2`) `sm+` padding, subtle lighten on hover, `1px` press depression, and mint focus ring.
 - **Segmented Controls (Period Toggle & Tier Filter):** Recessed `surface-subtle` track (`2px` padding) with active button promoted to crisp white `surface` + `accent` ink (`aria-pressed="true"`).
 
 ### Status & Tier Chips

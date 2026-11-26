@@ -3,6 +3,7 @@
 from decimal import Decimal
 from dataclasses import replace
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -261,6 +262,30 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(DashboardQueryService(database_path).get_overview()["pending_close_fill_count"], 0)
             finally:
                 store.close()
+
+    async def test_migrated_pending_close_recovers_its_fills(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "state.sqlite3"
+            exchange = _FilledExchange()
+            exchange.close_fills_available = False
+            with SQLiteStateStore(database_path) as store:
+                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                seed_buy_execution(store, idle, action=Action.OPEN_T1, quantity=D("1"),
+                                   price=D("10"), intent_id="legacy-open", timestamp_ms=200)
+                reviews = _reviews_with_matching_snapshot(store, exchange)
+                with self.assertLogs("pnl_trader.application.execution", level="WARNING"):
+                    await reviews.run_slot(slot_start_ms=SLOT_START_MS)
+                self.assertEqual(len(store.list_full_closes_missing_fills()), 1)
+            with sqlite3.connect(database_path) as connection:
+                connection.execute("DROP INDEX trade_fills_by_side_time")
+                connection.execute("ALTER TABLE order_intents DROP COLUMN exchange_order_id")
+                connection.execute("ALTER TABLE order_intents DROP COLUMN full_close_cumulative_quote")
+                connection.execute("PRAGMA user_version = 25")
+            exchange.close_fills_available = True
+            with SQLiteStateStore(database_path) as store:
+                await ExecutionCoordinator(store=store, exchange=exchange).recover_full_close_fills()
+                self.assertEqual(store.list_full_closes_missing_fills(), ())
+                self.assertEqual(exchange.lookup_calls, 1)
 
     async def test_unconfirmed_close_does_not_reopen(self) -> None:
         for exchange_type, expected_status in (

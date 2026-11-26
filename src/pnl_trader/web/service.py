@@ -158,7 +158,7 @@ class DashboardQueryService:
                     THEN CAST(commission AS REAL) ELSE 0.0 END), 0.0) AS commission_usdt,
                 COALESCE(SUM(CASE WHEN commission_asset != 'USDT'
                     AND CAST(commission AS REAL) != 0.0 THEN 1 ELSE 0 END), 0) AS other_fee_count,
-                COUNT(*) AS fill_count,
+                COUNT(DISTINCT intent_id) AS fill_count,
                 MAX(traded_at_ms) AS last_fill_at_ms
             FROM trade_fills
         """).fetchone()
@@ -300,7 +300,7 @@ class DashboardQueryService:
                           THEN CAST(commission AS REAL) ELSE 0 END), 0) AS commission,
                       COALESCE(SUM(CASE WHEN commission_asset != 'USDT'
                           AND CAST(commission AS REAL) != 0 THEN 1 ELSE 0 END), 0) AS other_fee_count,
-                      COUNT(*) AS fill_count
+                      COUNT(DISTINCT intent_id) AS fill_count
                FROM trade_fills WHERE traded_at_ms >= ? AND traded_at_ms < ?""",
             (start_ms, start_ms + day_ms),
         ).fetchone()
@@ -328,11 +328,15 @@ class DashboardQueryService:
                           THEN CAST(commission AS REAL) ELSE 0 END), 0) AS commission_usdt,
                       COALESCE(SUM(CASE WHEN commission_asset != 'USDT'
                           AND CAST(commission AS REAL) != 0 THEN 1 ELSE 0 END), 0) AS other_fee_count,
-                      COUNT(*) AS fill_count
+                      COUNT(DISTINCT intent_id) AS fill_count
                FROM trade_fills WHERE traded_at_ms >= ? AND traded_at_ms < ?
                GROUP BY day ORDER BY day""",
             (week_start_ms, now_ms + 1),
         ).fetchall()
+        weekly_orders = conn.execute(
+            "SELECT COUNT(DISTINCT intent_id) FROM trade_fills WHERE traded_at_ms >= ? AND traded_at_ms < ?",
+            (week_start_ms, now_ms + 1),
+        ).fetchone()[0]
         issues = conn.execute(
             """SELECT symbol, category, detail, occurred_at_ms
                FROM dashboard_issues ORDER BY occurred_at_ms DESC, symbol LIMIT 50"""
@@ -369,7 +373,7 @@ class DashboardQueryService:
             ],
             "costs": {
                 "commission_usdt": round(sum(row["commission_usdt"] for row in week_days), 2),
-                "fill_count": sum(row["fill_count"] for row in week_days),
+                "fill_count": weekly_orders,
                 "other_fee_count": sum(row["other_fee_count"] for row in week_days),
                 "pending_close_fill_count": pending_by_period["week_count"],
                 "days": week_days,
@@ -501,11 +505,19 @@ class DashboardQueryService:
         where = "WHERE side = ?" if side is not None else ""
         params = (side, limit) if side is not None else (limit,)
         rows = conn.execute(
-            f"""SELECT symbol, side, price,
-                       qty, realized_pnl, commission, commission_asset, traded_at_ms
+            f"""SELECT symbol, side,
+                       SUM(CAST(price AS REAL) * CAST(qty AS REAL)) / SUM(CAST(qty AS REAL)) AS price,
+                       SUM(CAST(qty AS REAL)) AS qty,
+                       SUM(CAST(realized_pnl AS REAL)) AS realized_pnl,
+                       CASE WHEN COUNT(DISTINCT commission_asset) = 1
+                            THEN SUM(CAST(commission AS REAL)) END AS commission,
+                       CASE WHEN COUNT(DISTINCT commission_asset) = 1
+                            THEN MIN(commission_asset) END AS commission_asset,
+                       MAX(traded_at_ms) AS traded_at_ms
                 FROM trade_fills
                 {where}
-                ORDER BY traded_at_ms DESC
+                GROUP BY intent_id, symbol, side
+                ORDER BY MAX(traded_at_ms) DESC, intent_id DESC
                 LIMIT ?""",
             params,
         ).fetchall()
@@ -516,7 +528,7 @@ class DashboardQueryService:
                 "price": float(r["price"]),
                 "qty": float(r["qty"]),
                 "realized_pnl": float(r["realized_pnl"]),
-                "commission": float(r["commission"]),
+                "commission": float(r["commission"]) if r["commission"] is not None else None,
                 "commission_asset": r["commission_asset"],
                 "traded_at_ms": r["traded_at_ms"],
             }

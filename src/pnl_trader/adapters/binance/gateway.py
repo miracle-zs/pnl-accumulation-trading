@@ -317,7 +317,10 @@ class BinanceFuturesGateway:
                 params=params,
                 signed=True,
             )
-            order = _parse_order_snapshot(payload)
+            order = (
+                None if isinstance(payload, dict) and "cumQuote" not in payload
+                else _parse_order_snapshot(payload)
+            )
         except ExchangeAccessError:
             raise
         except BinanceApiError as exc:
@@ -337,6 +340,20 @@ class BinanceFuturesGateway:
                 SubmissionCertainty.UNKNOWN,
                 detail=f"submit response could not be confirmed ({exc}); lookup required",
             )
+
+        if order is None:
+            try:
+                order = await self.lookup_order(request.symbol, request.client_order_id)
+            except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
+                return SubmissionResult(
+                    SubmissionCertainty.UNKNOWN,
+                    detail=f"submit response requires order lookup ({type(exc).__name__})",
+                )
+            if order is None:
+                return SubmissionResult(
+                    SubmissionCertainty.UNKNOWN,
+                    detail="submit response requires order lookup; order not found",
+                )
 
         if order.status is ExchangeOrderStatus.REJECTED:
             return SubmissionResult(

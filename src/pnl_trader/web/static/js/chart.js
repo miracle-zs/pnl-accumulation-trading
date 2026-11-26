@@ -1,12 +1,52 @@
 // High-Resolution Retina HTML5 Canvas Financial Equity Chart with Interactive Crosshair
 
+import { formatUsd, formatSignedUsd } from './renderers.js?v=20261126-3';
+
 let activeHoverIndex = null;
+let lastTooltipIndex = null;
 let lastRenderedPoints = [];
+let lastRenderedPeriod = null;
+let currentGeometry = null;
+let boundCanvas = null;
+let hoverRafId = null;
+let pendingClientPos = null;
+let pendingKeyIndex = null;
+
+const CHART_FONT_FAMILY =
+  '"Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+const PERIOD_LABELS = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
+const SINGLE_POINT_NOTE = '当前仅 1 个权益采样点（需至少 2 个采样点以绘制走势曲线）';
+
+function stepPrecision(step) {
+  if (!Number.isFinite(step) || step <= 0) return 2;
+  const mag = Math.floor(Math.log10(step));
+  let decimals = Math.max(0, -mag);
+  // 2.5x steps (e.g. 2.5, 0.25) require one extra decimal digit beyond -floor(log10(step))
+  const scaled = step * Math.pow(10, decimals);
+  if (Math.abs(scaled - Math.round(scaled)) > 1e-6) {
+    decimals += 1;
+  }
+  return Math.min(20, decimals);
+}
+
+function formatChartUsd(val, decimals, { signed = false, epsilon = 1e-12 } = {}) {
+  const cleanVal = Math.abs(val) < epsilon ? 0 : val;
+  if (decimals === 2) {
+    if (signed) return formatSignedUsd(cleanVal);
+    if (cleanVal >= 0) return formatUsd(cleanVal);
+  }
+  const sign = cleanVal < 0 ? '-' : (signed && cleanVal > 0 ? '+' : '');
+  const formatted = Math.abs(cleanVal).toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  return `${sign}$${formatted}`;
+}
 
 function computeNiceScale(rawMin, rawMax, targetTicks = 4) {
   let min = rawMin;
   let max = rawMax;
-  if (min === max) {
+  if (min === max || !Number.isFinite(max - min) || max - min <= 0) {
     const pad = Math.max(Math.abs(min) * 0.04, 10);
     min -= pad;
     max += pad;
@@ -27,18 +67,22 @@ function computeNiceScale(rawMin, rawMax, targetTicks = 4) {
   const niceMin = Math.floor((min - range * 0.06) / step) * step;
   const niceMax = Math.ceil((max + range * 0.06) / step) * step;
 
+  const rawCount = Math.round((niceMax - niceMin) / step);
+  const tickCount = Number.isFinite(rawCount) && rawCount > 0 ? Math.min(rawCount, 20) : 1;
+  const effectiveMax = niceMin + tickCount * step;
+
   const ticks = [];
-  for (let v = niceMin; v <= niceMax + step * 0.001; v += step) {
-    ticks.push(Number(v.toFixed(6)));
+  for (let i = 0; i <= tickCount; i++) {
+    const value = niceMin + i * step;
+    ticks.push(Math.abs(value) < step * 1e-9 ? 0 : value);
   }
-  return { minVal: niceMin, maxVal: niceMax, ticks };
+  return { minVal: niceMin, maxVal: effectiveMax, step, ticks };
 }
 
-function formatAxisLabel(val) {
-  if (Math.abs(val) >= 100) {
-    return `$${Math.round(val).toLocaleString('en-US')}`;
-  }
-  return `$${val.toFixed(1)}`;
+function formatAxisLabel(val, step) {
+  const decimals = stepPrecision(step);
+  const epsilon = step > 0 ? step * 1e-9 : 1e-12;
+  return formatChartUsd(val, decimals, { epsilon });
 }
 
 function formatTickTime(ms, spanMs) {
@@ -46,7 +90,11 @@ function formatTickTime(ms, spanMs) {
   if (spanMs <= 36 * 3_600_000) {
     return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   }
-  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`;
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hour = String(d.getHours()).padStart(2, '0');
+  const minute = String(d.getMinutes()).padStart(2, '0');
+  return `${month}/${day} ${hour}:${minute}`;
 }
 
 function drawChartFrame(canvas, container, points, hoverIndex) {
@@ -69,18 +117,26 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
   const h = rect.height;
   ctx.clearRect(0, 0, w, h);
 
-  if (points.length < 2) {
+  if (points.length === 0) {
     ctx.fillStyle = '#526a73';
-    ctx.font = '500 13px "Barlow", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+    ctx.font = `500 13px ${CHART_FONT_FAMILY}`;
     ctx.textAlign = 'center';
-    ctx.fillText('暂无足够权益采样数据', w / 2, h / 2);
-    document.getElementById('chart-start-time').textContent = '—';
-    document.getElementById('chart-latest-time').textContent = '—';
-    document.getElementById('chart-tooltip').classList.add('hidden');
+    ctx.fillText('暂无权益采样数据', w / 2, h / 2);
     return null;
   }
 
-  const paddingLeft = 68;
+  const isSinglePoint = points.length === 1;
+  const values = points.map(p => p.equity);
+  const { minVal, maxVal, step, ticks } = computeNiceScale(Math.min(...values), Math.max(...values), 4);
+
+  const axisFont = `500 12px ${CHART_FONT_FAMILY}`;
+  ctx.font = axisFont;
+  const axisLabels = ticks.map(val => formatAxisLabel(val, step));
+  const maxLabelWidth = axisLabels.reduce(
+    (maxW, label) => Math.max(maxW, ctx.measureText(label).width),
+    0,
+  );
+  const paddingLeft = Math.max(68, Math.ceil(maxLabelWidth) + 18);
   const paddingRight = 18;
   const paddingTop = 18;
   const paddingBottom = 30;
@@ -88,15 +144,22 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
   const plotH = h - paddingTop - paddingBottom;
   if (plotW <= 0 || plotH <= 0) return null;
 
-  const values = points.map(p => p.equity);
-  const { minVal, maxVal, ticks } = computeNiceScale(Math.min(...values), Math.max(...values), 4);
-
   const firstTimestamp = points[0].captured_at_ms;
   const lastTimestamp = points[points.length - 1].captured_at_ms;
-  const timeRange = Math.max(1, lastTimestamp - firstTimestamp);
-  const getX = (idx) =>
-    paddingLeft + ((points[idx].captured_at_ms - firstTimestamp) / timeRange) * plotW;
-  const getY = (val) => paddingTop + plotH - ((val - minVal) / (maxVal - minVal)) * plotH;
+  const rawTimeRange = lastTimestamp - firstTimestamp;
+  const hasTimeSpan = Number.isFinite(rawTimeRange) && rawTimeRange > 0;
+  const valSpan = maxVal - minVal;
+  const getX = (idx) => {
+    if (isSinglePoint) return paddingLeft + plotW / 2;
+    return hasTimeSpan
+      ? paddingLeft + ((points[idx].captured_at_ms - firstTimestamp) / rawTimeRange) * plotW
+      : paddingLeft + (idx / (points.length - 1)) * plotW;
+  };
+  const getY = (val) => (
+    valSpan > 0
+      ? paddingTop + plotH - ((val - minVal) / valSpan) * plotH
+      : paddingTop + plotH / 2
+  );
 
   const startEquity = points[0].equity;
   const endEquity = points[points.length - 1].equity;
@@ -105,44 +168,63 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
   const fillTop = isPositive ? 'rgba(10, 112, 82, 0.14)' : 'rgba(189, 43, 43, 0.13)';
   const fillBottom = isPositive ? 'rgba(10, 112, 82, 0.0)' : 'rgba(189, 43, 43, 0.0)';
 
-  document.getElementById('tooltip-indicator').style.backgroundColor = isPositive ? '#34d399' : '#f87171';
-
   // Horizontal depth gridlines & clean round Y-axis labels
   ctx.lineWidth = 1;
   ctx.strokeStyle = '#e5eeeb';
   ctx.fillStyle = '#526a73';
-  ctx.font = '500 11px "Barlow", ui-monospace, sans-serif';
+  ctx.font = axisFont;
   ctx.textAlign = 'right';
 
-  for (const val of ticks) {
-    const y = Math.round(getY(val)) + 0.5;
+  for (let i = 0; i < ticks.length; i++) {
+    const y = Math.round(getY(ticks[i])) + 0.5;
     ctx.beginPath();
     ctx.moveTo(paddingLeft, y);
     ctx.lineTo(w - paddingRight, y);
     ctx.stroke();
-    ctx.fillText(formatAxisLabel(val), paddingLeft - 10, y + 3.5);
+    ctx.fillText(axisLabels[i], paddingLeft - 10, y + 4);
   }
 
-  // Vertical time guide lines with intermediate X-axis labels
-  ctx.save();
-  ctx.setLineDash([2, 4]);
-  ctx.strokeStyle = '#e5eeeb';
-  ctx.fillStyle = '#526a73';
-  ctx.font = '500 11px "Barlow", ui-monospace, sans-serif';
-  ctx.textAlign = 'center';
-  const xTickCount = w < 480 ? 2 : 3;
-  for (let i = 1; i <= xTickCount; i++) {
-    const ratio = i / (xTickCount + 1);
-    const tickX = Math.round(paddingLeft + plotW * ratio) + 0.5;
+  // Vertical time guide lines with intermediate X-axis labels (or single-sample time anchor)
+  if (isSinglePoint) {
+    ctx.save();
+    ctx.setLineDash([2, 4]);
+    ctx.strokeStyle = '#e5eeeb';
+    ctx.fillStyle = '#526a73';
+    ctx.font = axisFont;
+    ctx.textAlign = 'center';
+    const singleX = Math.round(getX(0)) + 0.5;
     ctx.beginPath();
-    ctx.moveTo(tickX, paddingTop);
-    ctx.lineTo(tickX, paddingTop + plotH);
+    ctx.moveTo(singleX, paddingTop);
+    ctx.lineTo(singleX, paddingTop + plotH);
     ctx.stroke();
+    ctx.fillText(formatTickTime(firstTimestamp, 0), singleX, paddingTop + plotH + 18);
+    ctx.restore();
+  } else if (hasTimeSpan) {
+    ctx.save();
+    ctx.setLineDash([2, 4]);
+    ctx.strokeStyle = '#e5eeeb';
+    ctx.fillStyle = '#526a73';
+    ctx.font = axisFont;
+    ctx.textAlign = 'center';
+    const xTickCount = w < 480 ? 2 : 3;
+    let lastTickLabel = null;
+    for (let i = 1; i <= xTickCount; i++) {
+      const ratio = i / (xTickCount + 1);
+      const tickX = Math.round(paddingLeft + plotW * ratio) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(tickX, paddingTop);
+      ctx.lineTo(tickX, paddingTop + plotH);
+      ctx.stroke();
 
-    const tickTime = firstTimestamp + timeRange * ratio;
-    ctx.fillText(formatTickTime(tickTime, timeRange), tickX, paddingTop + plotH + 18);
+      const tickTime = firstTimestamp + rawTimeRange * ratio;
+      const tickLabel = formatTickTime(tickTime, rawTimeRange);
+      if (tickLabel !== lastTickLabel) {
+        ctx.fillText(tickLabel, tickX, paddingTop + plotH + 18);
+        lastTickLabel = tickLabel;
+      }
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   // Period-open baseline rule with subtle inline value tag
   const baseY = Math.round(getY(startEquity)) + 0.5;
@@ -155,46 +237,66 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
   ctx.lineTo(w - paddingRight, baseY);
   ctx.stroke();
 
-  const openTag = `期初 ${formatAxisLabel(startEquity)}`;
-  ctx.font = '600 10.5px "Barlow", "PingFang SC", sans-serif';
+  const openTag = `期初 ${formatAxisLabel(startEquity, step)}`;
+  ctx.font = `600 12px ${CHART_FONT_FAMILY}`;
   const tagWidth = ctx.measureText(openTag).width + 10;
+  const tagHeight = 18;
   const tagX = w - paddingRight - tagWidth;
-  const tagY = Math.max(paddingTop + 2, Math.min(paddingTop + plotH - 18, baseY - 17));
+  const tagY = Math.max(
+    paddingTop + 2,
+    Math.min(paddingTop + plotH - (tagHeight + 2), baseY - (tagHeight + 1)),
+  );
   ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(243, 246, 245, 0.92)';
-  ctx.fillRect(tagX, tagY, tagWidth, 16);
+  ctx.fillRect(tagX, tagY, tagWidth, tagHeight);
   ctx.fillStyle = '#3f5760';
   ctx.textAlign = 'right';
-  ctx.fillText(openTag, w - paddingRight - 5, tagY + 11.5);
+  ctx.fillText(openTag, w - paddingRight - 5, tagY + 13);
   ctx.restore();
 
-  // Crisp linear financial polyline + gradient wash (zero synthetic bezier loops)
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(getX(0), getY(points[0].equity));
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(getX(i), getY(points[i].equity));
-  }
-
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = lineColor;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.stroke();
-
-  const lastX = getX(points.length - 1);
-  const firstX = getX(0);
   const bottomY = paddingTop + plotH;
-  ctx.lineTo(lastX, bottomY);
-  ctx.lineTo(firstX, bottomY);
-  ctx.closePath();
+  if (isSinglePoint) {
+    ctx.save();
+    ctx.fillStyle = '#526a73';
+    ctx.font = `500 12px ${CHART_FONT_FAMILY}`;
+    ctx.textAlign = 'center';
+    const centerX = paddingLeft + plotW / 2;
+    if (ctx.measureText(SINGLE_POINT_NOTE).width <= plotW - 12) {
+      ctx.fillText(SINGLE_POINT_NOTE, centerX, paddingTop + 14);
+    } else {
+      const splitIdx = SINGLE_POINT_NOTE.indexOf('（');
+      ctx.fillText(SINGLE_POINT_NOTE.slice(0, splitIdx), centerX, paddingTop + 12);
+      ctx.fillText(SINGLE_POINT_NOTE.slice(splitIdx), centerX, paddingTop + 28);
+    }
+    ctx.restore();
+  } else {
+    // Crisp linear financial polyline + gradient wash (zero synthetic bezier loops)
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(getX(0), getY(points[0].equity));
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(getX(i), getY(points[i].equity));
+    }
 
-  const grad = ctx.createLinearGradient(0, paddingTop, 0, bottomY);
-  grad.addColorStop(0, fillTop);
-  grad.addColorStop(1, fillBottom);
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.restore();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = lineColor;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    const lastX = getX(points.length - 1);
+    const firstX = getX(0);
+    ctx.lineTo(lastX, bottomY);
+    ctx.lineTo(firstX, bottomY);
+    ctx.closePath();
+
+    const grad = ctx.createLinearGradient(0, paddingTop, 0, bottomY);
+    grad.addColorStop(0, fillTop);
+    grad.addColorStop(1, fillBottom);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.restore();
+  }
 
   // Interactive crosshair
   if (hoverIndex !== null && hoverIndex >= 0 && hoverIndex < points.length) {
@@ -237,114 +339,342 @@ function drawChartFrame(canvas, container, points, hoverIndex) {
   ctx.strokeStyle = '#ffffff';
   ctx.stroke();
 
-  const d0 = new Date(firstTimestamp);
-  const d1 = new Date(lastTimestamp);
-  document.getElementById('chart-start-time').textContent =
-    `${d0.toLocaleDateString('zh-CN')} ${d0.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
-  document.getElementById('chart-latest-time').textContent =
-    `${d1.toLocaleDateString('zh-CN')} ${d1.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
-
-  return { paddingLeft, paddingRight, plotW, getX, getY, startEquity };
+  return {
+    width: w,
+    height: h,
+    paddingLeft,
+    paddingRight,
+    paddingTop,
+    plotW,
+    plotH,
+    hasTimeSpan,
+    getX,
+    getY,
+    startEquity,
+    step,
+  };
 }
 
-export function renderRetinaChart(points) {
-  const canvas = document.getElementById('equity-canvas');
-  const container = document.getElementById('canvas-container');
-  lastRenderedPoints = points;
-  activeHoverIndex = null;
+function resolveActivePeriod(explicitPeriod = null) {
+  if (explicitPeriod) return explicitPeriod;
+  const activeBtn = document.querySelector('.period-btn[aria-pressed="true"]');
+  return activeBtn?.dataset?.period || null;
+}
 
-  const geometry = drawChartFrame(canvas, container, points, null);
-  if (!geometry) {
-    canvas.onpointermove = null;
-    canvas.onpointerleave = null;
-    canvas.onpointerdown = null;
-    canvas.onpointerup = null;
+function formatEndpointTimestamp(ms) {
+  const d = new Date(ms);
+  return `${d.toLocaleDateString('zh-CN')} ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function updateStaticChartDom(canvas, points, period, step) {
+  const startEl = document.getElementById('chart-start-time');
+  const latestEl = document.getElementById('chart-latest-time');
+  const indicatorEl = document.getElementById('tooltip-indicator');
+  const periodLabel = PERIOD_LABELS[period] || period || '当前周期';
+
+  if (points.length === 0) {
+    startEl.textContent = '—';
+    latestEl.textContent = '—';
+    indicatorEl.style.backgroundColor = '#9eb9c0';
+    canvas.setAttribute('aria-label', `账户权益走势图（${periodLabel}）：暂无权益采样数据`);
     return;
   }
 
-  setupCanvasHover(canvas, container, points, geometry);
+  const firstTimestamp = points[0].captured_at_ms;
+  const lastTimestamp = points[points.length - 1].captured_at_ms;
+  startEl.textContent = formatEndpointTimestamp(firstTimestamp);
+  latestEl.textContent = formatEndpointTimestamp(lastTimestamp);
+
+  const startEquity = points[0].equity;
+  const endEquity = points[points.length - 1].equity;
+  const isPositive = endEquity >= startEquity;
+  indicatorEl.style.backgroundColor = isPositive ? '#34d399' : '#f87171';
+
+  const decimals = Math.max(2, stepPrecision(step || 1));
+  if (points.length === 1) {
+    const valStr = formatChartUsd(startEquity, decimals);
+    canvas.setAttribute(
+      'aria-label',
+      `账户权益走势图（${periodLabel}）：${SINGLE_POINT_NOTE}，当前权益 ${valStr}。聚焦后可使用方向键查看采样点详情。`,
+    );
+    return;
+  }
+
+  const diff = endEquity - startEquity;
+  const sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
+  const pctStr = startEquity !== 0
+    ? `（${sign}${Math.abs((diff / startEquity) * 100).toFixed(2)}%）`
+    : '';
+  canvas.setAttribute(
+    'aria-label',
+    `账户权益走势图（${periodLabel}）：共 ${points.length} 个采样点，期初 ${formatChartUsd(startEquity, decimals)}，最新 ${formatChartUsd(endEquity, decimals)}，较期初 ${formatChartUsd(diff, decimals, { signed: true })}${pctStr}。聚焦后可使用左右方向键逐点查看。`,
+  );
 }
 
-function setupCanvasHover(canvas, container, points, geometry) {
+function hideTooltip() {
+  lastTooltipIndex = null;
+  document.getElementById('chart-tooltip').classList.add('hidden');
+}
+
+function updateTooltip(rect, geometry, points, index) {
   const tooltip = document.getElementById('chart-tooltip');
+  if (lastTooltipIndex === index && !tooltip.classList.contains('hidden')) {
+    return;
+  }
+
   const tooltipTime = document.getElementById('tooltip-time');
   const tooltipVal = document.getElementById('tooltip-val');
   const tooltipDelta = document.getElementById('tooltip-delta');
 
-  function handlePointerMove(e) {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const { paddingLeft, paddingRight, plotW, getX, getY, startEquity } = geometry;
+  const p = points[index];
+  const { getX, getY, startEquity, step } = geometry;
+  const targetX = getX(index);
+  const targetY = getY(p.equity);
 
-    if (mouseX < paddingLeft || mouseX > rect.width - paddingRight) {
-      handlePointerLeave();
+  tooltipTime.textContent = new Date(p.captured_at_ms).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const valueDecimals = Math.max(2, stepPrecision(step));
+  tooltipVal.textContent = formatChartUsd(p.equity, valueDecimals);
+
+  const diff = p.equity - startEquity;
+  const sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
+  const pct = startEquity !== 0 ? ` (${sign}${Math.abs((diff / startEquity) * 100).toFixed(2)}%)` : '';
+  tooltipDelta.textContent = `较期初 ${formatChartUsd(diff, valueDecimals, { signed: true })}${pct}`;
+  tooltipDelta.style.color = diff > 0 ? '#6ee7b7' : diff < 0 ? '#fca5a5' : '#9eb9c0';
+
+  tooltip.classList.remove('hidden');
+  const tooltipWidth = tooltip.offsetWidth || 160;
+  const tooltipHeight = tooltip.offsetHeight || 68;
+  const margin = 8;
+
+  const rawLeft = targetX + 14 + tooltipWidth > rect.width - margin
+    ? targetX - tooltipWidth - 14
+    : targetX + 14;
+  const leftPos = Math.max(margin, Math.min(Math.max(margin, rect.width - tooltipWidth - margin), rawLeft));
+
+  const rawTop = targetY - tooltipHeight - 12 < margin
+    ? targetY + 14
+    : targetY - tooltipHeight - 12;
+  const topPos = Math.max(margin, Math.min(Math.max(margin, rect.height - tooltipHeight - margin), rawTop));
+
+  tooltip.style.left = `${leftPos}px`;
+  tooltip.style.top = `${topPos}px`;
+  lastTooltipIndex = index;
+}
+
+function cancelHoverFrame() {
+  if (hoverRafId !== null) {
+    cancelAnimationFrame(hoverRafId);
+    hoverRafId = null;
+  }
+  pendingClientPos = null;
+  pendingKeyIndex = null;
+}
+
+function clearHoverState(canvas, container) {
+  hideTooltip();
+  if (activeHoverIndex !== null) {
+    activeHoverIndex = null;
+    if (lastRenderedPoints.length > 0) {
+      currentGeometry = drawChartFrame(canvas, container, lastRenderedPoints, null);
+    }
+  }
+}
+
+function resolveIndexAtPointer(points, geometry, rect, clientX, clientY, pointerType) {
+  const mouseX = clientX - rect.left;
+  const mouseY = clientY - rect.top;
+  const { paddingLeft, paddingRight, paddingTop, plotW, plotH, hasTimeSpan } = geometry;
+
+  if (mouseX < paddingLeft || mouseX > rect.width - paddingRight) {
+    return null;
+  }
+  if (pointerType === 'touch' && (mouseY < paddingTop - 12 || mouseY > paddingTop + plotH + 12)) {
+    return null;
+  }
+
+  const ratio = Math.min(1, Math.max(0, (mouseX - paddingLeft) / plotW));
+  if (!hasTimeSpan) {
+    return Math.round(ratio * (points.length - 1));
+  }
+
+  const firstTimestamp = points[0].captured_at_ms;
+  const lastTimestamp = points[points.length - 1].captured_at_ms;
+  const targetTimestamp = firstTimestamp + ratio * (lastTimestamp - firstTimestamp);
+
+  let low = 0;
+  let high = points.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (points[middle].captured_at_ms < targetTimestamp) low = middle + 1;
+    else high = middle;
+  }
+  const right = low;
+  const left = Math.max(0, right - 1);
+  return Math.abs(points[right].captured_at_ms - targetTimestamp) <
+    Math.abs(points[left].captured_at_ms - targetTimestamp) ? right : left;
+}
+
+function scheduleHoverFrame(canvas, container) {
+  if (hoverRafId !== null) return;
+  hoverRafId = requestAnimationFrame(() => {
+    hoverRafId = null;
+    if (!lastRenderedPoints || lastRenderedPoints.length === 0 || !currentGeometry) {
+      pendingClientPos = null;
+      pendingKeyIndex = null;
+      clearHoverState(canvas, container);
       return;
     }
 
-    const ratio = (mouseX - paddingLeft) / plotW;
-    const targetTimestamp = points[0].captured_at_ms + ratio *
-      (points[points.length - 1].captured_at_ms - points[0].captured_at_ms);
-
-    let low = 0;
-    let high = points.length - 1;
-    while (low < high) {
-      const middle = Math.floor((low + high) / 2);
-      if (points[middle].captured_at_ms < targetTimestamp) low = middle + 1;
-      else high = middle;
-    }
-    const right = low;
-    const left = Math.max(0, right - 1);
-    const index = Math.abs(points[right].captured_at_ms - targetTimestamp) <
-      Math.abs(points[left].captured_at_ms - targetTimestamp) ? right : left;
-
-    if (activeHoverIndex !== index) {
-      activeHoverIndex = index;
-      drawChartFrame(canvas, container, lastRenderedPoints, activeHoverIndex);
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      pendingClientPos = null;
+      pendingKeyIndex = null;
+      return;
     }
 
-    const p = points[index];
-    const targetX = getX(index);
-    const targetY = getY(p.equity);
+    let nextIndex = null;
+    if (pendingClientPos !== null) {
+      const { clientX, clientY, pointerType } = pendingClientPos;
+      pendingClientPos = null;
+      nextIndex = resolveIndexAtPointer(
+        lastRenderedPoints,
+        currentGeometry,
+        rect,
+        clientX,
+        clientY,
+        pointerType,
+      );
+      if (nextIndex === null) {
+        clearHoverState(canvas, container);
+        return;
+      }
+    } else if (pendingKeyIndex !== null) {
+      nextIndex = Math.max(0, Math.min(lastRenderedPoints.length - 1, pendingKeyIndex));
+      pendingKeyIndex = null;
+    } else {
+      return;
+    }
 
-    tooltip.classList.remove('hidden');
-    const tooltipWidth = tooltip.offsetWidth || 160;
-    const leftPos = targetX + 14 + tooltipWidth > rect.width
-      ? Math.max(8, targetX - tooltipWidth - 14)
-      : Math.max(8, targetX + 14);
-    const topPos = targetY < 72 ? targetY + 14 : targetY - 64;
-    tooltip.style.left = `${leftPos}px`;
-    tooltip.style.top = `${topPos}px`;
+    if (activeHoverIndex !== nextIndex) {
+      activeHoverIndex = nextIndex;
+      currentGeometry = drawChartFrame(canvas, container, lastRenderedPoints, activeHoverIndex) || currentGeometry;
+    }
+    updateTooltip(rect, currentGeometry, lastRenderedPoints, activeHoverIndex);
+  });
+}
 
-    tooltipTime.textContent = new Date(p.captured_at_ms).toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    tooltipVal.textContent = `$${p.equity.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+function bindCanvasInteractions(canvas, container) {
+  if (boundCanvas === canvas) return;
+  boundCanvas = canvas;
 
-    const diff = p.equity - startEquity;
-    const sign = diff > 0 ? '+' : diff < 0 ? '-' : '';
-    const pct = startEquity !== 0 ? ` (${sign}${Math.abs((diff / startEquity) * 100).toFixed(2)}%)` : '';
-    tooltipDelta.textContent = `较期初 ${sign}$${Math.abs(diff).toFixed(2)}${pct}`;
-    tooltipDelta.style.color = diff > 0 ? '#6ee7b7' : diff < 0 ? '#fca5a5' : '#9eb9c0';
+  function handlePointerUpdate(e) {
+    if (!lastRenderedPoints || lastRenderedPoints.length === 0 || !currentGeometry) return;
+    pendingClientPos = { clientX: e.clientX, clientY: e.clientY, pointerType: e.pointerType };
+    pendingKeyIndex = null;
+    scheduleHoverFrame(canvas, container);
   }
 
-  function handlePointerLeave() {
-    if (activeHoverIndex !== null) {
-      activeHoverIndex = null;
-      drawChartFrame(canvas, container, lastRenderedPoints, null);
+  canvas.addEventListener('pointermove', handlePointerUpdate);
+  canvas.addEventListener('pointerdown', handlePointerUpdate);
+  canvas.addEventListener('pointerup', (e) => {
+    if (e.pointerType === 'touch') {
+      // Keep tap tooltip visible until pointercancel, tapping outside points, or blur
+      return;
     }
-    tooltip.classList.add('hidden');
+  });
+  canvas.addEventListener('pointercancel', () => {
+    cancelHoverFrame();
+    clearHoverState(canvas, container);
+  });
+  canvas.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'touch') return;
+    cancelHoverFrame();
+    clearHoverState(canvas, container);
+  });
+  canvas.addEventListener('blur', () => {
+    cancelHoverFrame();
+    clearHoverState(canvas, container);
+  });
+  canvas.addEventListener('keydown', (e) => {
+    const n = lastRenderedPoints.length;
+    if (n === 0 || !currentGeometry) {
+      if (e.key === 'Escape') {
+        cancelHoverFrame();
+        clearHoverState(canvas, container);
+      }
+      return;
+    }
+
+    let nextIndex = null;
+    if (e.key === 'ArrowRight') {
+      nextIndex = activeHoverIndex === null ? 0 : Math.min(n - 1, activeHoverIndex + 1);
+    } else if (e.key === 'ArrowLeft') {
+      nextIndex = activeHoverIndex === null ? n - 1 : Math.max(0, activeHoverIndex - 1);
+    } else if (e.key === 'Home') {
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      nextIndex = n - 1;
+    } else if (e.key === 'Escape') {
+      if (activeHoverIndex !== null) {
+        e.preventDefault();
+        cancelHoverFrame();
+        clearHoverState(canvas, container);
+      }
+      return;
+    } else {
+      return;
+    }
+
+    e.preventDefault();
+    pendingClientPos = null;
+    pendingKeyIndex = nextIndex;
+    scheduleHoverFrame(canvas, container);
+  });
+}
+
+export function renderRetinaChart(points, period = null) {
+  const canvas = document.getElementById('equity-canvas');
+  const container = document.getElementById('canvas-container');
+  const safePoints = Array.isArray(points) ? points : [];
+  const resolvedPeriod = resolveActivePeriod(period);
+
+  cancelHoverFrame();
+  bindCanvasInteractions(canvas, container);
+
+  if (lastRenderedPeriod !== null && resolvedPeriod !== lastRenderedPeriod) {
+    activeHoverIndex = null;
+  }
+  lastRenderedPeriod = resolvedPeriod;
+  lastRenderedPoints = safePoints;
+  lastTooltipIndex = null;
+
+  if (
+    activeHoverIndex === null ||
+    safePoints.length === 0 ||
+    activeHoverIndex < 0 ||
+    activeHoverIndex >= safePoints.length
+  ) {
+    activeHoverIndex = null;
   }
 
-  canvas.onpointermove = handlePointerMove;
-  canvas.onpointerleave = handlePointerLeave;
-  canvas.onpointerdown = handlePointerMove;
-  canvas.onpointerup = handlePointerLeave;
+  currentGeometry = drawChartFrame(canvas, container, safePoints, activeHoverIndex);
+  updateStaticChartDom(canvas, safePoints, resolvedPeriod, currentGeometry?.step ?? 1);
+
+  if (currentGeometry && activeHoverIndex !== null) {
+    updateTooltip(
+      { width: currentGeometry.width, height: currentGeometry.height },
+      currentGeometry,
+      safePoints,
+      activeHoverIndex,
+    );
+  } else {
+    hideTooltip();
+  }
 }
 
 export function initChartResizeObserver(containerId, getPoints) {

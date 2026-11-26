@@ -144,7 +144,7 @@ class SQLiteStateStore:
             journal_mode = self._connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]
             if str(journal_mode).lower() != "wal":
                 raise RuntimeError(f"SQLite did not enable WAL mode: {journal_mode}")
-            self._connection.execute("PRAGMA synchronous = NORMAL")
+            self._connection.execute("PRAGMA synchronous = FULL")
         except BaseException:
             self._connection.close()
             raise
@@ -171,6 +171,13 @@ class SQLiteStateStore:
     def _initialize_schema(self) -> None:
         schema_version = self._connection.execute("PRAGMA user_version").fetchone()[0]
         if schema_version == _SCHEMA_VERSION:
+            return
+        if schema_version == 25:
+            with self._transaction() as connection:
+                connection.execute("ALTER TABLE order_intents ADD COLUMN exchange_order_id TEXT")
+                connection.execute("ALTER TABLE order_intents ADD COLUMN full_close_cumulative_quote TEXT")
+                connection.execute("CREATE INDEX trade_fills_by_side_time ON trade_fills(side, traded_at_ms)")
+                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             return
         if schema_version != 0:
             raise RuntimeError(f"unsupported database schema version: {schema_version}")

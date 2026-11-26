@@ -5,13 +5,16 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 import sqlite3
+import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
 import httpx
 
 from pnl_trader.web import DashboardQueryService, create_app
+import pnl_trader.web.app as web_app
 
 
 class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
@@ -236,6 +239,32 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sells[0]["symbol"], "BTCUSDT")
         self.assertEqual(invalid.status_code, 422)
 
+    async def test_split_fills_are_grouped_by_order_and_keep_fee_totals(self) -> None:
+        self._init_sample_db()
+        with closing(sqlite3.connect(self._db_path)) as connection, connection:
+            connection.executemany(
+                "INSERT INTO trade_fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    ("BTCUSDT", "split-1", "SELL", "68000", "0.002", "2", "0.01", "USDT", 1700000000001, "intent-1"),
+                    ("BTCUSDT", "split-2", "SELL", "70000", "0.001", "3", "0.02", "USDT", 1700000000002, "intent-1"),
+                    ("BTCUSDT", "another", "SELL", "65000", "0.001", "1", "0.01", "USDT", 1700000000003, "intent-2"),
+                ],
+            )
+        app = create_app(data_dir=self._data_dir)
+        with patch("pnl_trader.clock.time.time_ns", return_value=1700000000010 * 1_000_000):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                snapshot = (await client.get("/api/dashboard?fills_limit=2")).json()
+        self.assertEqual(snapshot["overview"]["fill_count"], 2)
+        self.assertEqual(snapshot["analytics"]["costs"]["fill_count"], 2)
+        self.assertEqual(snapshot["analytics"]["costs"]["days"][-1]["fill_count"], 2)
+        self.assertEqual(len(snapshot["sell_fills"]), 2)
+        order = snapshot["sell_fills"][1]
+        self.assertAlmostEqual(order["qty"], 0.004)
+        self.assertAlmostEqual(order["price"], 68000)
+        self.assertAlmostEqual(order["realized_pnl"], 11)
+        self.assertAlmostEqual(order["commission"], 0.063)
+        self.assertAlmostEqual(snapshot["overview"]["total_commission"], 0.07)
+
     async def test_large_dashboard_responses_support_gzip(self) -> None:
         self._init_sample_db()
         with closing(sqlite3.connect(self._db_path)) as connection, connection:
@@ -339,6 +368,56 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(js.status_code, 200)
         self.assertIn("javascript", js.headers.get("content-type", ""))
 
+    async def test_security_and_cache_headers_across_routes(self) -> None:
+        self._init_sample_db()
+        app = create_app(data_dir=self._data_dir)
+        expected_csp = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
+        route_expectations = [
+            ("/", "no-cache"),
+            ("/api/overview", "no-store"),
+            ("/api/dashboard?period=7d&fills_limit=12", "no-store"),
+            ("/api/equity?period=7d", "no-store"),
+            ("/api/analytics", "no-store"),
+            ("/api/tier-distribution", "no-store"),
+            ("/api/positions", "no-store"),
+            ("/api/fills", "no-store"),
+            ("/tailwind.css?v=20261126", "public, max-age=3600"),
+            ("/js/app.js?v=20261126-2", "public, max-age=3600"),
+            ("/js/api.js", "public, max-age=3600"),
+            ("/js/chart.js", "public, max-age=3600"),
+            ("/js/renderers.js", "public, max-age=3600"),
+            ("/fonts/barlow-latin-500.woff2", "public, max-age=604800"),
+        ]
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            for path, expected_cache_control in route_expectations:
+                with self.subTest(path=path):
+                    resp = await client.get(path)
+                    self.assertEqual(resp.status_code, 200)
+                    self.assertEqual(resp.headers.get("x-content-type-options"), "nosniff")
+                    self.assertEqual(resp.headers.get("x-frame-options"), "DENY")
+                    self.assertEqual(resp.headers.get("referrer-policy"), "strict-origin-when-cross-origin")
+                    self.assertEqual(resp.headers.get("content-security-policy"), expected_csp)
+                    self.assertEqual(resp.headers.get("cache-control"), expected_cache_control)
+
+            missing = await client.get("/js/does-not-exist.js")
+            self.assertEqual(missing.status_code, 404)
+            self.assertEqual(missing.headers.get("x-content-type-options"), "nosniff")
+            self.assertEqual(missing.headers.get("x-frame-options"), "DENY")
+            self.assertEqual(missing.headers.get("referrer-policy"), "strict-origin-when-cross-origin")
+            self.assertEqual(missing.headers.get("content-security-policy"), expected_csp)
+            self.assertNotEqual(missing.headers.get("cache-control"), "public, max-age=3600")
+
     async def test_dashboard_snapshot_endpoint_returns_consistent_bundle_and_refreshes_cache(self) -> None:
         self._init_sample_db()
         app = create_app(data_dir=self._data_dir)
@@ -361,6 +440,52 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(snap2["overview"]["fill_count"], 2)
                 self.assertAlmostEqual(snap2["overview"]["realized_cash"], 9.97)
                 self.assertEqual(len(snap2["sell_fills"]), 2)
+
+    async def test_uptime_telemetry_handles_systemctl_failures_and_invalid_output(self) -> None:
+        self._init_sample_db()
+        app = create_app(data_dir=self._data_dir)
+        self.addCleanup(setattr, web_app, "_uptime_cache", None)
+
+        future_us = int((time.monotonic() + 3600) * 1_000_000)
+        failure_cases: list[tuple[str, object]] = [
+            ("called_process_error", subprocess.CalledProcessError(1, ("systemctl", "show"))),
+            ("timeout_expired", subprocess.TimeoutExpired(("systemctl", "show"), 1)),
+            ("os_error", PermissionError("systemctl permission denied")),
+            ("missing_active_state", subprocess.CompletedProcess(("systemctl",), 0, stdout="ExecMainStartTimestampMonotonic=1000000\n")),
+            ("missing_timestamp", subprocess.CompletedProcess(("systemctl",), 0, stdout="ActiveState=active\n")),
+            ("non_numeric_timestamp", subprocess.CompletedProcess(("systemctl",), 0, stdout="ActiveState=active\nExecMainStartTimestampMonotonic=not_a_number\n")),
+            ("zero_timestamp", subprocess.CompletedProcess(("systemctl",), 0, stdout="ActiveState=active\nExecMainStartTimestampMonotonic=0\n")),
+            ("negative_timestamp", subprocess.CompletedProcess(("systemctl",), 0, stdout="ActiveState=active\nExecMainStartTimestampMonotonic=-5\n")),
+            ("future_timestamp", subprocess.CompletedProcess(("systemctl",), 0, stdout=f"ActiveState=active\nExecMainStartTimestampMonotonic={future_us}\n")),
+        ]
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            for name, outcome in failure_cases:
+                with self.subTest(case=name):
+                    web_app._uptime_cache = None
+                    run_kwargs = {"side_effect": outcome} if isinstance(outcome, Exception) else {"return_value": outcome}
+                    with patch("pnl_trader.web.app.subprocess.run", **run_kwargs):
+                        overview_resp = await client.get("/api/overview")
+                        dashboard_resp = await client.get("/api/dashboard?period=24h&fills_limit=12")
+                    self.assertEqual(overview_resp.status_code, 200)
+                    self.assertIsNone(overview_resp.json()["trading_uptime_seconds"])
+                    self.assertEqual(dashboard_resp.status_code, 200)
+                    self.assertIsNone(dashboard_resp.json()["overview"]["trading_uptime_seconds"])
+
+            web_app._uptime_cache = None
+            active_start_us = max(1, int((time.monotonic() - 60) * 1_000_000))
+            active_result = subprocess.CompletedProcess(
+                ("systemctl",),
+                0,
+                stdout=f"ActiveState=active\nExecMainStartTimestampMonotonic={active_start_us}\n",
+            )
+            with patch("pnl_trader.web.app.subprocess.run", return_value=active_result):
+                overview_resp = await client.get("/api/overview")
+                dashboard_resp = await client.get("/api/dashboard?period=24h&fills_limit=12")
+            self.assertEqual(overview_resp.status_code, 200)
+            self.assertGreaterEqual(overview_resp.json()["trading_uptime_seconds"], 59)
+            self.assertEqual(dashboard_resp.status_code, 200)
+            self.assertGreaterEqual(dashboard_resp.json()["overview"]["trading_uptime_seconds"], 59)
 
 
 if __name__ == "__main__":

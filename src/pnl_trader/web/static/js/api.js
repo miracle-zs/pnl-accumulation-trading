@@ -1,23 +1,158 @@
 // API Fetching and Data Synchronization Service
 
-import { renderRetinaChart } from './chart.js';
+import { renderRetinaChart } from './chart.js?v=20261126-3';
 import {
   state,
-  formatSignedUsd,
   renderTradingUptime,
   renderPositions,
   updatePositionStatusKpi,
   renderDrawdown,
+  renderEquitySummary,
+  renderAccountKpis,
+  renderTierBars,
   renderLosingPositions,
   renderTierExposure,
   renderCosts,
   renderExecutionIssues,
   renderFills,
   renderRanking,
-} from './renderers.js';
+} from './renderers.js?v=20261126-3';
+
+export { state };
 
 let activeAbortController = null;
 let equityAbortController = null;
+let activeBannerSource = null;
+
+const PERIOD_LABELS = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
+
+state.lastSyncedAtMs = state.lastSyncedAtMs ?? null;
+state.displayedPeriod = state.displayedPeriod ?? state.currentPeriod;
+
+export function abortInFlightRequests() {
+  if (activeAbortController) {
+    activeAbortController.abort();
+  }
+  if (equityAbortController) {
+    equityAbortController.abort();
+  }
+}
+
+export function syncPeriodButtons(period) {
+  document.querySelectorAll('.period-btn').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.period === period));
+  });
+}
+
+function formatSyncTime(epochMs) {
+  return new Date(epochMs).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function formatFetchError(err) {
+  if (err instanceof TypeError) return '网络连接异常';
+  return err?.message || '未知错误';
+}
+
+function updateLastSyncLabel() {
+  const labelEl = document.getElementById('last-sync-label');
+  if (!labelEl) return;
+  labelEl.textContent = state.lastSyncedAtMs !== null
+    ? ` · 最近同步 ${formatSyncTime(state.lastSyncedAtMs)}`
+    : '';
+}
+
+function showErrorBanner(source, message) {
+  activeBannerSource = source;
+  const banner = document.getElementById('dashboard-error-banner');
+  const msgEl = document.getElementById('error-banner-message');
+  const metaEl = document.getElementById('error-banner-meta');
+  msgEl.textContent = message;
+  metaEl.textContent = state.lastSyncedAtMs !== null
+    ? `上次成功同步：${formatSyncTime(state.lastSyncedAtMs)}（当前界面保留上次成功快照）`
+    : '尚未成功获取本地账本快照，请检查看板服务是否正常运行。';
+  banner.classList.remove('hidden');
+}
+
+function hideErrorBanner(source = null) {
+  if (source !== null && activeBannerSource !== source) return;
+  activeBannerSource = null;
+  document.getElementById('dashboard-error-banner').classList.add('hidden');
+}
+
+function buildRetryMessageNode(className, message) {
+  const wrap = document.createElement('div');
+  wrap.className = className;
+  const text = document.createElement('span');
+  text.textContent = `${message} `;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'font-semibold text-[#135d73] underline hover:text-[#0e4a5c]';
+  btn.textContent = '点击重试';
+  btn.addEventListener('click', () => fetchData());
+  wrap.append(text, btn);
+  return wrap;
+}
+
+function setContainerErrorText(containerId, className, message) {
+  const el = document.createElement('div');
+  el.className = className;
+  el.textContent = message;
+  document.getElementById(containerId).replaceChildren(el);
+}
+
+function setEquityPeriodErrorStatus(targetPeriod, fallbackPeriod, errDetail) {
+  const snapshotStatus = document.getElementById('equity-snapshot-status');
+  const targetLabel = PERIOD_LABELS[targetPeriod] || targetPeriod;
+  const fallbackLabel = PERIOD_LABELS[fallbackPeriod] || fallbackPeriod;
+  snapshotStatus.textContent = `切换「${targetLabel}」失败（${errDetail}），当前仍显示「${fallbackLabel}」`;
+  snapshotStatus.className = 'text-xs mt-0.5 tabular-nums text-[#bd2b2b] font-medium';
+  snapshotStatus.setAttribute('aria-busy', 'false');
+}
+
+function renderInitialFailurePlaceholders(errDetail) {
+  const tbody = document.getElementById('position-table-body');
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.colSpan = 9;
+  cell.className = 'py-12 text-center text-[#bd2b2b] font-sans';
+  cell.append(buildRetryMessageNode('inline-flex items-center gap-1', `持仓数据加载失败（${errDetail}）`));
+  row.append(cell);
+  tbody.replaceChildren(row);
+
+  document.getElementById('buy-fills-list').replaceChildren(
+    buildRetryMessageNode('text-[#bd2b2b] text-xs py-6 text-center', `买入成交加载失败（${errDetail}）`),
+  );
+  document.getElementById('sell-fills-list').replaceChildren(
+    buildRetryMessageNode('text-[#bd2b2b] text-xs py-6 text-center', `卖出成交加载失败（${errDetail}）`),
+  );
+  document.getElementById('ranking-container').replaceChildren(
+    buildRetryMessageNode('col-span-full text-[#bd2b2b] text-xs py-8 text-center', `收益排行加载失败（${errDetail}）`),
+  );
+
+  const snapshotStatus = document.getElementById('equity-snapshot-status');
+  snapshotStatus.textContent = `账户净值采样加载失败（${errDetail}）`;
+  snapshotStatus.className = 'text-xs mt-0.5 tabular-nums text-[#bd2b2b] font-medium';
+  snapshotStatus.setAttribute('aria-busy', 'false');
+
+  document.getElementById('position-summary-text').textContent = '同步失败，请重试';
+
+  setContainerErrorText('execution-issues', 'text-xs text-[#bd2b2b] py-6 text-center', '执行状态加载失败');
+  setContainerErrorText('tier-exposure-list', 'text-xs text-[#bd2b2b] py-4', '持仓敞口加载失败');
+  setContainerErrorText('cost-days', 'text-xs text-[#bd2b2b] py-2', '交易成本加载失败');
+
+  const losersList = document.getElementById('losers-list');
+  const loserRow = document.createElement('tr');
+  const loserCell = document.createElement('td');
+  loserCell.colSpan = 4;
+  loserCell.className = 'py-8 text-center text-[#bd2b2b]';
+  loserCell.textContent = '持仓数据加载失败';
+  loserRow.append(loserCell);
+  losersList.replaceChildren(loserRow);
+}
 
 function setStatusBadge(variant, label, title) {
   const badge = document.getElementById('system-status-badge');
@@ -31,79 +166,10 @@ function setStatusBadge(variant, label, title) {
 
 function applyEquity(eq) {
   renderDrawdown(eq);
-  const snapshotStatus = document.getElementById('equity-snapshot-status');
-  snapshotStatus.textContent = eq.latest
-    ? `采样：${new Date(eq.latest.captured_at_ms).toLocaleString('zh-CN')}${eq.latest.is_current_slot ? '' : ' · 等待本轮快照'}`
-    : '等待账户净值采样';
-  snapshotStatus.className = `text-xs mt-0.5 tabular-nums ${
-    eq.latest && !eq.latest.is_current_slot ? 'text-[#985506] font-medium' : 'text-[#526a73]'
-  }`;
-
-  const kpiEquity = document.getElementById('kpi-equity');
-  const kpiAvailable = document.getElementById('kpi-available');
-  const kpiNotional = document.getElementById('kpi-notional');
-  const kpiLeverage = document.getElementById('kpi-actual-leverage');
-  const kpiUnrealized = document.getElementById('kpi-unrealized-pnl');
-  const kpiCushion = document.getElementById('kpi-margin-cushion');
-
-  const kpiBaseClass = 'font-display text-[22px] sm:text-[28px] lg:text-[30px] leading-none font-bold tabular-nums tracking-tight';
-
-  if (eq.latest) {
-    kpiEquity.textContent = `$${eq.latest.equity.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-    kpiAvailable.textContent = `$${eq.latest.available_balance.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-    kpiNotional.textContent = `$${eq.latest.position_notional.toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-    kpiLeverage.textContent = eq.latest.leverage !== null
-      ? `实际杠杆 ${eq.latest.leverage.toFixed(2)}x`
-      : '实际杠杆 —';
-
-    const unpnl = eq.latest.unrealized_pnl;
-    kpiUnrealized.textContent = formatSignedUsd(unpnl);
-    kpiUnrealized.className = `${kpiBaseClass} ${
-      unpnl > 0 ? 'text-[#0a7052]' : unpnl < 0 ? 'text-[#bd2b2b]' : 'text-[#102128]'
-    }`;
-
-    if (eq.latest.equity > 0 && Number.isFinite(eq.latest.available_balance)) {
-      const cushionPct = (eq.latest.available_balance / eq.latest.equity) * 100;
-      kpiCushion.textContent = `${cushionPct.toFixed(1)}%`;
-      kpiCushion.className = `font-display font-semibold tabular-nums ${
-        cushionPct < 25 ? 'text-[#bd2b2b]' : cushionPct < 45 ? 'text-[#985506]' : 'text-[#0a7052]'
-      }`;
-    } else {
-      kpiCushion.textContent = '—';
-      kpiCushion.className = 'font-display font-medium tabular-nums text-[#526a73]';
-    }
-  } else {
-    kpiEquity.textContent = '—';
-    kpiAvailable.textContent = '—';
-    kpiNotional.textContent = '—';
-    kpiLeverage.textContent = '实际杠杆 —';
-    kpiUnrealized.textContent = '—';
-    kpiUnrealized.className = `${kpiBaseClass} text-[#102128]`;
-    kpiCushion.textContent = '—';
-    kpiCushion.className = 'font-display font-medium tabular-nums text-[#526a73]';
-  }
-
-  const badge = document.getElementById('equity-change-badge');
-  if (eq.change !== null) {
-    const percentage = eq.change_pct === null ? '' : ` (${formatSignedUsd(eq.change_pct).replace('$', '')}%)`;
-    badge.textContent = `${formatSignedUsd(eq.change)}${percentage}`;
-    badge.className = `font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded ${
-      eq.change >= 0 ? 'bg-[#e6f5ef] text-[#0a7052]' : 'bg-[#fcecec] text-[#bd2b2b]'
-    }`;
-  } else {
-    badge.textContent = '—';
-    badge.className = 'font-display tabular-nums text-xs font-semibold px-1.5 py-0.5 rounded bg-[#eaf0ee] text-[#3f5760]';
-  }
-
+  state.displayedPeriod = eq.period;
+  state.currentPeriod = eq.period;
+  syncPeriodButtons(eq.period);
+  renderEquitySummary(eq);
   state.chartHistoryPoints = eq.points;
   renderRetinaChart(state.chartHistoryPoints);
 }
@@ -116,24 +182,42 @@ export async function fetchEquity(period) {
   equityAbortController = controller;
   const { signal } = controller;
 
+  const snapshotStatus = document.getElementById('equity-snapshot-status');
+  const targetLabel = PERIOD_LABELS[period] || period;
+  snapshotStatus.textContent = `正在加载${targetLabel}权益走势...`;
+  snapshotStatus.className = 'text-xs mt-0.5 tabular-nums text-[#135d73] font-medium';
+  snapshotStatus.setAttribute('aria-busy', 'true');
+
   try {
-    const response = await fetch(`api/equity?period=${period}`, { signal });
+    const response = await fetch(`api/equity?period=${period}`, { signal, cache: 'no-store' });
     if (!response.ok) {
-      throw new Error('Equity API returned an unsuccessful response');
+      throw new Error(`HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`);
     }
     const eq = await response.json();
     if (signal.aborted || equityAbortController !== controller) {
       return;
     }
-    applyEquity(eq);
+    hideErrorBanner('equity');
+    if (state.currentPeriod === period) {
+      applyEquity(eq);
+    }
   } catch (err) {
     if (err.name === 'AbortError' || equityAbortController !== controller) {
       return;
     }
+    const errDetail = formatFetchError(err);
+    const fallbackPeriod = state.displayedPeriod || '7d';
+    const fallbackLabel = PERIOD_LABELS[fallbackPeriod] || fallbackPeriod;
+    state.currentPeriod = fallbackPeriod;
+    syncPeriodButtons(fallbackPeriod);
+
+    setEquityPeriodErrorStatus(period, fallbackPeriod, errDetail);
+    showErrorBanner('equity', `切换「${targetLabel}」权益数据失败（${errDetail}），已恢复显示「${fallbackLabel}」。`);
     console.warn('Equity poll notice:', err);
   } finally {
     if (equityAbortController === controller) {
       equityAbortController = null;
+      snapshotStatus.setAttribute('aria-busy', 'false');
     }
   }
 }
@@ -149,24 +233,36 @@ export async function fetchData() {
   const controller = new AbortController();
   activeAbortController = controller;
   const { signal } = controller;
+  const requestedPeriod = state.currentPeriod;
 
+  const refreshBtn = document.getElementById('btn-refresh');
   const refreshIcon = document.getElementById('refresh-icon');
   const refreshText = document.getElementById('refresh-text');
+  const retryBtn = document.getElementById('btn-retry-sync');
+  refreshBtn.setAttribute('aria-busy', 'true');
   refreshIcon.classList.add('animate-spin');
   refreshText.textContent = '同步中';
+  if (retryBtn) {
+    retryBtn.disabled = true;
+    retryBtn.textContent = '同步中...';
+  }
 
   try {
     const response = await fetch(
-      `api/dashboard?period=${state.currentPeriod}&fills_limit=12`,
-      { signal },
+      `api/dashboard?period=${requestedPeriod}&fills_limit=12`,
+      { signal, cache: 'no-store' },
     );
     if (!response.ok) {
-      throw new Error('Dashboard API returned an unsuccessful response');
+      throw new Error(`HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`);
     }
     const snapshot = await response.json();
     if (signal.aborted || activeAbortController !== controller) {
       return;
     }
+
+    state.lastSyncedAtMs = Date.now();
+    updateLastSyncLabel();
+    hideErrorBanner();
 
     const {
       overview: ov,
@@ -199,60 +295,18 @@ export async function fetchData() {
       setStatusBadge('status-shell-ok', '只读本地账本', '只读监控 · 数据源自本地 SQLite 状态库');
     }
 
-    const realizedCash = state.ledgerAvailable ? ov.realized_cash : null;
-    const realizedEl = document.getElementById('kpi-realized-cash');
-    realizedEl.textContent = formatSignedUsd(realizedCash);
-    realizedEl.className = `font-display text-[22px] sm:text-[28px] lg:text-[30px] leading-none font-bold tabular-nums tracking-tight ${
-      realizedCash === null ? 'text-[#526a73]' : realizedCash >= 0 ? 'text-[#0a7052]' : 'text-[#bd2b2b]'
-    }`;
-    realizedEl.title = pendingCloseFills > 0
-      ? '平仓明细待补录，净利润暂不可用'
-      : ov.other_fee_count > 0
-        ? '包含非 USDT 手续费，无法准确计算净利润'
-        : '';
+    renderAccountKpis(ov, an);
 
-    document.getElementById('kpi-fill-count').textContent = state.ledgerAvailable ? `${ov.fill_count} 笔成交` : '—';
-    document.getElementById('kpi-active-symbols').textContent = state.ledgerAvailable ? `${ov.active_positions_count} 个标的` : '—';
-
-    applyEquity(eq);
-
-    const todayPnl = document.getElementById('kpi-today-pnl');
-    const todayPendingCloseFills = an.today.pending_close_fill_count;
-    const realizedNet = state.ledgerAvailable ? an.today.realized_net : null;
-    todayPnl.textContent = formatSignedUsd(realizedNet);
-    todayPnl.title = todayPendingCloseFills > 0
-      ? '今日平仓明细待补录，净利润暂不可用'
-      : (an.today.other_fee_count > 0 ? '包含非 USDT 手续费，无法准确计算净利润' : '');
-    todayPnl.className = `font-display font-semibold tabular-nums ${
-      realizedNet === null ? 'text-[#526a73]' : realizedNet >= 0 ? 'text-[#0a7052]' : 'text-[#bd2b2b]'
-    }`;
+    if (state.currentPeriod === requestedPeriod) {
+      applyEquity(eq);
+    }
 
     renderRanking(an.symbols, pendingCloseFills);
     renderCosts(an.costs);
     renderExecutionIssues(an.execution_issues);
 
     renderTierExposure(td.exposure);
-    if (state.ledgerAvailable) {
-      document.getElementById('tier-cnt-t1').textContent = `${td.t1} 币`;
-      document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
-      document.getElementById('tier-cnt-t3').textContent = `${td.t3} 币`;
-      document.getElementById('tier-cnt-t31').textContent = `${td.t31 + td.t32} 币`;
-      document.getElementById('tier-total-badge').textContent = `${td.total} 个标的`;
-
-      const percentagePerSymbol = td.total > 0 ? 100 / td.total : 0;
-      document.getElementById('bar-t1').style.width = `${td.t1 * percentagePerSymbol}%`;
-      document.getElementById('bar-t2').style.width = `${(td.t2 + td.t21) * percentagePerSymbol}%`;
-      document.getElementById('bar-t3').style.width = `${td.t3 * percentagePerSymbol}%`;
-      document.getElementById('bar-t31').style.width = `${(td.t31 + td.t32) * percentagePerSymbol}%`;
-    } else {
-      ['tier-cnt-t1', 'tier-cnt-t2', 'tier-cnt-t3', 'tier-cnt-t31'].forEach(id => {
-        document.getElementById(id).textContent = '—';
-      });
-      document.getElementById('tier-total-badge').textContent = '— 个标的';
-      ['bar-t1', 'bar-t2', 'bar-t3', 'bar-t31'].forEach(id => {
-        document.getElementById(id).style.width = '0%';
-      });
-    }
+    renderTierBars(td);
 
     state.allPositions = positions;
     renderPositions();
@@ -266,13 +320,38 @@ export async function fetchData() {
     if (err.name === 'AbortError' || activeAbortController !== controller) {
       return;
     }
-    setStatusBadge('status-shell-error', '数据刷新失败', '本地看板接口请求失败');
+    const errDetail = formatFetchError(err);
+    if (requestedPeriod === state.currentPeriod && requestedPeriod !== state.displayedPeriod) {
+      state.currentPeriod = state.displayedPeriod;
+      syncPeriodButtons(state.displayedPeriod);
+      if (state.lastSyncedAtMs !== null) {
+        setEquityPeriodErrorStatus(requestedPeriod, state.displayedPeriod, errDetail);
+      }
+    }
+    setStatusBadge(
+      'status-shell-error',
+      '数据刷新失败',
+      state.lastSyncedAtMs !== null
+        ? `本地看板接口请求失败（${errDetail}）· 上次同步 ${formatSyncTime(state.lastSyncedAtMs)}`
+        : `本地看板接口请求失败（${errDetail}）`,
+    );
+    if (state.lastSyncedAtMs === null) {
+      renderInitialFailurePlaceholders(errDetail);
+      showErrorBanner('dashboard', `首次同步本地账本数据失败（${errDetail}）。`);
+    } else {
+      showErrorBanner('dashboard', `定时同步本地账本失败（${errDetail}），当前展示可能为过期数据。`);
+    }
     console.warn('API poll notice:', err);
   } finally {
     if (activeAbortController === controller) {
       activeAbortController = null;
+      refreshBtn.setAttribute('aria-busy', 'false');
       refreshIcon.classList.remove('animate-spin');
       refreshText.textContent = '刷新';
+      if (retryBtn) {
+        retryBtn.disabled = false;
+        retryBtn.textContent = '立即重试';
+      }
     }
   }
 }

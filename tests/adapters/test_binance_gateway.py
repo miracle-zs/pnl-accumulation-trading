@@ -20,6 +20,41 @@ from pnl_trader.application.models import (
 
 
 class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_submit_result_without_cumulative_quote_queries_confirmed_order(self) -> None:
+        requests = []
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request.method)
+            payload = {"symbol": "BTCUSDT", "clientOrderId": "test-close",
+                       "orderId": 123, "status": "FILLED", "executedQty": "0.01"}
+            if request.method == "GET":
+                payload["cumQuote"] = "600"
+            return httpx.Response(200, json=payload)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            result = await gateway.submit_market_order(MarketOrderRequest(
+                symbol="BTCUSDT", side="SELL", quantity=Decimal("0.01"),
+                client_order_id="test-close",
+            ))
+        self.assertEqual(requests, ["POST", "GET"])
+        self.assertEqual(result.certainty, SubmissionCertainty.ACCEPTED)
+        self.assertEqual(result.order.cumulative_quote, Decimal("600"))
+
+    async def test_missing_submit_quote_and_unavailable_lookup_stays_unknown(self) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                return httpx.Response(200, json={"orderId": 123, "status": "FILLED", "executedQty": "0.01"})
+            return httpx.Response(400, json={"code": -2013, "msg": "Order does not exist."})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            result = await gateway.submit_market_order(MarketOrderRequest(
+                symbol="BTCUSDT", side="SELL", quantity=Decimal("0.01"),
+                client_order_id="test-close",
+            ))
+        self.assertEqual(result.certainty, SubmissionCertainty.UNKNOWN)
+
     async def test_account_snapshot_uses_position_notionals_from_one_account_request(self) -> None:
         requests = []
 

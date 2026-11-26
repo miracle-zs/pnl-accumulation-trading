@@ -44,7 +44,7 @@
   --surface-subtle: #eaf0ee;
   --surface-hover: #f2f7f5;
   --border: #d4dfdc;
-  --border-strong: #8fa5a0;
+  --border-strong: #768d88;
 
   /* Ink Hierarchy (all >= 4.5:1 on white & canvas) */
   --ink: #102128;
@@ -74,7 +74,7 @@
   --tier-t1-border: #aed2dd;
 
   --tier-t2: #985506;
-  --tier-t2-bar: #c97b18;
+  --tier-t2-bar: #b86c0e;
   --tier-t2-bg: #fdf4e3;
   --tier-t2-border: #ebcc94;
 
@@ -380,7 +380,7 @@
 .ledger-search:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(19, 93, 115, 0.16);
-  outline: none;
+  outline: 2px solid transparent;
 }
 
 /* Responsive & Sortable Data Table with Right-Edge Scroll Affordance */
@@ -392,11 +392,16 @@
   overflow: auto;
   max-inline-size: 100%;
   max-block-size: min(520px, 68vh);
-  container-type: inline-size;
   background:
     linear-gradient(to left, #ffffff 35%, transparent) right / 24px 100% no-repeat local,
     radial-gradient(farthest-side at 100% 50%, rgba(16, 33, 40, 0.14), transparent) right / 10px 100% no-repeat scroll,
     #ffffff;
+}
+
+[role="tabpanel"]:focus-visible,
+.table-shell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .positions-table {
@@ -428,7 +433,7 @@
   inset-inline-start: 0;
   z-index: 3;
   padding-inline-start: 1rem;
-  box-shadow: inset -1px 0 0 var(--border);
+  border-right: 1px solid var(--border);
 }
 
 .positions-table thead th:has(> button),
@@ -445,7 +450,7 @@
   color: var(--ink);
   padding: 0.6875rem 0.75rem 0.6875rem 1rem;
   border-bottom: 1px solid #e7eeec;
-  box-shadow: inset -1px 0 0 #e7eeec;
+  border-right: 1px solid #e7eeec;
   white-space: nowrap;
   transition: background-color 120ms ease;
 }
@@ -491,19 +496,24 @@
   color: var(--ink);
 }
 
+.sort-header-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* CSS-driven decorative sort chevrons (read from th[aria-sort]) */
 .sort-icon {
   display: inline-flex;
   flex-direction: column;
   width: 0.625rem;
   height: 0.75rem;
-  color: #8298a0;
+  color: #526a73;
   flex-shrink: 0;
 }
 
 .sort-icon .chev-up,
 .sort-icon .chev-down {
-  opacity: 0.4;
+  opacity: 0.65;
   transition: opacity 120ms ease, color 120ms ease;
 }
 
@@ -524,19 +534,6 @@ th[aria-sort="descending"] .sort-icon .chev-down {
   border: 1px solid #2b6273;
   border-radius: 4px;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14);
-}
-
-/* Visually hidden live status / caption */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border-width: 0;
 }
 
 /* Forced Colors Mode (Windows High Contrast) */

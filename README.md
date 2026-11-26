@@ -28,7 +28,7 @@ PNL_DATA_DIR=./var pnl-trader web
 
 看板只读取 `PNL_DATA_DIR` 下的 `state.sqlite3`，不会连接交易所或提交订单。交易服务每轮策略处理结束后读取一次 Binance 账户数据，展示权益曲线、未实现盈亏、可用余额、持仓总价值和整体实际杠杆（持仓总价值除以账户权益）；数据不参与策略决策。新增账户指标从升级后首次采样开始显示。
 
-数据库使用 schema v25；支持从 v21、v22、v23、v24 按顺序升级。看板样式由 `frontend/` 中锁定版本的 Tailwind CLI 编译为本地静态文件，构建命令为 `cd frontend && npm ci && npm run build`。
+数据库使用 schema v26；支持从 v25 升级。看板样式由 `frontend/` 中锁定版本的 Tailwind CLI 编译为本地静态文件，构建命令为 `cd frontend && npm ci && npm run build`。
 
 运行本地自动化测试：
 

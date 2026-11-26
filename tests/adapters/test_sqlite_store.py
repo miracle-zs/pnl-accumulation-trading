@@ -30,7 +30,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_old_versions_are_rejected_without_changing_the_database(self) -> None:
-        for version in (19, 20, 21, 22, 23, 24, 25):
+        for version in (19, 20, 21, 22, 23, 24):
             with self.subTest(version=version):
                 old_path = Path(self.temp_dir.name) / f"v{version}.sqlite3"
                 with closing(sqlite3.connect(old_path)) as connection, connection:
@@ -42,6 +42,19 @@ class SQLiteStateStoreTests(unittest.TestCase):
                 with closing(sqlite3.connect(old_path)) as connection:
                     self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], version)
                     self.assertEqual(connection.execute("SELECT value FROM existing_data").fetchone()[0], "preserved")
+
+    def test_upgrade_v25_preserves_state_and_uses_durable_commits(self) -> None:
+        original = self.store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+        self.store.close()
+        with closing(sqlite3.connect(self.db_path)) as connection, connection:
+            connection.execute("DROP INDEX trade_fills_by_side_time")
+            connection.execute("ALTER TABLE order_intents DROP COLUMN exchange_order_id")
+            connection.execute("ALTER TABLE order_intents DROP COLUMN full_close_cumulative_quote")
+            connection.execute("PRAGMA user_version = 25")
+        self.store = SQLiteStateStore(self.db_path)
+        self.assertEqual(self.store.load_symbol_state("BTCUSDT"), original)
+        self.assertEqual(self.store._connection.execute("PRAGMA user_version").fetchone()[0], 26)
+        self.assertEqual(self.store._connection.execute("PRAGMA synchronous").fetchone()[0], 2)
 
     def test_uses_wal_and_round_trips_decimal_position_state(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as connection, connection:

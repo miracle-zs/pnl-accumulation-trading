@@ -12,12 +12,63 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .service import DashboardQueryService
 
 _UPTIME_CACHE_TTL_SECONDS = 60.0
 _uptime_cache_lock = threading.Lock()
 _uptime_cache: tuple[float, int | None] | None = None
+
+_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "font-src 'self'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    ("Content-Security-Policy", _CONTENT_SECURITY_POLICY),
+)
+
+
+class _SecurityAndCacheHeadersMiddleware:
+    """Attach HTTP security headers and explicit Cache-Control policies."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path: str = scope["path"]
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for header, value in _SECURITY_HEADERS:
+                    headers[header] = value
+                if path.startswith("/api/"):
+                    headers["Cache-Control"] = "no-store"
+                elif message["status"] < 400:
+                    if path == "/tailwind.css" or path.startswith("/js/"):
+                        headers["Cache-Control"] = "public, max-age=3600"
+                    elif path.startswith("/fonts/"):
+                        headers["Cache-Control"] = "public, max-age=604800"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 def _query_service_start_monotonic_us() -> int | None:
@@ -35,22 +86,19 @@ def _query_service_start_monotonic_us() -> int | None:
             text=True,
             timeout=1,
         )
-    except FileNotFoundError:
-        return None
-
-    properties = dict(
-        line.split("=", 1)
-        for line in result.stdout.splitlines()
-        if "=" in line
-    )
-    if properties["ActiveState"] != "active":
-        return None
-
-    started_at_monotonic_us = int(properties["ExecMainStartTimestampMonotonic"])
-    if started_at_monotonic_us <= 0:
-        raise ValueError(
-            f"active pnl-trader.service has invalid start timestamp: {started_at_monotonic_us}"
+        properties = dict(
+            line.split("=", 1)
+            for line in result.stdout.splitlines()
+            if "=" in line
         )
+        if properties["ActiveState"] != "active":
+            return None
+        started_at_monotonic_us = int(properties["ExecMainStartTimestampMonotonic"])
+    except (subprocess.SubprocessError, OSError, KeyError, ValueError):
+        return None
+
+    if started_at_monotonic_us <= 0:
+        return None
     return started_at_monotonic_us
 
 
@@ -68,7 +116,7 @@ def _trading_service_uptime_seconds() -> int | None:
         return None
     elapsed_seconds = int(now - started_at_monotonic_us / 1_000_000)
     if elapsed_seconds < 0:
-        raise ValueError(f"computed negative service uptime: {elapsed_seconds}")
+        return None
     return elapsed_seconds
 
 
@@ -83,6 +131,7 @@ def create_app(data_dir: Path | str) -> FastAPI:
         version="1.0.0",
     )
     app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
+    app.add_middleware(_SecurityAndCacheHeadersMiddleware)
 
     @app.get("/api/dashboard")
     def get_dashboard_snapshot(
@@ -129,7 +178,10 @@ def create_app(data_dir: Path | str) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def get_dashboard() -> HTMLResponse:
         html_path = Path(__file__).parent / "static" / "index.html"
-        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+        return HTMLResponse(
+            html_path.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/tailwind.css")
     def get_dashboard_stylesheet() -> FileResponse:
