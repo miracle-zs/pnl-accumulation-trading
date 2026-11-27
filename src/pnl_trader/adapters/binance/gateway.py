@@ -341,14 +341,25 @@ class BinanceFuturesGateway:
                 detail=f"submit response could not be confirmed ({exc}); lookup required",
             )
 
-        if order is None:
-            try:
-                order = await self.lookup_order(request.symbol, request.client_order_id)
-            except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
-                return SubmissionResult(
-                    SubmissionCertainty.UNKNOWN,
-                    detail=f"submit response requires order lookup ({type(exc).__name__})",
-                )
+        if order is None or order.status is ExchangeOrderStatus.NEW:
+            for delay in (None, *ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS):
+                if delay is not None:
+                    await asyncio.sleep(delay)
+                try:
+                    looked_up = await self.lookup_order(
+                        request.symbol, request.client_order_id
+                    )
+                except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
+                    if order is not None:
+                        break
+                    return SubmissionResult(
+                        SubmissionCertainty.UNKNOWN,
+                        detail=f"submit response requires order lookup ({type(exc).__name__})",
+                    )
+                if looked_up is not None:
+                    order = looked_up
+                    if order.status is not ExchangeOrderStatus.NEW:
+                        break
             if order is None:
                 return SubmissionResult(
                     SubmissionCertainty.UNKNOWN,

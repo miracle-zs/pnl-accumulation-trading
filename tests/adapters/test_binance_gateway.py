@@ -42,18 +42,87 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.order.cumulative_quote, Decimal("600"))
 
     async def test_missing_submit_quote_and_unavailable_lookup_stays_unknown(self) -> None:
+        requests: list[str] = []
+
         async def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request.method)
             if request.method == "POST":
                 return httpx.Response(200, json={"orderId": 123, "status": "FILLED", "executedQty": "0.01"})
             return httpx.Response(400, json={"code": -2013, "msg": "Order does not exist."})
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
             gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
-            result = await gateway.submit_market_order(MarketOrderRequest(
-                symbol="BTCUSDT", side="SELL", quantity=Decimal("0.01"),
-                client_order_id="test-close",
-            ))
+            with patch(
+                "pnl_trader.adapters.binance.gateway.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await gateway.submit_market_order(MarketOrderRequest(
+                    symbol="BTCUSDT", side="SELL", quantity=Decimal("0.01"),
+                    client_order_id="test-close",
+                ))
         self.assertEqual(result.certainty, SubmissionCertainty.UNKNOWN)
+        self.assertEqual(requests, ["POST", "GET", "GET", "GET", "GET"])
+        self.assertEqual(sleep.await_args_list, [call(0.25), call(0.5), call(1.0)])
+
+    async def test_missing_submit_quote_retries_transient_not_found_and_new_status(self) -> None:
+        requests: list[str] = []
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request.method)
+            if request.method == "POST":
+                return httpx.Response(200, json={"orderId": 123, "status": "NEW", "executedQty": "0"})
+            if len(requests) == 2:
+                return httpx.Response(400, json={"code": -2013, "msg": "Order does not exist."})
+            if len(requests) == 3:
+                return httpx.Response(200, json={
+                    "symbol": "BTCUSDT", "clientOrderId": "test-open",
+                    "orderId": 123, "status": "NEW", "executedQty": "0", "cumQuote": "0",
+                })
+            return httpx.Response(200, json={
+                "symbol": "BTCUSDT", "clientOrderId": "test-open",
+                "orderId": 123, "status": "FILLED", "executedQty": "0.01", "cumQuote": "600",
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            with patch(
+                "pnl_trader.adapters.binance.gateway.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await gateway.submit_market_order(MarketOrderRequest(
+                    symbol="BTCUSDT", side="BUY", quantity=Decimal("0.01"),
+                    client_order_id="test-open",
+                ))
+        self.assertEqual(result.certainty, SubmissionCertainty.ACCEPTED)
+        self.assertEqual(result.order.status, ExchangeOrderStatus.FILLED)
+        self.assertEqual(result.order.cumulative_quote, Decimal("600"))
+        self.assertEqual(requests, ["POST", "GET", "GET", "GET"])
+        self.assertEqual(sleep.await_args_list, [call(0.25), call(0.5)])
+
+    async def test_submit_with_new_status_polls_briefly_and_preserves_new_state(self) -> None:
+        requests: list[str] = []
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request.method)
+            return httpx.Response(200, json={
+                "symbol": "BTCUSDT", "clientOrderId": "test-open",
+                "orderId": 123, "status": "NEW", "executedQty": "0", "cumQuote": "0",
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            with patch(
+                "pnl_trader.adapters.binance.gateway.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await gateway.submit_market_order(MarketOrderRequest(
+                    symbol="BTCUSDT", side="BUY", quantity=Decimal("0.01"),
+                    client_order_id="test-open",
+                ))
+        self.assertEqual(result.certainty, SubmissionCertainty.ACCEPTED)
+        self.assertEqual(result.order.status, ExchangeOrderStatus.NEW)
+        self.assertEqual(requests, ["POST", "GET", "GET", "GET", "GET"])
+        self.assertEqual(sleep.await_args_list, [call(0.25), call(0.5), call(1.0)])
 
     async def test_account_snapshot_uses_position_notionals_from_one_account_request(self) -> None:
         requests = []
