@@ -47,7 +47,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
     async def test_below_minimum_order_logs_concisely_and_is_checked_again(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with SQLiteStateStore(Path(directory) / "state.sqlite3") as store:
-                store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)
                 exchange = _FilledExchange()
                 exchange._rules = replace(exchange._rules, min_market_notional=D("20"))
                 execution = ExecutionCoordinator(store=store, exchange=exchange)
@@ -70,9 +70,9 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state(
-                    "BTCUSDT", created_at_ms=100
-                )
+                idle = store.ensure_idle_symbol_states(
+                    ("BTCUSDT",), created_at_ms=100
+                )["BTCUSDT"]
                 t1 = seed_buy_execution(
                     store,
                     idle,
@@ -136,7 +136,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 t1 = seed_buy_execution(
                     store, idle, action=Action.OPEN_T1, quantity=D("1"),
                     price=D("10"), intent_id="seed-writeoff-t1", timestamp_ms=200,
@@ -177,7 +177,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
             exchange = _PartialTerminalThenFilledExchange(price=D("11"))
             store = SQLiteStateStore(database_path)
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 seed_buy_execution(
                     store, idle, action=Action.OPEN_T1, quantity=D("1"),
                     price=D("10"), intent_id="seed-partial-t1", timestamp_ms=200,
@@ -222,7 +222,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
             database_path = Path(directory) / "state.sqlite3"
             store = SQLiteStateStore(database_path)
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 t1 = seed_buy_execution(
                     store, idle, action=Action.OPEN_T1, quantity=D("0.1"),
                     price=D("10"), intent_id="seed-t1", timestamp_ms=200,
@@ -269,7 +269,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
             exchange = _FilledExchange()
             exchange.close_fills_available = False
             with SQLiteStateStore(database_path) as store:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 seed_buy_execution(store, idle, action=Action.OPEN_T1, quantity=D("1"),
                                    price=D("10"), intent_id="legacy-open", timestamp_ms=200)
                 reviews = _reviews_with_matching_snapshot(store, exchange)
@@ -295,7 +295,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(status=expected_status), tempfile.TemporaryDirectory() as directory:
                 store = SQLiteStateStore(Path(directory) / "state.sqlite3")
                 try:
-                    idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                    idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                     t1 = seed_buy_execution(
                         store, idle, action=Action.OPEN_T1, quantity=D("0.1"),
                         price=D("10"), intent_id="seed-t1", timestamp_ms=200,
@@ -323,7 +323,7 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
     async def test_unaligned_full_close_is_isolated_to_single_symbol(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with SQLiteStateStore(Path(directory) / "state.sqlite3") as store:
-                idle_btc = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle_btc = store.ensure_idle_symbol_states(("BTCUSDT", "ETHUSDT"), created_at_ms=100)["BTCUSDT"]
                 seed_buy_execution(
                     store,
                     idle_btc,
@@ -333,7 +333,6 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                     intent_id="seed-unaligned-btc",
                     timestamp_ms=200,
                 )
-                store.ensure_idle_symbol_state("ETHUSDT", created_at_ms=100)
 
                 exchange = _FilledExchange(price=D("12"))
                 exchange._rules = replace(

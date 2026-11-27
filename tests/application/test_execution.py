@@ -37,9 +37,9 @@ class ExecutionAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state(
-                    "BTCUSDT", created_at_ms=100
-                )
+                idle = store.ensure_idle_symbol_states(
+                    ("BTCUSDT",), created_at_ms=100
+                )["BTCUSDT"]
                 t1 = seed_buy_execution(
                     store,
                     idle,
@@ -107,8 +107,8 @@ class ExecutionAcceptanceTests(unittest.TestCase):
             database_path = Path(directory) / "state.sqlite3"
             store = SQLiteStateStore(database_path)
             try:
-                state = store.ensure_idle_symbol_state(
-                    "BTCUSDT", created_at_ms=100
+                store.ensure_idle_symbol_states(
+                    ("BTCUSDT",), created_at_ms=100
                 )
                 intent = OrderIntent(
                     intent_id="intent-unknown-open",
@@ -195,10 +195,7 @@ class ExecutionAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "state.sqlite3"
             store = SQLiteStateStore(database_path)
-            btc_state = store.ensure_idle_symbol_state(
-                "BTCUSDT", created_at_ms=100
-            )
-            store.ensure_idle_symbol_state("ETHUSDT", created_at_ms=100)
+            store.ensure_idle_symbol_states(("BTCUSDT", "ETHUSDT"), created_at_ms=100)
             intent = OrderIntent(
                 intent_id="intent-partial-open",
                 symbol="BTCUSDT",
@@ -314,10 +311,7 @@ class ExecutionAcceptanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "state.sqlite3"
             store = SQLiteStateStore(database_path)
-            btc_state = store.ensure_idle_symbol_state(
-                "BTCUSDT", created_at_ms=100
-            )
-            store.ensure_idle_symbol_state("ETHUSDT", created_at_ms=100)
+            store.ensure_idle_symbol_states(("BTCUSDT", "ETHUSDT"), created_at_ms=100)
             intent = OrderIntent(
                 intent_id="intent-inconsistent-open",
                 symbol="BTCUSDT",
@@ -733,7 +727,7 @@ class _MismatchedOnceFillsGateway(ScriptedExchangeGateway):
 
 
 def _seed_open_t1(store: SQLiteStateStore):
-    idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+    idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
     return seed_buy_execution(
         store,
         idle,

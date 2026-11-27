@@ -115,7 +115,7 @@ class ReconciledReviewBatchSource:
         candidate_symbols.update(intents_by_symbol)
 
         inactive_symbols = set(signals_by_symbol) - candidate_symbols
-        self._store.clear_dashboard_issues(tuple(sorted(inactive_symbols)))
+        self._store.sync_dashboard_issues(clear_symbols=tuple(sorted(inactive_symbols)))
 
         missing_symbols = tuple(sorted(symbol for symbol in candidate_symbols if symbol not in states))
         if missing_symbols:

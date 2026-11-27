@@ -1,7 +1,7 @@
 // Centralized UI State, Shared Formatters, and Dashboard Panel Renderers
 
 export const PERIOD_LABELS = { '24h': '24 小时', '7d': '7 天', '30d': '30 天' };
-export const DRAWDOWN_PERIOD_LABELS = { '24h': '最近 24 小时', '7d': '最近 7 天', '30d': '最近 30 天' };
+const DRAWDOWN_PERIOD_LABELS = { '24h': '最近 24 小时', '7d': '最近 7 天', '30d': '最近 30 天' };
 
 export const state = {
   allPositions: [],
@@ -70,7 +70,7 @@ const beijingHmFmt = new Intl.DateTimeFormat('zh-CN', {
   hour12: false,
 });
 
-export function formatBeijingDateTime(epochMs) {
+function formatBeijingDateTime(epochMs) {
   return beijingDateTimeFmt.format(new Date(epochMs));
 }
 
@@ -163,7 +163,7 @@ export function formatSignedPercent(value, decimals = 2) {
   })}%`;
 }
 
-export function formatPrice(value) {
+function formatPrice(value) {
   if (value === null || value === undefined || value === '') return '—';
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '—';
@@ -179,7 +179,7 @@ export function formatUsdPrice(value) {
   return formatted === '—' ? '—' : `$${formatted}`;
 }
 
-export function formatQty(value) {
+function formatQty(value) {
   return formatPrice(value);
 }
 

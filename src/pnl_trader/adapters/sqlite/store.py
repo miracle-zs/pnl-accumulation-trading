@@ -240,40 +240,11 @@ class SQLiteStateStore:
                 ((symbol, str(price), captured_at_ms) for symbol, price in prices.items()),
             )
 
-    def record_dashboard_issue(
-        self,
-        *,
-        symbol: str,
-        category: str,
-        detail: str,
-        occurred_at_ms: int,
-    ) -> None:
-        with self._transaction() as connection:
-            connection.execute(
-                """INSERT INTO dashboard_issues (symbol, category, detail, occurred_at_ms)
-                   VALUES (?, ?, ?, ?)
-                   ON CONFLICT(symbol) DO UPDATE SET
-                       category = excluded.category,
-                       detail = excluded.detail,
-                       occurred_at_ms = excluded.occurred_at_ms""",
-                (symbol, category, detail, occurred_at_ms),
-            )
-
-    def clear_dashboard_issues(self, symbols: tuple[str, ...]) -> None:
-        if not symbols:
-            return
-        placeholders = ", ".join("?" for _ in symbols)
-        with self._transaction() as connection:
-            connection.execute(
-                f"DELETE FROM dashboard_issues WHERE symbol IN ({placeholders})",
-                symbols,
-            )
-
     def sync_dashboard_issues(
         self,
         *,
-        upserts: Mapping[str, tuple[str, str, int]],
-        clear_symbols: tuple[str, ...],
+        upserts: Mapping[str, tuple[str, str, int]] | None = None,
+        clear_symbols: tuple[str, ...] = (),
     ) -> None:
         """Apply a batch of dashboard issue upserts and clears in one transaction."""
         if not upserts and not clear_symbols:
@@ -298,15 +269,6 @@ class SQLiteStateStore:
                     f"DELETE FROM dashboard_issues WHERE symbol IN ({placeholders})",
                     clear_symbols,
                 )
-
-    def ensure_idle_symbol_state(
-        self,
-        symbol: str,
-        *,
-        created_at_ms: int,
-    ) -> SymbolState:
-        """Create an initial flat state once, without replacing an existing state."""
-        return self.ensure_idle_symbol_states((symbol,), created_at_ms=created_at_ms)[symbol]
 
     def ensure_idle_symbol_states(
         self,

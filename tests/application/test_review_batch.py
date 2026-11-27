@@ -28,7 +28,7 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 opened = seed_buy_execution(
                     store, idle, action=Action.OPEN_T1, quantity=D("1"),
                     price=D("10"), intent_id="open-btc", timestamp_ms=200,
@@ -80,7 +80,7 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 seed_buy_execution(
                     store,
                     idle,
@@ -134,7 +134,7 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 opened = seed_buy_execution(
                     store,
                     idle,
@@ -169,7 +169,7 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 seed_buy_execution(
                     store,
                     idle,
@@ -179,11 +179,8 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                     intent_id="open-btc",
                     timestamp_ms=200,
                 )
-                store.record_dashboard_issue(
-                    symbol="BTCUSDT",
-                    category="REVIEW_ERROR",
-                    detail="old error",
-                    occurred_at_ms=250,
+                store.sync_dashboard_issues(
+                    upserts={"BTCUSDT": ("REVIEW_ERROR", "old error", 250)}
                 )
                 source = ReconciledReviewBatchSource(
                     store=store,
@@ -205,7 +202,7 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 opened = seed_buy_execution(
                     store,
                     idle,
@@ -251,7 +248,7 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteStateStore(Path(directory) / "state.sqlite3")
             try:
-                idle = store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
                 seed_buy_execution(
                     store,
                     idle,
@@ -261,11 +258,8 @@ class ReconciledReviewBatchDelistingTests(unittest.IsolatedAsyncioTestCase):
                     intent_id="open-btc",
                     timestamp_ms=200,
                 )
-                store.record_dashboard_issue(
-                    symbol="BTCUSDT",
-                    category="REVIEW_ERROR",
-                    detail="awaiting delivery",
-                    occurred_at_ms=250,
+                store.sync_dashboard_issues(
+                    upserts={"BTCUSDT": ("REVIEW_ERROR", "awaiting delivery", 250)}
                 )
                 source = ReconciledReviewBatchSource(
                     store=store,

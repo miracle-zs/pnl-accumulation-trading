@@ -63,30 +63,21 @@ class SymbolReviewExecutor:
     async def review_symbol(
         self,
         *,
-        symbol: str,
         slot_start_ms: int,
         admitted: bool,
         price: Decimal,
-        state: SymbolState | None = None,
+        state: SymbolState,
         active_intent: PersistedOrderIntent | None = None,
-        active_intent_loaded: bool = False,
     ) -> SymbolReviewResult:
         """Review one action for a symbol using the slot's latest-price snapshot."""
 
-        if state is None:
-            state = self._store.load_symbol_state(symbol)
-        if not active_intent_loaded:
-            active_list = self._store.list_active_order_intents(symbol)
-            resolved_active: PersistedOrderIntent | None = active_list[0] if active_list else None
-        else:
-            resolved_active = active_intent
-
+        symbol = state.symbol
         observation = Observation(
             admitted=admitted,
             price=price,
         )
         decision = decide_strategy(state, observation)
-        if resolved_active is None and decision.action is Action.HOLD:
+        if active_intent is None and decision.action is Action.HOLD:
             return SymbolReviewResult(disposition=ReviewDisposition.NO_ACTION)
 
         intent_key = f"{slot_start_ms}:{symbol}"
@@ -94,7 +85,7 @@ class SymbolReviewExecutor:
             intent_key += ":reopen"
         intent_id = str(uuid5(NAMESPACE_URL, f"pnl-periodic-review:{intent_key}"))
         existing = self._resolve_prior_symbol_intent(
-            active_record=resolved_active,
+            active_record=active_intent,
             current_intent_id=intent_id,
         )
         if existing is not None:

@@ -21,8 +21,6 @@ import {
   renderRanking,
 } from './renderers.js?v=20261126-4';
 
-export { state };
-
 const REQUEST_TIMEOUT_MS = 10_000;
 
 let activeAbortController = null;

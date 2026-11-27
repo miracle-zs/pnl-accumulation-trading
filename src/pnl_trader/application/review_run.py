@@ -114,17 +114,20 @@ class ReviewRunCoordinator:
             result = await self._run_slot(slot_start_ms=slot_start_ms)
         except Exception as exc:
             try:
-                self._store.record_dashboard_issue(
-                    symbol="系统",
-                    category="REVIEW_RUN_ERROR",
-                    detail=f"本轮巡检失败：{type(exc).__name__}",
-                    occurred_at_ms=self._clock_ms(),
+                self._store.sync_dashboard_issues(
+                    upserts={
+                        "系统": (
+                            "REVIEW_RUN_ERROR",
+                            f"本轮巡检失败：{type(exc).__name__}",
+                            self._clock_ms(),
+                        )
+                    }
                 )
             except Exception:
                 logger.exception("failed to save whole-run dashboard issue")
             raise
 
-        self._store.clear_dashboard_issues(("系统",))
+        self._store.sync_dashboard_issues(clear_symbols=("系统",))
         return result
 
     async def _run_slot(
@@ -204,13 +207,11 @@ class ReviewRunCoordinator:
                 continue
             try:
                 result = await self._symbol_reviews.review_symbol(
-                    symbol=candidate.symbol,
                     slot_start_ms=batch.slot_start_ms,
                     admitted=candidate.admitted,
                     price=price,
                     state=states_by_symbol[candidate.symbol],
                     active_intent=active_intents_by_symbol.get(candidate.symbol),
-                    active_intent_loaded=True,
                 )
                 counts[result.disposition.value] += 1
                 _log_execution_issue(candidate.symbol, result.execution)
@@ -229,13 +230,10 @@ class ReviewRunCoordinator:
                     )
                     if state.lifecycle is Lifecycle.REOPEN_PENDING:
                         reopen_result = await self._symbol_reviews.review_symbol(
-                            symbol=candidate.symbol,
                             slot_start_ms=batch.slot_start_ms,
                             admitted=candidate.admitted,
                             price=price,
                             state=state,
-                            active_intent=None,
-                            active_intent_loaded=True,
                         )
                         counts[reopen_result.disposition.value] += 1
                         _log_execution_issue(candidate.symbol, reopen_result.execution)

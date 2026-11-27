@@ -1,3 +1,18 @@
 {
-  "buildPath": "code"
+  "buildPath": "code",
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          "src/pnl_trader/web/static/index.html"
+        ],
+        "createdAt": "2026-11-27T16:37:43.197Z",
+        "reason": "agent reviewed against DESIGN.md: L36 is an intentional compact status-pill chip and L105 is a hairline-grid wrapper whose KPI cells already apply p-3.5 sm:p-4 lg:p-5"
+      }
+    ]
+  }
 }

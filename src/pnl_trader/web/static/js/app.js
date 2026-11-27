@@ -79,7 +79,7 @@ function updateCountdown() {
   }
 }
 
-export function switchView(view, { skipScrollIntoView = false } = {}) {
+function switchView(view, { skipScrollIntoView = false } = {}) {
   state.currentView = view;
   const tabs = ['positions', 'fills', 'ranking'];
   tabs.forEach(v => {
@@ -117,7 +117,7 @@ export function switchView(view, { skipScrollIntoView = false } = {}) {
   }
 }
 
-export function selectPeriod(p) {
+function selectPeriod(p) {
   state.currentPeriod = p;
   syncPeriodButtons(p);
   fetchEquity(p);
@@ -145,7 +145,7 @@ function scheduleSearchFilter() {
   });
 }
 
-export function handleSearchInput(e) {
+function handleSearchInput(e) {
   if (e?.isComposing) return;
   scheduleSearchFilter();
 }

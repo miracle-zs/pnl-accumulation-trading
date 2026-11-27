@@ -44,7 +44,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
                     self.assertEqual(connection.execute("SELECT value FROM existing_data").fetchone()[0], "preserved")
 
     def test_upgrade_v25_preserves_state_and_uses_durable_commits(self) -> None:
-        original = self.store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+        original = self.store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
         self.store.close()
         with closing(sqlite3.connect(self.db_path)) as connection, connection:
             connection.execute("DROP INDEX trade_fills_by_side_time")
@@ -61,7 +61,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
             mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
         self.assertEqual(mode.lower(), "wal")
 
-        idle = self.store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+        idle = self.store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
         opened = seed_buy_execution(
             self.store,
             idle,
@@ -191,7 +191,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
             )
 
     def test_reopening_database_keeps_symbol_state(self) -> None:
-        state = self.store.ensure_idle_symbol_state("BTCUSDT", created_at_ms=100)
+        state = self.store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
         self.store.close()
 
         self.store = SQLiteStateStore(self.db_path)
@@ -222,7 +222,7 @@ class SQLiteStateStoreTests(unittest.TestCase):
         )
 
     def seed_idle_symbol(self, symbol: str = "BTCUSDT") -> None:
-        self.store.ensure_idle_symbol_state(symbol, created_at_ms=100)
+        self.store.ensure_idle_symbol_states((symbol,), created_at_ms=100)
 
     @staticmethod
     def buy_intent(
