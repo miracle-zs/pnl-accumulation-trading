@@ -124,6 +124,51 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(requests, ["POST", "GET", "GET", "GET", "GET"])
         self.assertEqual(sleep.await_args_list, [call(0.25), call(0.5), call(1.0)])
 
+    async def test_missing_submit_quote_retries_transient_inconsistent_snapshot(self) -> None:
+        requests: list[str] = []
+
+        async def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request.method)
+            if request.method == "POST":
+                return httpx.Response(200, json={"orderId": 123, "status": "NEW", "executedQty": "0"})
+            if len(requests) == 2:
+                return httpx.Response(200, json={
+                    "symbol": "VELVETUSDT", "clientOrderId": "test-reopen",
+                    "orderId": 123, "status": "FILLED", "executedQty": "98", "cumQuote": "0",
+                })
+            return httpx.Response(200, json={
+                "symbol": "VELVETUSDT", "clientOrderId": "test-reopen",
+                "orderId": 123, "status": "FILLED", "executedQty": "98", "cumQuote": "9.92",
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            with patch(
+                "pnl_trader.adapters.binance.gateway.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await gateway.submit_market_order(MarketOrderRequest(
+                    symbol="VELVETUSDT", side="BUY", quantity=Decimal("98"),
+                    client_order_id="test-reopen",
+                ))
+        self.assertEqual(result.certainty, SubmissionCertainty.ACCEPTED)
+        self.assertEqual(result.order.status, ExchangeOrderStatus.FILLED)
+        self.assertEqual(result.order.cumulative_quote, Decimal("9.92"))
+        self.assertEqual(requests, ["POST", "GET", "GET"])
+        self.assertEqual(sleep.await_args_list, [call(0.25)])
+
+    async def test_lookup_order_wraps_inconsistent_snapshot_as_protocol_error(self) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={
+                "symbol": "VELVETUSDT", "clientOrderId": "test-reopen",
+                "orderId": 123, "status": "FILLED", "executedQty": "98", "cumQuote": "0",
+            })
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            with self.assertRaises(BinanceProtocolError):
+                await gateway.lookup_order("VELVETUSDT", "test-reopen")
+
     async def test_account_snapshot_uses_position_notionals_from_one_account_request(self) -> None:
         requests = []
 

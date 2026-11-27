@@ -342,6 +342,7 @@ class BinanceFuturesGateway:
             )
 
         if order is None or order.status is ExchangeOrderStatus.NEW:
+            last_lookup_error: Exception | None = None
             for delay in (None, *ORDER_FILL_RECONCILIATION_RETRY_DELAYS_SECONDS):
                 if delay is not None:
                     await asyncio.sleep(delay)
@@ -349,6 +350,9 @@ class BinanceFuturesGateway:
                     looked_up = await self.lookup_order(
                         request.symbol, request.client_order_id
                     )
+                except BinanceProtocolError as exc:
+                    last_lookup_error = exc
+                    continue
                 except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
                     if order is not None:
                         break
@@ -358,12 +362,18 @@ class BinanceFuturesGateway:
                     )
                 if looked_up is not None:
                     order = looked_up
+                    last_lookup_error = None
                     if order.status is not ExchangeOrderStatus.NEW:
                         break
             if order is None:
+                detail = (
+                    f"submit response requires order lookup ({type(last_lookup_error).__name__})"
+                    if last_lookup_error is not None
+                    else "submit response requires order lookup; order not found"
+                )
                 return SubmissionResult(
                     SubmissionCertainty.UNKNOWN,
-                    detail="submit response requires order lookup; order not found",
+                    detail=detail,
                 )
 
         if order.status is ExchangeOrderStatus.REJECTED:
@@ -685,12 +695,18 @@ def _parse_order_snapshot(payload: object) -> ExchangeOrderSnapshot:
         status = ExchangeOrderStatus(raw_status)
     except ValueError as exc:
         raise BinanceProtocolError(f"unsupported order status {raw_status!r}") from exc
-    return ExchangeOrderSnapshot(
-        status=status,
-        executed_qty=_decimal(payload["executedQty"], "executedQty"),
-        cumulative_quote=_decimal(payload["cumQuote"], "cumQuote"),
-        exchange_order_id=str(_integer(payload["orderId"], "orderId")),
-    )
+    executed_qty = _decimal(payload["executedQty"], "executedQty")
+    cumulative_quote = _decimal(payload["cumQuote"], "cumQuote")
+    exchange_order_id = str(_integer(payload["orderId"], "orderId"))
+    try:
+        return ExchangeOrderSnapshot(
+            status=status,
+            executed_qty=executed_qty,
+            cumulative_quote=cumulative_quote,
+            exchange_order_id=exchange_order_id,
+        )
+    except ValueError as exc:
+        raise BinanceProtocolError(str(exc)) from exc
 
 
 def _parse_trade_fill(
