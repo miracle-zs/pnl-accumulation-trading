@@ -95,6 +95,8 @@ class SymbolReviewExecutor:
 
         rules = await self._exchange.get_instrument_rules(symbol)
         plan = plan_market_order(decision, state, rules, price)
+        if plan.action is Action.HOLD:
+            return SymbolReviewResult(disposition=ReviewDisposition.NO_ACTION)
 
         if plan.action in BUY_ACTIONS and not await self._ensure_symbol_leverage(
             symbol, slot_start_ms

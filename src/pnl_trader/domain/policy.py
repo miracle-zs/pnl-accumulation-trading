@@ -80,6 +80,8 @@ def decide_strategy(state: SymbolState, observation: Observation) -> Decision:
             )
         if ret >= T3_BATCH1_TAKE_PROFIT and state.completed_batches == 0:
             target = state.tier_entry_qty / Decimal("3")
+            if state.tier_sold_qty >= target:
+                return Decision(Action.HOLD)
             return _close_to_target(
                 state,
                 Action.CLOSE_T3_TO_ONE_THIRD,

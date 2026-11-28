@@ -79,7 +79,7 @@ class MarketOrderPlanningTests(unittest.TestCase):
                 self.assertEqual(plan.target_cumulative_sold_qty, state.tier_entry_qty)
                 self.assertLess(plan.quantity * price, self.rules.min_market_notional)
 
-    def test_full_close_still_rejects_quantity_above_market_maximum(self) -> None:
+    def test_full_close_caps_quantity_at_market_maximum_for_multi_slot_exit(self) -> None:
         state = SymbolState(
             symbol="TESTUSDT", tier=Tier.T3, lifecycle=Lifecycle.OPEN,
             qty=D("3"), avg_entry_price=D("10"), tier_entry_qty=D("3"),
@@ -89,8 +89,42 @@ class MarketOrderPlanningTests(unittest.TestCase):
             state, Observation(admitted=True, price=D("1.6"))
         )
 
-        with self.assertRaisesRegex(ValueError, "exceeds market maxQty"):
-            plan_market_order(decision, state, market_rules(max_qty="2"), D("1.6"))
+        plan = plan_market_order(decision, state, market_rules(max_qty="2"), D("1.6"))
+
+        self.assertEqual(plan.action, Action.CLOSE_T3_FULL)
+        self.assertEqual(plan.quantity, D("2.00"))
+        self.assertEqual(plan.target_cumulative_sold_qty, D("3"))
+
+    def test_t3_batch1_holds_when_aligned_one_third_was_already_sold(self) -> None:
+        state = SymbolState(
+            symbol="TESTUSDT",
+            tier=Tier.T3,
+            lifecycle=Lifecycle.OPEN,
+            qty=D("7"),
+            avg_entry_price=D("10"),
+            tier_entry_qty=D("10"),
+            tier_anchor_price=D("5"),
+            completed_batches=0,
+        )
+        integer_rules = InstrumentRules(
+            symbol="TESTUSDT",
+            contract_type="PERPETUAL",
+            status="TRADING",
+            quote_asset="USDT",
+            margin_asset="USDT",
+            market_quantity=MarketQuantityRules(
+                min_qty=D("1"),
+                max_qty=D("1000"),
+                step_size=D("1"),
+            ),
+            min_market_notional=D("5"),
+        )
+        decision = decide_strategy(state, Observation(admitted=True, price=D("12.5")))
+
+        plan = plan_market_order(decision, state, integer_rules, D("12.5"))
+
+        self.assertEqual(plan.action, Action.HOLD)
+        self.assertEqual(plan.quantity, D("0"))
 
     def test_subminimum_take_profit_batch_merges_to_full_close(self) -> None:
         state = SymbolState(

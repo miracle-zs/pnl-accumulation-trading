@@ -633,6 +633,38 @@ class ExecutionAcceptanceTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_recover_pending_resolves_stale_unknown_not_found_after_grace_window(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteStateStore(Path(directory) / "state.sqlite3")
+            try:
+                store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)
+                intent = OrderIntent(
+                    intent_id="stale-unknown-open",
+                    symbol="BTCUSDT",
+                    action=Action.OPEN_T1,
+                    created_at_ms=900_000,
+                )
+                store.create_order_intent(intent)
+                store.create_order_attempt(intent.intent_id, requested_qty=D("1"))
+                store.transition_intent(
+                    intent.intent_id,
+                    expected=IntentStatus.PENDING,
+                    target=IntentStatus.UNKNOWN,
+                )
+                gateway = _ControllableExchangeGateway(order=None, fills=())
+                execution = ExecutionCoordinator(
+                    store=store,
+                    exchange=gateway,
+                    clock_ms=lambda: 1_800_000,
+                )
+
+                asyncio.run(execution.recover_pending(current_slot_start_ms=1_800_000))
+
+                self.assertEqual(store.get_intent_status(intent.intent_id), IntentStatus.CANCELED)
+                self.assertEqual(store.list_active_order_intents(), ())
+            finally:
+                store.close()
+
 
 class _ControllableExchangeGateway:
     """External exchange boundary with delayed order visibility."""

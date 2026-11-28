@@ -306,9 +306,11 @@ class DashboardQueryService:
         ).fetchone()
         pending_by_period = conn.execute(
             f"""SELECT
-                   COUNT(CASE WHEN full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?
+                   COUNT(CASE WHEN (full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?)
+                                OR full_close_confirmed_at_ms IS NULL
                        THEN 1 END) AS today_count,
-                   COUNT(CASE WHEN full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?
+                   COUNT(CASE WHEN (full_close_confirmed_at_ms >= ? AND full_close_confirmed_at_ms < ?)
+                                OR full_close_confirmed_at_ms IS NULL
                        THEN 1 END) AS week_count
                 FROM order_intents AS i
                 WHERE status = 'FILLED' AND action IN ({_FULL_CLOSE_PLACEHOLDERS})

@@ -292,8 +292,12 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
         app = create_app(data_dir=self._data_dir)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             pending = (await client.get("/api/overview")).json()
+            pending_analytics = (await client.get("/api/analytics")).json()
             self.assertEqual(pending["pending_close_fill_count"], 1)
             self.assertIsNone(pending["realized_cash"])
+            self.assertEqual(pending_analytics["today"]["pending_close_fill_count"], 1)
+            self.assertIsNone(pending_analytics["today"]["realized_net"])
+            self.assertEqual(pending_analytics["costs"]["pending_close_fill_count"], 1)
             with closing(sqlite3.connect(self._db_path)) as connection, connection:
                 connection.execute(
                     "INSERT INTO trade_fills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

@@ -135,7 +135,7 @@ class ReviewRunCoordinator:
         *,
         slot_start_ms: int,
     ) -> ReviewRunResult:
-        await self._execution.recover_pending()
+        await self._execution.recover_pending(current_slot_start_ms=slot_start_ms)
         batch, latest_prices = await asyncio.gather(
             self._batch_source.load_review_batch(slot_start_ms),
             self._exchange.get_latest_prices(),

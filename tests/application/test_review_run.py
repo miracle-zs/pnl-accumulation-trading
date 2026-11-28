@@ -370,6 +370,41 @@ class ReviewRunAcceptanceTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(store.load_symbol_state("ETHUSDT").tier, Tier.T1)
                 self.assertEqual(store.load_symbol_state("BTCUSDT").qty, D("0.105"))
 
+    async def test_oversized_full_close_exits_across_slots_when_exceeding_max_qty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with SQLiteStateStore(Path(directory) / "state.sqlite3") as store:
+                idle = store.ensure_idle_symbol_states(("BTCUSDT",), created_at_ms=100)["BTCUSDT"]
+                seed_buy_execution(
+                    store,
+                    idle,
+                    action=Action.OPEN_T1,
+                    quantity=D("3"),
+                    price=D("10"),
+                    intent_id="seed-oversized-t1",
+                    timestamp_ms=200,
+                )
+                exchange = _FilledExchange(price=D("12"))
+                exchange._rules = replace(
+                    exchange._rules,
+                    market_quantity=MarketQuantityRules(
+                        min_qty=D("0.01"),
+                        max_qty=D("2"),
+                        step_size=D("0.01"),
+                    ),
+                )
+                reviews = _reviews_with_matching_snapshot(store, exchange)
+
+                await reviews.run_slot(slot_start_ms=SLOT_START_MS)
+                mid_state = store.load_symbol_state("BTCUSDT")
+                self.assertEqual(mid_state.lifecycle, Lifecycle.CLOSING)
+                self.assertEqual(mid_state.qty, D("1"))
+
+                await reviews.run_slot(slot_start_ms=SLOT_START_MS + 900_000)
+                final_state = store.load_symbol_state("BTCUSDT")
+                self.assertEqual(final_state.lifecycle, Lifecycle.OPEN)
+                self.assertEqual(final_state.tier, Tier.T1)
+                self.assertEqual(exchange.submitted_sides, ["SELL", "SELL", "BUY"])
+
 class _OneSymbolBatchSource:
     async def load_review_batch(
         self,

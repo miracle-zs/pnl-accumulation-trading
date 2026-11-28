@@ -578,8 +578,15 @@ class SQLiteStateStore:
                 else Decimal(intent["target_cumulative_sold_qty"])
             )
             current_sold_qty = Decimal(state_row["tier_entry_qty"]) - Decimal(state_row["qty"])
-            if target is not None and requested_qty != target - current_sold_qty:
-                raise IntentConflict("close order quantity must match its remaining cumulative target")
+            if target is not None:
+                remaining_target = target - current_sold_qty
+                is_full_close = Action(intent["action"]) in FULL_CLOSE_ACTIONS
+                if requested_qty <= ZERO or (
+                    requested_qty > remaining_target
+                    if is_full_close
+                    else requested_qty != remaining_target
+                ):
+                    raise IntentConflict("close order quantity must match its remaining cumulative target")
             connection.execute(
                 """UPDATE order_intents SET status = 'PENDING', requested_qty = ?
                    WHERE intent_id = ?""",

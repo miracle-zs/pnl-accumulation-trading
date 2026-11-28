@@ -151,6 +151,11 @@ def _apply_sell(
                 completed_batches = max(completed_batches, 1)
             else:
                 completed_batches = 2
+        elif (
+            receipt.action is Action.CLOSE_T3_TO_TWO_THIRDS
+            and new_sold_qty >= state.tier_entry_qty / Decimal("3")
+        ):
+            completed_batches = max(completed_batches, 1)
 
     return replace(
         state,

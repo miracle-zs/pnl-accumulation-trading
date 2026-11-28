@@ -9,6 +9,7 @@ from ..domain.models import (
     BATCH_CLOSE_ACTIONS,
     BUY_ACTIONS,
     CLOSE_ACTIONS,
+    FULL_CLOSE_ACTIONS,
     Action,
     Decision,
     FULL_CLOSE_BY_TIER,
@@ -99,8 +100,19 @@ def plan_market_order(
         )
     action = decision.action
     if batch_close:
+        aligned_target = rules.market_quantity.align_down(
+            state.tier_sold_qty + decision.close_qty
+        )
+        if aligned_target > ZERO and state.tier_sold_qty >= aligned_target:
+            return MarketOrderPlan(
+                action=Action.HOLD,
+                quantity=ZERO,
+                target_cumulative_sold_qty=None,
+            )
         merge_to_full_close = quantity <= ZERO
         if not merge_to_full_close:
+            if quantity > rules.market_quantity.max_qty:
+                quantity = rules.market_quantity.align_down(rules.market_quantity.max_qty)
             _validate_quantity(
                 quantity,
                 rules,
@@ -111,15 +123,24 @@ def plan_market_order(
         if merge_to_full_close:
             action = FULL_CLOSE_BY_TIER[state.tier]
             quantity = rules.market_quantity.align_down(state.qty)
-            _validate_quantity(quantity, rules, price, check_min_notional=False)
             if quantity != state.qty:
                 raise OrderRuleUnavailable(
                     "the complete remaining position is not aligned to the market quantity grid",
                 )
+            if quantity > rules.market_quantity.max_qty:
+                quantity = rules.market_quantity.align_down(rules.market_quantity.max_qty)
+            _validate_quantity(quantity, rules, price, check_min_notional=False)
+        target = (
+            state.tier_entry_qty
+            if action in FULL_CLOSE_ACTIONS
+            else state.tier_sold_qty + quantity
+        )
     else:
+        if quantity > rules.market_quantity.max_qty:
+            quantity = rules.market_quantity.align_down(rules.market_quantity.max_qty)
         # Full closes are reduce-only and exempt from MIN_NOTIONAL.
         _validate_quantity(quantity, rules, price, check_min_notional=False)
-    target = state.tier_sold_qty + quantity
+        target = state.tier_entry_qty
     return MarketOrderPlan(
         action=action,
         quantity=quantity,

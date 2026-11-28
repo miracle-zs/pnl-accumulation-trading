@@ -333,6 +333,33 @@ class ConfirmedExecutionTransitionTests(unittest.TestCase):
         with self.assertRaises(InvalidExecution):
             apply_confirmed_execution(state, ExecutionReceipt(Action.CLOSE_T1, D("0.2"), D("22")))
 
+    def test_t3_partial_two_thirds_past_one_third_marks_batch_one_and_holds_on_pullback(self) -> None:
+        state = open_state(Tier.T3, qty="9", entry_qty="9", average="10", anchor="5")
+        partial = apply_confirmed_execution(
+            state,
+            ExecutionReceipt(
+                Action.CLOSE_T3_TO_TWO_THIRDS,
+                D("4"),
+                D("60"),
+                target_cumulative_sold_qty=D("6"),
+            ),
+        )
+        self.assertEqual(partial.completed_batches, 1)
+        self.assertEqual(partial.qty, D("5"))
+
+        # Even if a persisted state had completed_batches=0 with >= 1/3 sold, pulling
+        # back to +25% must hold cleanly instead of raising ValueError.
+        legacy_partial = open_state(
+            Tier.T3,
+            qty="5",
+            entry_qty="9",
+            average="10",
+            anchor="5",
+            completed_batches=0,
+        )
+        decision = decide_strategy(legacy_partial, Observation(admitted=True, price=D("12.5")))
+        self.assertEqual(decision.action, Action.HOLD)
+
 
 if __name__ == "__main__":
     unittest.main()

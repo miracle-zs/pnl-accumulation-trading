@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+_STALE_UNKNOWN_GRACE_MS = 900_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,11 +140,18 @@ class ExecutionCoordinator:
             expected_status=IntentStatus.PENDING,
         )
 
-    async def recover_pending(self) -> None:
+    async def recover_pending(
+        self,
+        *,
+        current_slot_start_ms: int | None = None,
+    ) -> None:
         """Reconcile active attempts by client order ID without resubmitting."""
 
         for record in self._store.list_active_order_intents():
-            await self._recover_record(record)
+            await self._recover_record(
+                record,
+                current_slot_start_ms=current_slot_start_ms,
+            )
 
     async def recover_full_close_fills(self) -> None:
         """Backfill trade details after confirmed full closes and reopening."""
@@ -195,7 +203,12 @@ class ExecutionCoordinator:
                 continue
             self._store.record_full_close_fills(record.intent.intent_id, fills)
 
-    async def _recover_record(self, record: PersistedOrderIntent) -> None:
+    async def _recover_record(
+        self,
+        record: PersistedOrderIntent,
+        *,
+        current_slot_start_ms: int | None = None,
+    ) -> None:
         if record.status is IntentStatus.PREPARED:
             self._store.transition_intent(
                 record.intent.intent_id,
@@ -218,6 +231,28 @@ class ExecutionCoordinator:
             lookup_error = type(exc).__name__
 
         if order is None:
+            reference_ms = (
+                self._clock_ms()
+                if current_slot_start_ms is None
+                else current_slot_start_ms
+            )
+            if (
+                lookup_error is None
+                and record.status is IntentStatus.UNKNOWN
+                and reference_ms - record.intent.created_at_ms >= _STALE_UNKNOWN_GRACE_MS
+            ):
+                logger.warning(
+                    "resolving stale unknown order not found on exchange: symbol=%s intent_id=%s",
+                    record.intent.symbol,
+                    record.intent.intent_id,
+                )
+                self._apply_no_fill(
+                    record.intent,
+                    expected=IntentStatus.UNKNOWN,
+                    terminal_status=IntentStatus.CANCELED,
+                    detail="exchange order not found after grace window",
+                )
+                return
             logger.warning(
                 "order recovery unresolved: symbol=%s intent_id=%s lookup=%s",
                 record.intent.symbol,

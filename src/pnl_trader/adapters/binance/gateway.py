@@ -175,7 +175,12 @@ class BinanceFuturesGateway:
             margin_asset = _required_text(row["marginAsset"], "marginAsset")
             contract_type = _required_text(row["contractType"], "contractType")
             status = _required_text(row["status"], "status")
-            underlying_type = _required_text(row["underlyingType"], "underlyingType")
+            raw_underlying_type = row["underlyingType"]
+            if not isinstance(raw_underlying_type, str):
+                raise BinanceProtocolError(
+                    f"exchangeInfo row {index} has invalid underlyingType"
+                )
+            underlying_type = raw_underlying_type
             raw_underlying_sub_types = row["underlyingSubType"]
             if not isinstance(raw_underlying_sub_types, list) or any(
                 not isinstance(value, str) or not value
@@ -184,11 +189,16 @@ class BinanceFuturesGateway:
                 raise BinanceProtocolError(
                     f"exchangeInfo row {index} has invalid underlyingSubType"
                 )
+            is_target_underlying = (
+                underlying_type in {"COIN", "INDEX"}
+                or "RWA" in raw_underlying_sub_types
+            )
             needs_rules = (
                 quote_asset == "USDT"
                 and margin_asset == "USDT"
                 and contract_type == "PERPETUAL"
                 and status in {"TRADING", "PRE_DELIVERING"}
+                and is_target_underlying
             )
             rules = (
                 _parse_instrument_rules(
@@ -353,7 +363,12 @@ class BinanceFuturesGateway:
                 except BinanceProtocolError as exc:
                     last_lookup_error = exc
                     continue
-                except (ExchangeOperationError, ExchangeResponseError, TimeoutError) as exc:
+                except (
+                    ExchangeAccessError,
+                    ExchangeOperationError,
+                    ExchangeResponseError,
+                    TimeoutError,
+                ) as exc:
                     if order is not None:
                         break
                     return SubmissionResult(

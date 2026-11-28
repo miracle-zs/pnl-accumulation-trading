@@ -466,6 +466,72 @@ class BinanceGatewayTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(instruments), 1)
             self.assertIsNone(instruments[0].rules)
 
+    async def test_post_submit_lookup_access_error_does_not_report_rejected(self) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST":
+                return httpx.Response(200, json={"orderId": 123, "status": "FILLED", "executedQty": "0.01"})
+            return httpx.Response(418, json={"code": -1003, "msg": "banned"})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            result = await gateway.submit_market_order(MarketOrderRequest(
+                symbol="BTCUSDT", side="BUY", quantity=Decimal("0.01"),
+                client_order_id="test-ban-after-post",
+            ))
+        self.assertEqual(result.certainty, SubmissionCertainty.UNKNOWN)
+        self.assertIn("ExchangeAccessError", result.detail)
+
+    async def test_exchange_info_ignores_missing_rules_and_empty_underlying_on_non_target_contracts(self) -> None:
+        async def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "symbols": [
+                        {
+                            "symbol": "AAPLUSDT",
+                            "quoteAsset": "USDT",
+                            "marginAsset": "USDT",
+                            "contractType": "PERPETUAL",
+                            "status": "TRADING",
+                            "underlyingType": "EQUITY",
+                            "underlyingSubType": [],
+                            "filters": [],
+                        },
+                        {
+                            "symbol": "PRELAUNCHUSDT",
+                            "quoteAsset": "USDT",
+                            "marginAsset": "USDT",
+                            "contractType": "PERPETUAL",
+                            "status": "PENDING_TRADING",
+                            "underlyingType": "",
+                            "underlyingSubType": [],
+                            "filters": [],
+                        },
+                        {
+                            "symbol": "BTCUSDT",
+                            "quoteAsset": "USDT",
+                            "marginAsset": "USDT",
+                            "contractType": "PERPETUAL",
+                            "status": "TRADING",
+                            "underlyingType": "COIN",
+                            "underlyingSubType": [],
+                            "filters": [
+                                {"filterType": "MARKET_LOT_SIZE", "minQty": "0.001", "maxQty": "1000", "stepSize": "0.001"},
+                                {"filterType": "MIN_NOTIONAL", "notional": "5"},
+                            ],
+                        },
+                    ]
+                },
+            )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            gateway = BinanceFuturesGateway(client=client, api_key="key", api_secret="secret")
+            instruments = await gateway.get_exchange_info_snapshot()
+        by_symbol = {item.symbol: item for item in instruments}
+        self.assertIsNone(by_symbol["AAPLUSDT"].rules)
+        self.assertEqual(by_symbol["PRELAUNCHUSDT"].underlying_type, "")
+        self.assertIsNotNone(by_symbol["BTCUSDT"].rules)
+
 
 if __name__ == "__main__":
     unittest.main()
