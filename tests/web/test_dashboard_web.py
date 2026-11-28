@@ -402,6 +402,9 @@ class DashboardWebTests(unittest.IsolatedAsyncioTestCase):
             ("/js/api.js", "public, max-age=3600"),
             ("/js/chart.js", "public, max-age=3600"),
             ("/js/renderers.js", "public, max-age=3600"),
+            ("/js/state.js", "public, max-age=3600"),
+            ("/js/panels.js", "public, max-age=3600"),
+            ("/js/workbench.js", "public, max-age=3600"),
             ("/fonts/barlow-latin-500.woff2", "public, max-age=604800"),
         ]
 

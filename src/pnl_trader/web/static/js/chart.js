@@ -7,7 +7,7 @@ import {
   formatBeijingHm,
   formatBeijingShortDateTime,
   formatBeijingDateHm,
-} from './renderers.js?v=20261126-4';
+} from './renderers.js?v=20261128-1';
 
 let activeHoverIndex = null;
 let lastTooltipIndex = null;
@@ -121,15 +121,63 @@ function sanitizePoints(points) {
   return clean;
 }
 
-function computeMinMax(points) {
+function computeExtremesAndDrawdown(points) {
   let min = Infinity;
   let max = -Infinity;
+  let minIdx = 0;
+  let maxIdx = 0;
+  let runningPeakIdx = 0;
+  let ddPeakIdx = 0;
+  let ddTroughIdx = 0;
+  let maxDdPct = 0;
+
   for (let i = 0; i < points.length; i++) {
     const v = points[i].equity;
-    if (v < min) min = v;
-    if (v > max) max = v;
+    if (v < min) {
+      min = v;
+      minIdx = i;
+    }
+    if (v > max) {
+      max = v;
+      maxIdx = i;
+    }
+    if (v > points[runningPeakIdx].equity) {
+      runningPeakIdx = i;
+    } else if (points[runningPeakIdx].equity > 0) {
+      const ddPct = (points[runningPeakIdx].equity - v) / points[runningPeakIdx].equity;
+      if (ddPct > maxDdPct) {
+        maxDdPct = ddPct;
+        ddPeakIdx = runningPeakIdx;
+        ddTroughIdx = i;
+      }
+    }
   }
-  return { min, max };
+  return { min, max, minIdx, maxIdx, ddPeakIdx, ddTroughIdx, maxDdPct };
+}
+
+function boxesOverlap(a, b, gap = 4) {
+  return !(
+    a.x + a.w + gap <= b.x
+    || b.x + b.w + gap <= a.x
+    || a.y + a.h + gap <= b.y
+    || b.y + b.h + gap <= a.y
+  );
+}
+
+function drawPillTag(ctx, text, box, { bg = 'rgba(255, 255, 255, 0.94)', border = '#d4dfdc', color = '#3f5760' } = {}) {
+  ctx.save();
+  ctx.font = `600 12px ${CHART_FONT_FAMILY}`;
+  ctx.fillStyle = bg;
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(box.x, box.y, box.w, box.h, 3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.textAlign = 'left';
+  ctx.fillText(text, box.x + 6, box.y + 14);
+  ctx.restore();
 }
 
 function buildStaticLayer(points, w, h, dpr) {
@@ -157,7 +205,7 @@ function buildStaticLayer(points, w, h, dpr) {
   }
 
   const isSinglePoint = points.length === 1;
-  const { min, max } = computeMinMax(points);
+  const { min, max, minIdx, maxIdx, ddPeakIdx, ddTroughIdx, maxDdPct } = computeExtremesAndDrawdown(points);
   const { minVal, maxVal, step, ticks } = computeNiceScale(min, max, 4);
 
   const axisFont = `500 12px ${CHART_FONT_FAMILY}`;
@@ -270,6 +318,17 @@ function buildStaticLayer(points, w, h, dpr) {
   ctx.restore();
 
   const bottomY = paddingTop + plotH;
+  if (!isSinglePoint && maxDdPct > 0.0005 && ddTroughIdx > ddPeakIdx) {
+    const ddStartX = getX(ddPeakIdx);
+    const ddEndX = getX(ddTroughIdx);
+    if (ddEndX - ddStartX >= 2) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(189, 43, 43, 0.045)';
+      ctx.fillRect(ddStartX, paddingTop, ddEndX - ddStartX, plotH);
+      ctx.restore();
+    }
+  }
+
   if (isSinglePoint) {
     // Place single-point hint cleanly below the center anchor dot so it never collides with top gridline
     ctx.save();
@@ -329,26 +388,82 @@ function buildStaticLayer(points, w, h, dpr) {
   // Draw period-open badge AFTER curve/dot, anchored on the left away from curX with crisp pill backdrop
   const tagDecimals = Math.max(2, stepPrecision(step));
   const openTag = `期初 ${formatChartUsd(startEquity, tagDecimals)}`;
-  ctx.save();
   ctx.font = `600 12px ${CHART_FONT_FAMILY}`;
-  const tagWidth = ctx.measureText(openTag).width + 12;
+  const openTagWidth = ctx.measureText(openTag).width + 12;
   const tagHeight = 20;
-  const tagX = paddingLeft + 6;
+  const openTagX = paddingLeft + 6;
   const preferAbove = baseY - tagHeight - 4 >= paddingTop + 2;
-  const tagY = preferAbove
+  const openTagY = preferAbove
     ? baseY - tagHeight - 4
     : Math.min(bottomY - tagHeight - 2, baseY + 4);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
-  ctx.strokeStyle = '#d4dfdc';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(tagX, tagY, tagWidth, tagHeight, 3);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = '#3f5760';
-  ctx.textAlign = 'left';
-  ctx.fillText(openTag, tagX + 6, tagY + 14);
-  ctx.restore();
+  const openBox = { x: openTagX, y: openTagY, w: openTagWidth, h: tagHeight };
+  drawPillTag(ctx, openTag, openBox);
+
+  const occupiedBoxes = [openBox];
+  const hasDistinctExtremes = !isSinglePoint && maxVal > minVal && maxIdx !== minIdx && max > min;
+  if (hasDistinctExtremes) {
+    const extremeMarkers = [
+      {
+        idx: maxIdx,
+        text: `高 ${formatChartUsd(max, tagDecimals)}`,
+        dotColor: '#0a7052',
+        border: '#a5dcc8',
+        bg: 'rgba(230, 245, 239, 0.95)',
+        color: '#0a7052',
+        preferAbove: true,
+      },
+      {
+        idx: minIdx,
+        text: `低 ${formatChartUsd(min, tagDecimals)}`,
+        dotColor: '#bd2b2b',
+        border: '#f0b5b5',
+        bg: 'rgba(252, 236, 236, 0.95)',
+        color: '#bd2b2b',
+        preferAbove: false,
+      },
+    ];
+
+    for (const marker of extremeMarkers) {
+      const mx = getX(marker.idx);
+      const my = getY(points[marker.idx].equity);
+      if (marker.idx !== points.length - 1) {
+        ctx.beginPath();
+        ctx.arc(mx, my, 3, 0, Math.PI * 2);
+        ctx.fillStyle = marker.dotColor;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+      }
+
+      const tagW = ctx.measureText(marker.text).width + 12;
+      const minX = paddingLeft + 4;
+      const maxX = Math.max(minX, w - paddingRight - tagW - 4);
+      const tagX = Math.max(minX, Math.min(maxX, mx - tagW / 2));
+      const aboveY = my - tagHeight - 6;
+      const belowY = my + 6;
+      const primaryY = marker.preferAbove
+        ? (aboveY >= paddingTop + 2 ? aboveY : Math.min(bottomY - tagHeight - 2, belowY))
+        : (belowY + tagHeight <= bottomY - 2 ? belowY : Math.max(paddingTop + 2, aboveY));
+      const altY = primaryY === aboveY
+        ? Math.min(bottomY - tagHeight - 2, belowY)
+        : Math.max(paddingTop + 2, aboveY);
+
+      let chosenBox = { x: tagX, y: primaryY, w: tagW, h: tagHeight };
+      if (occupiedBoxes.some(b => boxesOverlap(chosenBox, b))) {
+        const altBox = { x: tagX, y: altY, w: tagW, h: tagHeight };
+        if (!occupiedBoxes.some(b => boxesOverlap(altBox, b))) {
+          chosenBox = altBox;
+        } else {
+          chosenBox = null;
+        }
+      }
+      if (chosenBox) {
+        drawPillTag(ctx, marker.text, chosenBox, marker);
+        occupiedBoxes.push(chosenBox);
+      }
+    }
+  }
 
   return {
     width: w,
@@ -364,6 +479,8 @@ function buildStaticLayer(points, w, h, dpr) {
     startEquity,
     lineColor,
     step,
+    minIdx: hasDistinctExtremes ? minIdx : null,
+    maxIdx: hasDistinctExtremes ? maxIdx : null,
   };
 }
 
@@ -517,11 +634,12 @@ function updateTooltip(rect, geometry, points, index, { announceSr = false } = {
   const tooltipDelta = document.getElementById('tooltip-delta');
 
   const p = points[index];
-  const { getX, getY, startEquity, step } = geometry;
+  const { getX, getY, startEquity, step, minIdx, maxIdx } = geometry;
   const targetX = getX(index);
   const targetY = getY(p.equity);
 
-  const timeText = formatBeijingShortDateTime(p.captured_at_ms);
+  const extremeTag = index === maxIdx ? ' · 区间高点' : index === minIdx ? ' · 区间低点' : '';
+  const timeText = `${formatBeijingShortDateTime(p.captured_at_ms)}${extremeTag}`;
   const valueDecimals = Math.max(2, stepPrecision(step));
   const valText = formatChartUsd(p.equity, valueDecimals);
 

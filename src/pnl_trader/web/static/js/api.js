@@ -1,6 +1,6 @@
 // API Fetching and Data Synchronization Service
 
-import { renderRetinaChart, setChartVisualState } from './chart.js?v=20261126-4';
+import { renderRetinaChart, setChartVisualState } from './chart.js?v=20261128-1';
 import {
   state,
   PERIOD_LABELS,
@@ -19,17 +19,19 @@ import {
   renderExecutionIssues,
   renderFills,
   renderRanking,
-} from './renderers.js?v=20261126-4';
+} from './renderers.js?v=20261128-1';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
 let activeAbortController = null;
 let equityAbortController = null;
+let fillsAbortController = null;
 let activeBannerSource = null;
 let lastRenderedBannerKey = null;
 let requestSeq = 0;
 let latestBannerSeq = 0;
 let latestEquityEventSeq = 0;
+let latestFillsEventSeq = 0;
 let retryHandler = null;
 
 export function setRetryHandler(handler) {
@@ -62,6 +64,67 @@ export function abortInFlightRequests() {
     syncPeriodButtons(fallbackPeriod);
     setChartVisualState('ready');
     renderSnapshotStatusFromState();
+  }
+  if (fillsAbortController) {
+    fillsAbortController.abort();
+  }
+}
+
+export function syncFillsLimitButtons(limit) {
+  document.querySelectorAll('.fills-limit-btn').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(Number(btn.dataset.limit) === Number(limit)));
+  });
+}
+
+export async function fetchFills(limit) {
+  if (fillsAbortController) {
+    fillsAbortController.abort();
+  }
+  const controller = new AbortController();
+  fillsAbortController = controller;
+  const seq = ++requestSeq;
+  latestFillsEventSeq = seq;
+  const signal = composeRequestSignal(controller.signal);
+
+  const prevLimit = state.fillsLimit;
+  state.fillsLimit = limit;
+  syncFillsLimitButtons(limit);
+
+  try {
+    const encodedLimit = encodeURIComponent(limit);
+    const [buyResp, sellResp] = await Promise.all([
+      fetch(`api/fills?limit=${encodedLimit}&side=BUY`, { signal, cache: 'no-store' }),
+      fetch(`api/fills?limit=${encodedLimit}&side=SELL`, { signal, cache: 'no-store' }),
+    ]);
+    if (!buyResp.ok || !sellResp.ok) {
+      const failed = !buyResp.ok ? buyResp : sellResp;
+      throw new Error(`HTTP ${failed.status}${failed.statusText ? ` ${failed.statusText}` : ''}`);
+    }
+    const [buyFills, sellFills] = await Promise.all([buyResp.json(), sellResp.json()]);
+    if (controller.signal.aborted || seq < latestFillsEventSeq) {
+      return { ok: false, aborted: true };
+    }
+    hideErrorBanner('fills', seq);
+    state.rawBuyFills = buyFills;
+    state.rawSellFills = sellFills;
+    if (seq >= latestFillsEventSeq) {
+      renderFills(state.rawBuyFills, state.rawSellFills);
+    }
+    return { ok: true, aborted: false };
+  } catch (err) {
+    if (err.name === 'AbortError' || fillsAbortController !== controller) {
+      return { ok: false, aborted: true };
+    }
+    latestFillsEventSeq = Math.max(latestFillsEventSeq, seq);
+    state.fillsLimit = prevLimit;
+    syncFillsLimitButtons(prevLimit);
+    const errDetail = formatFetchError(err, { isNetworkPhase: true });
+    showErrorBanner('fills', `加载最近 ${limit} 笔成交明细失败（${errDetail}）。`, seq);
+    return { ok: false, aborted: false };
+  } finally {
+    if (fillsAbortController === controller) {
+      fillsAbortController = null;
+    }
   }
 }
 
@@ -279,11 +342,15 @@ export async function fetchData() {
   if (equityAbortController) {
     equityAbortController.abort();
   }
+  if (fillsAbortController) {
+    fillsAbortController.abort();
+  }
   const controller = new AbortController();
   activeAbortController = controller;
   const seq = ++requestSeq;
   const signal = composeRequestSignal(controller.signal);
   const requestedPeriod = state.currentPeriod;
+  const requestedFillsLimit = state.fillsLimit;
 
   const refreshBtn = document.getElementById('btn-refresh');
   const refreshIcon = document.getElementById('refresh-icon');
@@ -303,7 +370,7 @@ export async function fetchData() {
   let snapshot;
   try {
     const response = await fetch(
-      `api/dashboard?period=${encodeURIComponent(requestedPeriod)}&fills_limit=12`,
+      `api/dashboard?period=${encodeURIComponent(requestedPeriod)}&fills_limit=${encodeURIComponent(requestedFillsLimit)}`,
       { signal, cache: 'no-store' },
     );
     if (!response.ok) {
@@ -410,7 +477,9 @@ export async function fetchData() {
 
     state.rawBuyFills = buyFills;
     state.rawSellFills = sellFills;
-    renderFills(state.rawBuyFills, state.rawSellFills);
+    if (seq >= latestFillsEventSeq) {
+      renderFills(state.rawBuyFills, state.rawSellFills);
+    }
     return { ok: true, aborted: false };
   } catch (renderErr) {
     const errDetail = formatFetchError(renderErr, { isNetworkPhase: false });

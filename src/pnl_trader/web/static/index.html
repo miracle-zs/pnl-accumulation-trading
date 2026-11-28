@@ -8,11 +8,14 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Crect width='24' height='24' rx='4' fill='%230e2a33'/%3E%3Cpath d='M4 16.5L9 11.5l3.5 3L20 7' stroke='%2334d399' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M15.5 7H20v4.5' stroke='%2334d399' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preload" href="fonts/barlow-latin-600.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/barlow-latin-700.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="tailwind.css?v=20261126-4">
-  <link rel="modulepreload" href="js/app.js?v=20261126-4">
-  <link rel="modulepreload" href="js/api.js?v=20261126-4">
-  <link rel="modulepreload" href="js/chart.js?v=20261126-4">
-  <link rel="modulepreload" href="js/renderers.js?v=20261126-4">
+  <link rel="stylesheet" href="tailwind.css?v=20261128-1">
+  <link rel="modulepreload" href="js/app.js?v=20261128-1">
+  <link rel="modulepreload" href="js/api.js?v=20261128-1">
+  <link rel="modulepreload" href="js/chart.js?v=20261128-1">
+  <link rel="modulepreload" href="js/renderers.js?v=20261128-1">
+  <link rel="modulepreload" href="js/state.js?v=20261128-1">
+  <link rel="modulepreload" href="js/panels.js?v=20261128-1">
+  <link rel="modulepreload" href="js/workbench.js?v=20261128-1">
 </head>
 <body class="min-h-screen flex flex-col">
   <a href="#main-content" class="skip-link">跳至主要内容</a>
@@ -196,8 +199,9 @@
           </div>
         </div>
 
-        <div class="flex items-center justify-between text-xs font-mono tabular-nums text-[#526a73] pt-2 border-t border-[#eaf0ee] mt-1 pl-[68px] pr-[18px]">
+        <div class="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-[#526a73] pt-2 border-t border-[#eaf0ee] mt-1 pl-[68px] pr-[18px]">
           <time id="chart-start-time">—</time>
+          <span class="hidden sm:inline font-sans text-[#526a73]">方向键 / Home / End 逐点查看</span>
           <time id="chart-latest-time">—</time>
         </div>
       </section>
@@ -355,10 +359,10 @@
     </div>
 
     <!-- Full-Width Ledger Workbench: Positions / Fills / Ranking -->
-    <section class="ledger-plane overflow-hidden" aria-label="交易明细工作台">
+    <section id="workbench-section" class="ledger-plane overflow-hidden scroll-mt-20" aria-label="交易明细工作台">
       <h2 class="sr-only">交易明细工作台</h2>
       <!-- Workbench Navigation Bar -->
-      <div class="px-4 sm:px-5 border-b border-[#d4dfdc] bg-[#f7faf9] flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+      <div class="px-4 sm:px-5 border-b border-[#d4dfdc] bg-[#f7faf9] flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
         <div class="ledger-tablist" role="tablist" aria-label="交易详情视图切换">
           <button type="button" role="tab" id="tab-positions" data-view="positions" aria-controls="view-positions" aria-selected="true" tabindex="0" class="ledger-tab">
             托管持仓
@@ -372,23 +376,52 @@
         </div>
 
         <!-- Contextual Filters & Symbol Search -->
-        <div id="positions-toolbar" class="flex items-center gap-2.5 flex-wrap pb-2.5 md:py-2">
-          <div id="tier-filter-group" class="seg-group" role="group" aria-label="按层级筛选">
+        <div id="positions-toolbar" class="flex items-center gap-2 flex-wrap pb-2.5 lg:py-2">
+          <div id="tier-filter-group" class="seg-group max-w-full overflow-x-auto" role="group" aria-label="按层级与状态筛选">
             <button type="button" data-tier="ALL" id="filter-all" aria-pressed="true" class="seg-btn">全部</button>
             <button type="button" data-tier="T1" id="filter-t1" aria-pressed="false" class="seg-btn">T1</button>
             <button type="button" data-tier="T2" id="filter-t2" aria-pressed="false" class="seg-btn">T2</button>
             <button type="button" data-tier="T3" id="filter-t3" aria-pressed="false" class="seg-btn">T3</button>
+            <button type="button" data-tier="REDUCING" id="filter-reducing" aria-pressed="false" class="seg-btn">减仓中</button>
+            <button type="button" data-tier="CLOSING" id="filter-closing" aria-pressed="false" class="seg-btn">待全平</button>
           </div>
 
-          <search class="relative flex-1 sm:flex-none min-w-[160px]">
+          <div id="pnl-filter-group" class="seg-group" role="group" aria-label="按盈亏状态筛选">
+            <button type="button" data-pnl="ALL" id="pnl-filter-all" aria-pressed="true" class="seg-btn">全部盈亏</button>
+            <button type="button" data-pnl="PROFIT" id="pnl-filter-profit" aria-pressed="false" class="seg-btn">浮盈</button>
+            <button type="button" data-pnl="LOSS" id="pnl-filter-loss" aria-pressed="false" class="seg-btn">浮亏</button>
+          </div>
+
+          <div id="fills-limit-group" class="seg-group hidden" role="group" aria-label="成交明细显示条数">
+            <button type="button" data-limit="12" aria-pressed="true" class="seg-btn fills-limit-btn">12 笔</button>
+            <button type="button" data-limit="50" aria-pressed="false" class="seg-btn fills-limit-btn">50 笔</button>
+            <button type="button" data-limit="200" aria-pressed="false" class="seg-btn fills-limit-btn">200 笔</button>
+          </div>
+
+          <search class="relative flex-1 sm:flex-none min-w-[168px]">
             <label for="symbol-search" class="sr-only">搜索交易标的</label>
             <svg class="w-3.5 h-3.5 text-[#526a73] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"/>
               <path d="m21 21-4.3-4.3"/>
             </svg>
-            <input type="search" id="symbol-search" placeholder="搜索标的 (如 BTC, SOL)" autocomplete="off" spellcheck="false" enterkeyhint="search" class="ledger-search pl-8 pr-2.5 py-1.5 w-full sm:w-48">
+            <input type="search" id="symbol-search" placeholder="搜索标的 (如 BTC)" autocomplete="off" spellcheck="false" enterkeyhint="search" class="ledger-search pl-8 pr-8 py-1.5 w-full sm:w-48">
+            <kbd id="search-shortcut-hint" aria-hidden="true" class="kbd-hint hidden sm:inline-flex">/</kbd>
+            <button id="btn-clear-search" type="button" aria-label="清空标的搜索" class="hidden absolute right-1.5 top-1/2 -translate-y-1/2 min-h-6 min-w-6 inline-flex items-center justify-center rounded text-[#526a73] hover:text-[#102128] hover:bg-[#eaf0ee]">
+              <svg class="w-3.5 h-3.5" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6 6 18"/>
+                <path d="m6 6 12 12"/>
+              </svg>
+            </button>
           </search>
         </div>
+      </div>
+
+      <!-- Active Filter Indicator Bar -->
+      <div id="active-filter-banner" class="hidden px-4 sm:px-5 py-1.5 bg-[#e6f2f5] border-b border-[#c5dfe6] flex items-center justify-between gap-2 text-xs text-[#135d73]">
+        <span id="active-filter-text" class="font-medium tabular-nums truncate"></span>
+        <button id="btn-clear-filters" type="button" class="shrink-0 min-h-6 px-2 py-0.5 rounded bg-white border border-[#aed2dd] text-xs font-semibold text-[#135d73] hover:bg-[#f2f7f5] transition-colors">
+          清除全部筛选
+        </button>
       </div>
 
       <!-- Tab Panel 1: Managed Positions Table -->
@@ -509,6 +542,6 @@
     </section>
   </main>
 
-  <script type="module" src="js/app.js?v=20261126-4"></script>
+  <script type="module" src="js/app.js?v=20261128-1"></script>
 </body>
 </html>

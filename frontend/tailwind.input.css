@@ -609,6 +609,63 @@ th[aria-sort="descending"] .sort-icon .chev-down {
   color: var(--accent);
 }
 
+/* Cross-Panel Symbol Navigation & Row Highlight */
+.symbol-locate-btn {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.5rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 140ms ease, text-decoration-color 140ms ease;
+}
+
+.symbol-locate-btn:hover {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+.seg-group.hidden,
+.kbd-hint.hidden {
+  display: none;
+}
+
+.kbd-hint {
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background-color: var(--surface-subtle);
+  color: var(--ink-muted);
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Native search input clear button suppressed so custom accessible button owns the slot */
+.ledger-search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.positions-table tbody tr.row-locate-highlight td,
+.positions-table tbody tr.row-locate-highlight th[scope="row"] {
+  background-color: var(--accent-soft);
+}
+
 /* Chart Tooltip (deep slate-teal floating readout) */
 .chart-tooltip {
   background-color: var(--shell-bg);

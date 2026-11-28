@@ -230,7 +230,10 @@ function createFakeDomFromHtml(htmlText) {
     'tier-cnt-t31', 'tier-exposure-list', 'losers-count', 'losers-list', 'weekly-fill-count',
     'weekly-commission', 'cost-days', 'other-fees-note', 'tab-positions', 'tab-fills',
     'tab-ranking', 'positions-toolbar', 'tier-filter-group', 'filter-all', 'filter-t1',
-    'filter-t2', 'filter-t3', 'symbol-search', 'view-positions', 'positions-sort-status',
+    'filter-t2', 'filter-t3', 'filter-reducing', 'filter-closing', 'pnl-filter-group',
+    'pnl-filter-all', 'pnl-filter-profit', 'pnl-filter-loss', 'fills-limit-group',
+    'symbol-search', 'search-shortcut-hint', 'btn-clear-search', 'active-filter-banner',
+    'active-filter-text', 'btn-clear-filters', 'view-positions', 'positions-sort-status',
     'positions-table', 'position-table-body', 'view-fills', 'buy-fills-count',
     'buy-fills-list', 'sell-fills-count', 'sell-fills-list', 'view-ranking',
     'ranking-container', 'position-footer', 'position-summary-text', 'table-scroll-hint',
@@ -464,4 +467,95 @@ test('renderExecutionIssues places critical issues before informational ones and
   const rowClass = ranking.children[0].className;
   assert.ok(!rowClass.includes('rounded border'));
   assert.ok(rowClass.includes('border-b'));
+  assert.equal(ranking.children[0].children[1].dataset.locateSymbol, '1000PEPEUSDT');
+});
+
+test('renderPositions renders risk distances, supports REDUCING/CLOSING/PnL filters, and renderFills displays fees', () => {
+  renderers.state.ledgerAvailable = true;
+  renderers.state.currentTierFilter = 'ALL';
+  renderers.state.currentPnlFilter = 'ALL';
+  renderers.state.searchQuery = '';
+  renderers.state.currentSortKey = 'symbol';
+  renderers.state.currentSortDirection = 'asc';
+  renderers.state.allPositions = [
+    {
+      symbol: 'BTCUSDT',
+      tier: 1,
+      lifecycle: 'OPEN',
+      tier_label: 'Tier 1',
+      completed_batches: 0,
+      avg_entry_price: 60000,
+      scan_price: 61500,
+      tp_price: 63000,
+      dca_price: 30000,
+      writeoff_price: null,
+      qty: 0.01,
+      entry_notional: 600,
+      estimated_unrealized_pnl: 15,
+    },
+    {
+      symbol: 'ETHUSDT',
+      tier: 2,
+      lifecycle: 'OPEN',
+      tier_label: 'Tier 2.1 (半仓)',
+      completed_batches: 1,
+      avg_entry_price: 3000,
+      scan_price: 2900,
+      tp_price: 3150,
+      dca_price: 1500,
+      writeoff_price: null,
+      qty: 0.1,
+      entry_notional: 300,
+      estimated_unrealized_pnl: -10,
+    },
+    {
+      symbol: 'SOLUSDT',
+      tier: 3,
+      lifecycle: 'CLOSING',
+      tier_label: 'Tier 3 · 待全平',
+      completed_batches: 0,
+      avg_entry_price: 150,
+      scan_price: 140,
+      tp_price: null,
+      dca_price: null,
+      writeoff_price: null,
+      qty: 1,
+      entry_notional: 150,
+      estimated_unrealized_pnl: -10,
+    },
+  ];
+
+  renderers.renderPositions();
+  const tbody = document.getElementById('position-table-body');
+  assert.equal(tbody.rows.length, 3);
+  assert.ok(tbody.rows[0].children[4].textContent.includes('距止盈 +2.4%'));
+  assert.ok(tbody.rows[0].children[5].textContent.includes('距补仓 -51.2%'));
+
+  renderers.filterTier('REDUCING');
+  assert.equal(tbody.rows.length, 1);
+  assert.equal(tbody.rows[0].dataset.symbol, 'ETHUSDT');
+
+  renderers.filterTier('CLOSING');
+  assert.equal(tbody.rows.length, 1);
+  assert.equal(tbody.rows[0].dataset.symbol, 'SOLUSDT');
+
+  renderers.filterTier('ALL');
+  renderers.filterPnl('PROFIT');
+  assert.equal(tbody.rows.length, 1);
+  assert.equal(tbody.rows[0].dataset.symbol, 'BTCUSDT');
+
+  renderers.filterPnl('LOSS');
+  assert.equal(tbody.rows.length, 2);
+  renderers.filterPnl('ALL');
+
+  renderers.renderLosingPositions(renderers.state.allPositions);
+  const losersBody = document.getElementById('losers-list');
+  assert.equal(losersBody.rows[0].children[0].children[0].dataset.locateSymbol, 'ETHUSDT');
+
+  renderers.renderFills(
+    [{ symbol: 'BTCUSDT', side: 'BUY', price: 60000, qty: 0.01, realized_pnl: 0, commission: 0.002, commission_asset: 'BNB', traded_at_ms: 1700000000000 }],
+    [{ symbol: 'ETHUSDT', side: 'SELL', price: 3200, qty: 0.1, realized_pnl: 20, commission: 0.033, commission_asset: 'USDT', traded_at_ms: 1700000000000 }],
+  );
+  assert.ok(document.getElementById('buy-fills-list').textContent.includes('0.002 BNB (非USDT)'));
+  assert.ok(document.getElementById('sell-fills-list').textContent.includes('$0.033'));
 });

@@ -3,12 +3,14 @@
 import {
   fetchData,
   fetchEquity,
+  fetchFills,
   syncPeriodButtons,
+  syncFillsLimitButtons,
   abortInFlightRequests,
   setRetryHandler,
   setOfflineBadge,
-} from './api.js?v=20261126-4';
-import { initChartResizeObserver, renderRetinaChart } from './chart.js?v=20261126-4';
+} from './api.js?v=20261128-1';
+import { initChartResizeObserver, renderRetinaChart } from './chart.js?v=20261128-1';
 import {
   state,
   formatBeijingHm,
@@ -16,10 +18,11 @@ import {
   renderPositions,
   handleSort,
   filterTier,
+  filterPnl,
   renderFills,
   updateTableScrollAffordance,
   updateExecutionIssuesScrollHint,
-} from './renderers.js?v=20261126-4';
+} from './renderers.js?v=20261128-1';
 
 const SLOT_MS = 900_000;
 const FOCUSABLE_SELECTOR =
@@ -105,7 +108,12 @@ function switchView(view, { skipScrollIntoView = false } = {}) {
     }
   });
 
-  document.getElementById('tier-filter-group').style.display = (view === 'positions') ? 'inline-flex' : 'none';
+  const tierGroup = document.getElementById('tier-filter-group');
+  if (tierGroup) tierGroup.classList.toggle('hidden', view !== 'positions');
+  const pnlGroup = document.getElementById('pnl-filter-group');
+  if (pnlGroup) pnlGroup.classList.toggle('hidden', view !== 'positions');
+  const fillsLimitGroup = document.getElementById('fills-limit-group');
+  if (fillsLimitGroup) fillsLimitGroup.classList.toggle('hidden', view !== 'fills');
   document.getElementById('positions-toolbar').style.display = (view === 'positions' || view === 'fills') ? 'flex' : 'none';
   document.getElementById('position-footer').classList.toggle('hidden', view !== 'positions');
 
@@ -114,6 +122,62 @@ function switchView(view, { skipScrollIntoView = false } = {}) {
     updateTableScrollAffordance();
   } else if (view === 'fills') {
     renderFills(state.rawBuyFills, state.rawSellFills);
+  }
+}
+
+let highlightTimerId = null;
+
+function prefersReducedMotion() {
+  return typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function focusSymbolInWorkbench(rawSymbol) {
+  const symbol = String(rawSymbol || '').trim().toUpperCase();
+  if (!symbol) return;
+
+  const hasOpenPosition = state.allPositions.some(p => p.symbol === symbol);
+  const hasRecentFill = state.rawBuyFills.some(f => f.symbol === symbol)
+    || state.rawSellFills.some(f => f.symbol === symbol);
+  const targetView = hasOpenPosition ? 'positions' : (hasRecentFill ? 'fills' : 'positions');
+
+  const input = document.getElementById('symbol-search');
+  if (input) input.value = symbol;
+  state.searchQuery = symbol;
+
+  if (targetView === 'positions') {
+    state.currentTierFilter = 'ALL';
+    state.currentPnlFilter = 'ALL';
+    filterTier('ALL');
+    filterPnl('ALL');
+  }
+
+  state.highlightedSymbol = symbol;
+  if (highlightTimerId !== null) {
+    clearTimeout(highlightTimerId);
+  }
+  highlightTimerId = setTimeout(() => {
+    highlightTimerId = null;
+    if (state.highlightedSymbol === symbol) {
+      state.highlightedSymbol = null;
+      if (state.currentView === 'positions') renderPositions();
+    }
+  }, 2400);
+
+  switchView(targetView, { skipScrollIntoView: true });
+
+  const workbench = document.getElementById('workbench-section');
+  const scrollBehavior = prefersReducedMotion() ? 'auto' : 'smooth';
+  if (workbench && typeof workbench.scrollIntoView === 'function') {
+    workbench.scrollIntoView({ behavior: scrollBehavior, block: 'start' });
+  }
+
+  if (targetView === 'positions') {
+    const tbody = document.getElementById('position-table-body');
+    const matchedRow = Array.from(tbody?.rows || []).find(row => row.dataset.symbol === symbol);
+    if (matchedRow && typeof matchedRow.scrollIntoView === 'function') {
+      matchedRow.scrollIntoView({ behavior: scrollBehavior, block: 'nearest', inline: 'nearest' });
+    }
   }
 }
 
@@ -154,7 +218,10 @@ function resetFilters() {
   const input = document.getElementById('symbol-search');
   if (input) input.value = '';
   state.searchQuery = '';
+  state.highlightedSymbol = null;
+  state.currentPnlFilter = 'ALL';
   filterTier('ALL');
+  filterPnl('ALL');
   if (state.currentView === 'fills') {
     renderFills(state.rawBuyFills, state.rawSellFills);
   }
@@ -213,9 +280,88 @@ function bindControls() {
   document.querySelectorAll('#tier-filter-group [data-tier]').forEach(btn => {
     btn.addEventListener('click', () => filterTier(btn.dataset.tier));
   });
+  document.querySelectorAll('#pnl-filter-group [data-pnl]').forEach(btn => {
+    btn.addEventListener('click', () => filterPnl(btn.dataset.pnl));
+  });
+  document.querySelectorAll('.fills-limit-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const nextLimit = Number(btn.dataset.limit);
+      if (Number.isFinite(nextLimit) && nextLimit > 0 && nextLimit !== state.fillsLimit) {
+        fetchFills(nextLimit);
+      }
+    });
+  });
+
   const symbolSearchInput = document.getElementById('symbol-search');
   symbolSearchInput.addEventListener('input', handleSearchInput);
   symbolSearchInput.addEventListener('compositionend', scheduleSearchFilter);
+  symbolSearchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (symbolSearchInput.value !== '') {
+        e.preventDefault();
+        symbolSearchInput.value = '';
+        state.searchQuery = '';
+        state.highlightedSymbol = null;
+        applySearchFilter();
+      } else {
+        symbolSearchInput.blur();
+      }
+    }
+  });
+
+  const clearSearchBtn = document.getElementById('btn-clear-search');
+  if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+      symbolSearchInput.value = '';
+      state.searchQuery = '';
+      state.highlightedSymbol = null;
+      applySearchFilter();
+      symbolSearchInput.focus();
+    });
+  }
+
+  const clearFiltersBtn = document.getElementById('btn-clear-filters');
+  if (clearFiltersBtn) {
+    clearFiltersBtn.addEventListener('click', () => {
+      resetFilters();
+    });
+  }
+
+  // Cross-panel symbol navigation (Losers, Execution Issues, Ranking -> Workbench)
+  ['losers-list', 'execution-issues', 'ranking-container'].forEach(panelId => {
+    const el = document.getElementById(panelId);
+    if (!el) return;
+    el.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-locate-symbol]');
+      if (btn?.dataset?.locateSymbol) {
+        focusSymbolInWorkbench(btn.dataset.locateSymbol);
+      }
+    });
+  });
+
+  // Global keyboard shortcut: '/' focuses symbol search when not typing in a field
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const target = e.target;
+    if (
+      target instanceof HTMLElement
+      && (target.isContentEditable
+        || target.tagName === 'INPUT'
+        || target.tagName === 'TEXTAREA'
+        || target.tagName === 'SELECT')
+    ) {
+      return;
+    }
+    e.preventDefault();
+    if (state.currentView === 'ranking') {
+      switchView('positions', { skipScrollIntoView: true });
+    }
+    symbolSearchInput.focus();
+    symbolSearchInput.select();
+  });
+
+  syncFillsLimitButtons(state.fillsLimit);
+  switchView(state.currentView, { skipScrollIntoView: true });
 
   // Filter reset delegation on empty search/filter results
   ['view-positions', 'view-fills'].forEach(panelId => {
