@@ -20,7 +20,7 @@ import {
   isClosingPosition,
   isReducingPosition,
   buildTierBadgeNode,
-} from './state.js?v=20261128-1';
+} from './state.js?v=20261128-2';
 
 const TIER_FILTER_LABELS = {
   ALL: '全部层级',
@@ -571,7 +571,7 @@ function renderFillGroup(listId, countId, fills, side, totalCount = fills.length
       const feeLine = createNode(
         'p',
         `text-xs mt-0.5 font-mono tabular-nums ${isNonUsdt ? 'text-[#985506] font-medium' : 'text-[#526a73]'}`,
-        isNonUsdt ? `规费 ${feeText} (非USDT)` : `规费 ${feeText}`,
+        isNonUsdt ? `手续费 ${feeText} (非USDT)` : `手续费 ${feeText}`,
       );
       identity.append(feeLine);
     }

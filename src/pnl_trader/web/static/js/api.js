@@ -1,6 +1,6 @@
 // API Fetching and Data Synchronization Service
 
-import { renderRetinaChart, setChartVisualState } from './chart.js?v=20261128-1';
+import { renderRetinaChart, setChartVisualState } from './chart.js?v=20261128-2';
 import {
   state,
   PERIOD_LABELS,
@@ -19,7 +19,7 @@ import {
   renderExecutionIssues,
   renderFills,
   renderRanking,
-} from './renderers.js?v=20261128-1';
+} from './renderers.js?v=20261128-2';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 

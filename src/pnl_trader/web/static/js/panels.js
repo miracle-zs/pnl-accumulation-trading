@@ -19,7 +19,7 @@ import {
   showMessage,
   buildTierBadgeNode,
   buildSymbolLocateButton,
-} from './state.js?v=20261128-1';
+} from './state.js?v=20261128-2';
 
 const CRITICAL_ISSUE_CATEGORIES = new Set([
   'REVIEW_RUN_ERROR',
@@ -259,23 +259,30 @@ export function renderAccountKpis(ov, an) {
 
 export function renderTierBars(td) {
   if (state.ledgerAvailable) {
+    const t2Total = td.t2 + td.t21;
+    const t3Total = td.t3 + td.t31 + td.t32;
+    const reducingTotal = td.t21 + td.t31 + td.t32;
+
     document.getElementById('tier-cnt-t1').textContent = `${td.t1} 币`;
-    document.getElementById('tier-cnt-t2').textContent = `${td.t2 + td.t21} 币`;
-    document.getElementById('tier-cnt-t3').textContent = `${td.t3} 币`;
-    document.getElementById('tier-cnt-t31').textContent = `${td.t31 + td.t32} 币`;
+    document.getElementById('tier-cnt-t2').textContent = `${t2Total} 币`;
+    document.getElementById('tier-cnt-t3').textContent = `${t3Total} 币`;
+    document.getElementById('tier-sub-t2').textContent = `原仓 ${td.t2} · T2.1 半仓 ${td.t21}`;
+    document.getElementById('tier-sub-t3').textContent = `深套 ${td.t3} · T3.1 ${td.t31} · T3.2 ${td.t32}`;
+    document.getElementById('tier-cnt-reducing').textContent = `${reducingTotal} 币`;
     document.getElementById('tier-total-badge').textContent = `${td.total} 个标的`;
 
     const percentagePerSymbol = td.total > 0 ? 100 / td.total : 0;
     document.getElementById('bar-t1').style.width = `${td.t1 * percentagePerSymbol}%`;
-    document.getElementById('bar-t2').style.width = `${(td.t2 + td.t21) * percentagePerSymbol}%`;
+    document.getElementById('bar-t2').style.width = `${td.t2 * percentagePerSymbol}%`;
+    document.getElementById('bar-t21').style.width = `${td.t21 * percentagePerSymbol}%`;
     document.getElementById('bar-t3').style.width = `${td.t3 * percentagePerSymbol}%`;
     document.getElementById('bar-t31').style.width = `${(td.t31 + td.t32) * percentagePerSymbol}%`;
   } else {
-    ['tier-cnt-t1', 'tier-cnt-t2', 'tier-cnt-t3', 'tier-cnt-t31'].forEach(id => {
+    ['tier-cnt-t1', 'tier-cnt-t2', 'tier-cnt-t3', 'tier-sub-t2', 'tier-sub-t3', 'tier-cnt-reducing'].forEach(id => {
       document.getElementById(id).textContent = '—';
     });
     document.getElementById('tier-total-badge').textContent = '— 个标的';
-    ['bar-t1', 'bar-t2', 'bar-t3', 'bar-t31'].forEach(id => {
+    ['bar-t1', 'bar-t2', 'bar-t21', 'bar-t3', 'bar-t31'].forEach(id => {
       document.getElementById(id).style.width = '0%';
     });
   }
@@ -509,8 +516,8 @@ export function renderCosts(costs) {
   weeklyCountEl.textContent = `${costs.fill_count} 笔订单`;
 
   const warnings = [];
-  if (costs.other_fee_count > 0) warnings.push(`含 ${costs.other_fee_count} 笔非 USDT 规费（如 BNB），未折算入总额。`);
-  if (costs.pending_close_fill_count > 0) warnings.push(`含 ${costs.pending_close_fill_count} 笔待对账平仓，规费统计可能未完结。`);
+  if (costs.other_fee_count > 0) warnings.push(`含 ${costs.other_fee_count} 笔非 USDT 手续费（如 BNB），未折算入总额。`);
+  if (costs.pending_close_fill_count > 0) warnings.push(`含 ${costs.pending_close_fill_count} 笔待对账平仓，手续费统计可能未完结。`);
   otherFeesNote.textContent = warnings.join(' ');
   otherFeesNote.classList.toggle('hidden', warnings.length === 0);
 

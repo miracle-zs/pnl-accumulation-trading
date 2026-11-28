@@ -9,8 +9,8 @@ import {
   abortInFlightRequests,
   setRetryHandler,
   setOfflineBadge,
-} from './api.js?v=20261128-1';
-import { initChartResizeObserver, renderRetinaChart } from './chart.js?v=20261128-1';
+} from './api.js?v=20261128-2';
+import { initChartResizeObserver, renderRetinaChart } from './chart.js?v=20261128-2';
 import {
   state,
   formatBeijingHm,
@@ -22,7 +22,7 @@ import {
   renderFills,
   updateTableScrollAffordance,
   updateExecutionIssuesScrollHint,
-} from './renderers.js?v=20261128-1';
+} from './renderers.js?v=20261128-2';
 
 const SLOT_MS = 900_000;
 const FOCUSABLE_SELECTOR =

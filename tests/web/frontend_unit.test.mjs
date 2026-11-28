@@ -226,8 +226,9 @@ function createFakeDomFromHtml(htmlText) {
     'tooltip-delta', 'chart-start-time', 'chart-latest-time', 'drawdown-period',
     'max-drawdown', 'max-drawdown-pct', 'current-drawdown-pct', 'execution-issue-count',
     'execution-issues', 'execution-issues-hint', 'tier-total-badge', 'exposure-priced-count',
-    'bar-t1', 'bar-t2', 'bar-t3', 'bar-t31', 'tier-cnt-t1', 'tier-cnt-t2', 'tier-cnt-t3',
-    'tier-cnt-t31', 'tier-exposure-list', 'losers-count', 'losers-list', 'weekly-fill-count',
+    'bar-t1', 'bar-t2', 'bar-t21', 'bar-t3', 'bar-t31',
+    'tier-cnt-t1', 'tier-cnt-t2', 'tier-cnt-t3', 'tier-sub-t2', 'tier-sub-t3', 'tier-cnt-reducing',
+    'tier-exposure-list', 'losers-count', 'losers-list', 'weekly-fill-count',
     'weekly-commission', 'cost-days', 'other-fees-note', 'tab-positions', 'tab-fills',
     'tab-ranking', 'positions-toolbar', 'tier-filter-group', 'filter-all', 'filter-t1',
     'filter-t2', 'filter-t3', 'filter-reducing', 'filter-closing', 'pnl-filter-group',
@@ -556,6 +557,16 @@ test('renderPositions renders risk distances, supports REDUCING/CLOSING/PnL filt
     [{ symbol: 'BTCUSDT', side: 'BUY', price: 60000, qty: 0.01, realized_pnl: 0, commission: 0.002, commission_asset: 'BNB', traded_at_ms: 1700000000000 }],
     [{ symbol: 'ETHUSDT', side: 'SELL', price: 3200, qty: 0.1, realized_pnl: 20, commission: 0.033, commission_asset: 'USDT', traded_at_ms: 1700000000000 }],
   );
-  assert.ok(document.getElementById('buy-fills-list').textContent.includes('0.002 BNB (非USDT)'));
-  assert.ok(document.getElementById('sell-fills-list').textContent.includes('$0.033'));
+  assert.ok(document.getElementById('buy-fills-list').textContent.includes('手续费 0.002 BNB (非USDT)'));
+  assert.ok(document.getElementById('sell-fills-list').textContent.includes('手续费 $0.033'));
+
+  renderers.renderTierBars({ t1: 10, t2: 4, t21: 2, t3: 2, t31: 1, t32: 1, total: 20 });
+  assert.equal(document.getElementById('tier-cnt-t1').textContent, '10 币');
+  assert.equal(document.getElementById('tier-cnt-t2').textContent, '6 币');
+  assert.equal(document.getElementById('tier-cnt-t3').textContent, '4 币');
+  assert.equal(document.getElementById('tier-sub-t2').textContent, '原仓 4 · T2.1 半仓 2');
+  assert.equal(document.getElementById('tier-sub-t3').textContent, '深套 2 · T3.1 1 · T3.2 1');
+  assert.equal(document.getElementById('tier-cnt-reducing').textContent, '4 币');
+  assert.equal(document.getElementById('bar-t21').style.width, '10%');
+  assert.equal(document.getElementById('bar-t31').style.width, '10%');
 });

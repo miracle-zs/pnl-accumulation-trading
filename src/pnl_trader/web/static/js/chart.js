@@ -7,7 +7,7 @@ import {
   formatBeijingHm,
   formatBeijingShortDateTime,
   formatBeijingDateHm,
-} from './renderers.js?v=20261128-1';
+} from './renderers.js?v=20261128-2';
 
 let activeHoverIndex = null;
 let lastTooltipIndex = null;

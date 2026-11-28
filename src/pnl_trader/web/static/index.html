@@ -8,14 +8,14 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'%3E%3Crect width='24' height='24' rx='4' fill='%230e2a33'/%3E%3Cpath d='M4 16.5L9 11.5l3.5 3L20 7' stroke='%2334d399' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M15.5 7H20v4.5' stroke='%2334d399' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preload" href="fonts/barlow-latin-600.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/barlow-latin-700.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="tailwind.css?v=20261128-1">
-  <link rel="modulepreload" href="js/app.js?v=20261128-1">
-  <link rel="modulepreload" href="js/api.js?v=20261128-1">
-  <link rel="modulepreload" href="js/chart.js?v=20261128-1">
-  <link rel="modulepreload" href="js/renderers.js?v=20261128-1">
-  <link rel="modulepreload" href="js/state.js?v=20261128-1">
-  <link rel="modulepreload" href="js/panels.js?v=20261128-1">
-  <link rel="modulepreload" href="js/workbench.js?v=20261128-1">
+  <link rel="stylesheet" href="tailwind.css?v=20261128-2">
+  <link rel="modulepreload" href="js/app.js?v=20261128-2">
+  <link rel="modulepreload" href="js/api.js?v=20261128-2">
+  <link rel="modulepreload" href="js/chart.js?v=20261128-2">
+  <link rel="modulepreload" href="js/renderers.js?v=20261128-2">
+  <link rel="modulepreload" href="js/state.js?v=20261128-2">
+  <link rel="modulepreload" href="js/panels.js?v=20261128-2">
+  <link rel="modulepreload" href="js/workbench.js?v=20261128-2">
 </head>
 <body class="min-h-screen flex flex-col">
   <a href="#main-content" class="skip-link">跳至主要内容</a>
@@ -260,41 +260,47 @@
         <!-- Segmented Tier Proportion Bar -->
         <div class="w-full h-2.5 rounded-sm bg-[#eaf0ee] overflow-hidden flex mb-4 border border-[#d4dfdc]" id="tier-ratio-bar">
           <div id="bar-t1" style="width: 0%;" class="h-full bg-[#1a7692] border-r border-white/70" title="T1 基础底仓"></div>
-          <div id="bar-t2" style="width: 0%;" class="h-full bg-[#b86c0e] border-r border-white/70" title="T2 加仓阶段 (含 T2.1 半仓)"></div>
+          <div id="bar-t2" style="width: 0%;" class="h-full bg-[#b86c0e] border-r border-white/70" title="T2 补仓阶段"></div>
+          <div id="bar-t21" style="width: 0%;" class="h-full bg-[#0a7052] border-r border-white/70" title="T2.1 半仓恢复"></div>
           <div id="bar-t3" style="width: 0%;" class="h-full bg-[#cc3b3b] border-r border-white/70" title="T3 深度补仓 (高承压)"></div>
           <div id="bar-t31" style="width: 0%;" class="h-full bg-[#7250ad]" title="T3 阶梯减仓 (T3.1 / T3.2 利润回收)"></div>
         </div>
 
         <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <!-- Symbol Counts per Tier (flat hairline rows distributed across height) -->
-          <div class="flex flex-col justify-between divide-y divide-[#ebf1ef] text-xs">
-            <div class="flex items-center justify-between py-2.5">
-              <span class="flex items-center gap-2 text-[#102128]">
-                <span class="w-2 h-2 rounded-full bg-[#1a7692] shrink-0" aria-hidden="true"></span>
-                T1 基础底仓
-              </span>
-              <span class="font-display font-semibold tabular-nums text-[#102128]" id="tier-cnt-t1">—</span>
+          <!-- Symbol Counts per Tier (3 main tiers + inline sub-stage breakdown, aligned with exposure column) -->
+          <div class="flex flex-col justify-between text-xs">
+            <div class="divide-y divide-[#ebf1ef]">
+              <div class="flex items-center justify-between gap-2 py-2.5">
+                <span class="flex items-center gap-2 text-[#102128]">
+                  <span class="w-2 h-2 rounded-full bg-[#1a7692] shrink-0" aria-hidden="true"></span>
+                  T1 基础底仓
+                </span>
+                <span class="font-display font-semibold tabular-nums text-[#102128] whitespace-nowrap" id="tier-cnt-t1">—</span>
+              </div>
+              <div class="py-2.5">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="flex items-center gap-2 text-[#102128]">
+                    <span class="w-2 h-2 rounded-full bg-[#b86c0e] shrink-0" aria-hidden="true"></span>
+                    T2 阶段
+                  </span>
+                  <span class="font-display font-semibold tabular-nums text-[#102128] whitespace-nowrap" id="tier-cnt-t2">—</span>
+                </div>
+                <div id="tier-sub-t2" class="text-xs text-[#526a73] tabular-nums pl-4 mt-1">—</div>
+              </div>
+              <div class="py-2.5">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="flex items-center gap-2 text-[#102128]">
+                    <span class="w-2 h-2 rounded-full bg-[#cc3b3b] shrink-0" aria-hidden="true"></span>
+                    T3 阶段
+                  </span>
+                  <span class="font-display font-semibold tabular-nums text-[#102128] whitespace-nowrap" id="tier-cnt-t3">—</span>
+                </div>
+                <div id="tier-sub-t3" class="text-xs text-[#526a73] tabular-nums pl-4 mt-1">—</div>
+              </div>
             </div>
-            <div class="flex items-center justify-between py-2.5">
-              <span class="flex items-center gap-2 text-[#102128]">
-                <span class="w-2 h-2 rounded-full bg-[#b86c0e] shrink-0" aria-hidden="true"></span>
-                T2 加仓 (含 T2.1)
-              </span>
-              <span class="font-display font-semibold tabular-nums text-[#102128]" id="tier-cnt-t2">—</span>
-            </div>
-            <div class="flex items-center justify-between py-2.5">
-              <span class="flex items-center gap-2 text-[#102128]">
-                <span class="w-2 h-2 rounded-full bg-[#cc3b3b] shrink-0" aria-hidden="true"></span>
-                T3 深度补仓
-              </span>
-              <span class="font-display font-semibold tabular-nums text-[#102128]" id="tier-cnt-t3">—</span>
-            </div>
-            <div class="flex items-center justify-between py-2.5">
-              <span class="flex items-center gap-2 text-[#102128]">
-                <span class="w-2 h-2 rounded-full bg-[#7250ad] shrink-0" aria-hidden="true"></span>
-                T3 阶梯减仓
-              </span>
-              <span class="font-display font-semibold tabular-nums text-[#102128]" id="tier-cnt-t31">—</span>
+            <div class="flex items-center justify-between border-t border-[#e3ece9] pt-2.5 mt-2 text-xs">
+              <span class="text-[#526a73]">分批减仓中</span>
+              <span id="tier-cnt-reducing" class="font-display tabular-nums font-bold text-[#102128]">—</span>
             </div>
           </div>
 
@@ -347,7 +353,7 @@
             <span id="weekly-fill-count" class="text-xs tabular-nums text-[#526a73]">—</span>
           </div>
           <div class="mt-2.5 pb-3 border-b border-[#eaf0ee] flex items-baseline justify-between gap-2">
-            <span class="text-xs text-[#526a73]">USDT 规费</span>
+            <span class="text-xs text-[#526a73]">USDT 手续费</span>
             <span id="weekly-commission" class="font-display text-xl font-bold tabular-nums text-[#102128]">—</span>
           </div>
           <div id="cost-days" class="space-y-2 mt-3 min-h-[152px]">
@@ -542,6 +548,6 @@
     </section>
   </main>
 
-  <script type="module" src="js/app.js?v=20261128-1"></script>
+  <script type="module" src="js/app.js?v=20261128-2"></script>
 </body>
 </html>
